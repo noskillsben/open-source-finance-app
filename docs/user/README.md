@@ -9,6 +9,8 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Accounts
 
+- Add an account: give it a name, a type (Cash, Chequing, Savings, Credit card, Line of credit, Mortgage, Payment plan, Loan, Investment, or Asset), whether it's on-budget or tracking, an on-budget floor (for overdraft or budgeting with credit), and an opening balance dated whenever you like. It shows up right away in the account list with its type, side, and balance.
+
 ## Categories and goals
 
 ## Recording money

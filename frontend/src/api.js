@@ -19,4 +19,8 @@ export async function request(path, options = {}) {
 
 export const api = {
   health: () => request('/api/health'),
+  accounts: {
+    list: () => request('/api/accounts'),
+    create: (account) => request('/api/accounts', { method: 'POST', body: account }),
+  },
 }
