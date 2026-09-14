@@ -39,7 +39,7 @@ def test_opening_valuation_is_created_with_the_account(db_session):
     valuation = account.valuations[0]
     assert valuation.date == account.created_on
     assert valuation.balance_cents == 5_000
-    assert account_balance_cents(account) == 5_000
+    assert account_balance_cents(db_session, account.id) == 5_000
 
 
 def test_debt_terms_default_to_null_not_zero(db_session):

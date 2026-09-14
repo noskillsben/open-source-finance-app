@@ -15,6 +15,8 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Recording money
 
+- Record a transaction: give it a date and a memo, then list which accounts it touched (signed amounts) and which categories it was for (signed amounts). Category lines can be left off entirely — the money just arrives unassigned. The app only refuses to save when the category lines don't add up to what the account lines moved on-budget; everything else is recorded as entered. Add a category by name from the same screen.
+
 ## Pay screen
 
 ## Splits

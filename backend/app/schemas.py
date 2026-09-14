@@ -55,3 +55,62 @@ class AccountOut(BaseModel):
     balance_cents: int
 
     model_config = {"from_attributes": True}
+
+
+class CategoryCreate(BaseModel):
+    name: str = Field(min_length=1)
+
+
+class CategoryOut(BaseModel):
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
+class AccountLineIn(BaseModel):
+    account_id: int
+    cents: int
+
+
+class AccountLineOut(BaseModel):
+    id: int
+    account_id: int
+    cents: int
+    budget_cents: int
+
+    model_config = {"from_attributes": True}
+
+
+class CategoryLineIn(BaseModel):
+    category_id: int
+    cents: int
+    need_level: str | None = None
+
+
+class CategoryLineOut(BaseModel):
+    id: int
+    category_id: int
+    cents: int
+    need_level: str | None
+
+    model_config = {"from_attributes": True}
+
+
+class TransactionCreate(BaseModel):
+    date: date
+    memo: str | None = None
+    payee_id: int | None = None
+    account_lines: list[AccountLineIn] = Field(min_length=1)
+    category_lines: list[CategoryLineIn] = []
+
+
+class TransactionOut(BaseModel):
+    id: int
+    date: date
+    memo: str | None
+    payee_id: int | None
+    account_lines: list[AccountLineOut]
+    category_lines: list[CategoryLineOut]
+
+    model_config = {"from_attributes": True}
