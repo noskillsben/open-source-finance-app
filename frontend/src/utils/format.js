@@ -22,3 +22,12 @@ export function parseCents(text) {
   if (Number.isNaN(dollars)) return null
   return Math.round(dollars * 100)
 }
+
+/** The browser's today as an ISO date, for seeding the header date picker. This is the one
+ * place the wall clock is read for a date — the picker itself, per DESIGN.md's "one clock". */
+export function todayIso() {
+  const now = new Date()
+  const month = String(now.getMonth() + 1).padStart(2, '0')
+  const day = String(now.getDate()).padStart(2, '0')
+  return `${now.getFullYear()}-${month}-${day}`
+}

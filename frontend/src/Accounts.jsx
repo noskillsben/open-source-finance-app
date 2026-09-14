@@ -3,26 +3,28 @@ import { api } from './api.js'
 import { DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, TRACKING_TYPES } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 
-const emptyForm = {
-  name: '',
-  type: ON_BUDGET_TYPES[0],
-  on_budget: DEFAULT_ON_BUDGET[ON_BUDGET_TYPES[0]],
-  on_budget_floor_cents: '0',
-  opening_balance_cents: '',
-  created_on: '',
+function emptyForm(pickerDate) {
+  return {
+    name: '',
+    type: ON_BUDGET_TYPES[0],
+    on_budget: DEFAULT_ON_BUDGET[ON_BUDGET_TYPES[0]],
+    on_budget_floor_cents: '0',
+    opening_balance_cents: '',
+    created_on: pickerDate,
+  }
 }
 
-export default function Accounts() {
+export default function Accounts({ pickerDate }) {
   const [accounts, setAccounts] = useState(null)
   const [error, setError] = useState(null)
-  const [form, setForm] = useState(emptyForm)
+  const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
 
   function refresh() {
-    api.accounts.list().then(setAccounts).catch((e) => setError(e.message))
+    api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
   }
 
-  useEffect(refresh, [])
+  useEffect(refresh, [pickerDate])
 
   function updateField(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -51,7 +53,7 @@ export default function Accounts() {
         on_budget_floor_cents: floorCents,
         opening_balance_cents: openingBalanceCents,
       })
-      setForm(emptyForm)
+      setForm(emptyForm(pickerDate))
       refresh()
     } catch (err) {
       setFormError(err.message)

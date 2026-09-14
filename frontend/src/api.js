@@ -20,7 +20,7 @@ export async function request(path, options = {}) {
 export const api = {
   health: () => request('/api/health'),
   accounts: {
-    list: () => request('/api/accounts'),
+    list: (asOf) => request(asOf ? `/api/accounts?as_of=${asOf}` : '/api/accounts'),
     create: (account) => request('/api/accounts', { method: 'POST', body: account }),
   },
   categories: {
