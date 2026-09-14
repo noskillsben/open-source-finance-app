@@ -9,4 +9,5 @@ if [ -n "$BACKUP_DIR" ]; then
   PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "${POSTGRES_HOST:-db}" -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BACKUP_DIR/pre-migrate-$STAMP.sql" || echo "pg_dump failed (empty database?) — continuing"
 fi
 alembic upgrade head
+python -m app.data_steps
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
