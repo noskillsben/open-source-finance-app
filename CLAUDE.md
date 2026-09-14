@@ -25,7 +25,8 @@ Work on a branch named `issue-N-<short-slug>`, push it, and open the pull reques
 - Direction is the sign of a line and nothing else — no type flags, no from/to pairs.
 - The invariant (DESIGN.md § Transactions): category lines sum to the budget movement; enforced in the service layer on every write; the integrity check reports drift.
 - No stored balances. Every balance is a sum of dated lines up to the picker date. Slow → materialised view, never a balance column.
-- Non-ledger rows archive, never delete (DESIGN.md § General concepts).
+- Non-ledger rows archive, never delete (DESIGN.md § General concepts). Every non-ledger table uses the shared `NonLedger` mixin (`created_on`, `archived_on`) from the revision that creates it, and its unique-name index is partial on `archived_on IS NULL`. A non-ledger table without the mixin is a bug.
+- Defaults (Me, default categories, domains, "Debt payments") are inserted by the one seed step at container start, never by a migration. A new default is a line in that list.
 - Settings never rewrite history: a transaction's on-budget cents are computed at write time and stored on the line; changing a floor, boundary category, pool or link affects later writes only.
 - Never call `date.today()` / `datetime.now()` to decide what day it is for business logic or form defaults — the app-wide picker date is the only "today". Wall-clock `created_at` / `updated_at` are provenance only.
 - Null means unknown, never zero, on every rate or term field.
