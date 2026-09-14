@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import Depends, FastAPI, HTTPException
 from sqlalchemy import select, text
 from sqlalchemy.exc import IntegrityError
@@ -34,13 +36,13 @@ def health(session: Session = Depends(get_session)) -> Health:
 
 
 @app.get("/api/accounts", response_model=list[AccountOut])
-def list_accounts(session: Session = Depends(get_session)) -> list[AccountOut]:
+def list_accounts(as_of: date | None = None, session: Session = Depends(get_session)) -> list[AccountOut]:
     accounts = session.scalars(select(Account).order_by(Account.name)).all()
     return [
         AccountOut(
             id=a.id, name=a.name, created_on=a.created_on, type=a.type,
             on_budget=a.on_budget, on_budget_floor_cents=a.on_budget_floor_cents,
-            balance_cents=account_balance_cents(session, a.id),
+            balance_cents=account_balance_cents(session, a.id, as_of=as_of),
         )
         for a in accounts
     ]
