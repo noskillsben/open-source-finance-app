@@ -8,8 +8,10 @@ from app.db import get_session
 from app.models import Account, Category, Transaction
 from app.schemas import (
     AccountCreate,
+    AccountLineOut,
     AccountOut,
     CategoryCreate,
+    CategoryLineOut,
     CategoryOut,
     Health,
     TransactionCreate,
@@ -68,7 +70,8 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
 
 @app.get("/api/categories", response_model=list[CategoryOut])
 def list_categories(session: Session = Depends(get_session)) -> list[CategoryOut]:
-    return session.scalars(select(Category).order_by(Category.name)).all()
+    categories = session.scalars(select(Category).order_by(Category.name)).all()
+    return [CategoryOut(id=c.id, name=c.name) for c in categories]
 
 
 @app.post("/api/categories", response_model=CategoryOut, status_code=201)
@@ -79,7 +82,7 @@ def create_category(payload: CategoryCreate, session: Session = Depends(get_sess
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
-    return category
+    return CategoryOut(id=category.id, name=category.name)
 
 
 def _transaction_query():
@@ -88,9 +91,24 @@ def _transaction_query():
     )
 
 
+def _transaction_out(t: Transaction) -> TransactionOut:
+    return TransactionOut(
+        id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id,
+        account_lines=[
+            AccountLineOut(id=l.id, account_id=l.account_id, cents=l.cents, budget_cents=l.budget_cents)
+            for l in t.account_lines
+        ],
+        category_lines=[
+            CategoryLineOut(id=l.id, category_id=l.category_id, cents=l.cents, need_level=l.need_level)
+            for l in t.category_lines
+        ],
+    )
+
+
 @app.get("/api/transactions", response_model=list[TransactionOut])
 def list_transactions(session: Session = Depends(get_session)) -> list[TransactionOut]:
-    return session.scalars(_transaction_query().order_by(Transaction.date, Transaction.id)).all()
+    transactions = session.scalars(_transaction_query().order_by(Transaction.date, Transaction.id)).all()
+    return [_transaction_out(t) for t in transactions]
 
 
 @app.post("/api/transactions", response_model=TransactionOut, status_code=201)
@@ -108,7 +126,7 @@ def create_transaction(payload: TransactionCreate, session: Session = Depends(ge
     except TransactionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
-    return transaction
+    return _transaction_out(transaction)
 
 
 @app.put("/api/transactions/{transaction_id}", response_model=TransactionOut)
@@ -131,4 +149,4 @@ def update_transaction(
     except TransactionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
-    return transaction
+    return _transaction_out(transaction)
