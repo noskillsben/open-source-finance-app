@@ -3,9 +3,10 @@
 """
 from datetime import date
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Valuation
+from app.models import Account, AccountLine, Transaction, Valuation
 
 
 def on_budget_cents(balance_cents: int, floor_cents: int) -> int:
@@ -50,6 +51,34 @@ def create_account_with_opening_valuation(
     return account
 
 
-def account_balance_cents(account: Account) -> int:
-    """Sum of valuations for now — there is no ledger yet to sum lines from instead."""
-    return sum(v.balance_cents for v in account.valuations)
+def account_balance_cents(
+    session: Session,
+    account_id: int,
+    *,
+    as_of: date | None = None,
+    exclude_transaction_id: int | None = None,
+) -> int:
+    """No stored balances (DESIGN.md § General concepts): sum the opening valuation and every
+    ledger line dated on or before `as_of` (all of them when `as_of` is None). Only one
+    valuation exists per account until balance checks are built (see
+    `create_account_with_opening_valuation`); summing them will need revisiting then.
+    `exclude_transaction_id` leaves one transaction's own lines out, for computing the
+    balance a transaction is being written or edited against.
+    """
+    valuation_stmt = select(func.coalesce(func.sum(Valuation.balance_cents), 0)).where(
+        Valuation.account_id == account_id
+    )
+    if as_of is not None:
+        valuation_stmt = valuation_stmt.where(Valuation.date <= as_of)
+
+    line_stmt = (
+        select(func.coalesce(func.sum(AccountLine.cents), 0))
+        .join(Transaction, AccountLine.transaction_id == Transaction.id)
+        .where(AccountLine.account_id == account_id)
+    )
+    if as_of is not None:
+        line_stmt = line_stmt.where(Transaction.date <= as_of)
+    if exclude_transaction_id is not None:
+        line_stmt = line_stmt.where(AccountLine.transaction_id != exclude_transaction_id)
+
+    return session.scalar(valuation_stmt) + session.scalar(line_stmt)

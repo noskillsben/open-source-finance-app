@@ -23,4 +23,12 @@ export const api = {
     list: () => request('/api/accounts'),
     create: (account) => request('/api/accounts', { method: 'POST', body: account }),
   },
+  categories: {
+    list: () => request('/api/categories'),
+    create: (category) => request('/api/categories', { method: 'POST', body: category }),
+  },
+  transactions: {
+    list: () => request('/api/transactions'),
+    create: (transaction) => request('/api/transactions', { method: 'POST', body: transaction }),
+  },
 }

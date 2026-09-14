@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import Accounts from './Accounts.jsx'
+import Transactions from './Transactions.jsx'
 import { api } from './api.js'
 
 export default function App() {
@@ -25,6 +26,7 @@ export default function App() {
       )}
 
       <Accounts />
+      <Transactions />
     </div>
   )
 }

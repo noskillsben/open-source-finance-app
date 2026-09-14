@@ -54,3 +54,75 @@ class Valuation(Base, Owned):
     balance_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
 
     account: Mapped["Account"] = relationship(back_populates="valuations")
+
+
+class Category(Base, Owned):
+    """Minimal category — just enough to file a transaction line under (DESIGN.md § Categories).
+    Domains, need levels, pools and goals are #2's job.
+    """
+
+    __tablename__ = "category"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+
+    __table_args__ = (
+        Index("ix_category_owner_lower_name", "owner_id", func.lower(name), unique=True),
+    )
+
+
+class Transaction(Base, Owned):
+    """Money actually moving in or out of one or more accounts (DESIGN.md § Transactions).
+    There are no special transaction types — a paycheque, a refund and a loan draw are told
+    apart by their lines, not by a type.
+    """
+
+    __tablename__ = "transaction"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    memo: Mapped[str | None] = mapped_column(String, nullable=True)
+    # No FK yet — the payee table doesn't exist (#9's issue). Unenforced until it does.
+    payee_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    account_lines: Mapped[list["AccountLine"]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan"
+    )
+    category_lines: Mapped[list["CategoryLine"]] = relationship(
+        back_populates="transaction", cascade="all, delete-orphan"
+    )
+
+
+class AccountLine(Base, Owned):
+    """One account touched by a transaction (DESIGN.md § Transactions → Account lines).
+    `budget_cents` is how many of `cents` landed on-budget, computed from the account's floor
+    at write time and never recomputed (DESIGN.md § Settings never rewrite history).
+    """
+
+    __tablename__ = "account_line"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    transaction_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("transaction.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("account.id"), nullable=False, index=True)
+    cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    budget_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    transaction: Mapped["Transaction"] = relationship(back_populates="account_lines")
+    account: Mapped["Account"] = relationship()
+
+
+class CategoryLine(Base, Owned):
+    """One category a transaction's budget movement was for (DESIGN.md § Transactions →
+    Category lines). Zero or more; none means the movement is unassigned.
+    """
+
+    __tablename__ = "category_line"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    transaction_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("transaction.id"), nullable=False, index=True)
+    category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=False, index=True)
+    cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    need_level: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    transaction: Mapped["Transaction"] = relationship(back_populates="category_lines")
+    category: Mapped["Category"] = relationship()
