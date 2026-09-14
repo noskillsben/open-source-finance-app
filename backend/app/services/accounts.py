@@ -19,6 +19,28 @@ def tracked_debt_cents(balance_cents: int, floor_cents: int) -> int:
     return min(balance_cents - floor_cents, 0)
 
 
+def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
+    """The one line the app maintains for the user (DESIGN.md § Opening balance and
+    backfilling history): an unassigned account line for the valuation's stated balance,
+    dated the valuation's date, referencing it. Not a rule the write path runs — this is
+    the single exception to "nothing posts itself" (DESIGN.md § General concepts).
+    """
+    budget_cents = (
+        on_budget_cents(valuation.balance_cents, account.on_budget_floor_cents)
+        - on_budget_cents(0, account.on_budget_floor_cents)
+        if account.on_budget
+        else 0
+    )
+    return Transaction(
+        date=valuation.date,
+        memo=None,
+        payee_id=None,
+        valuation_id=valuation.id,
+        account_lines=[AccountLine(account_id=account.id, cents=valuation.balance_cents, budget_cents=budget_cents)],
+        category_lines=[],
+    )
+
+
 def create_account_with_opening_valuation(
     session: Session,
     *,
@@ -30,10 +52,10 @@ def create_account_with_opening_valuation(
     opening_balance_cents: int,
     **terms: object,
 ) -> Account:
-    """Write the account and its opening valuation together — the opening balance is the
-    account's first valuation, dated its created_on (DESIGN.md § Opening balance and
-    backfilling history). The adjustment transaction that makes the ledger agree with it
-    is not written here: transactions don't exist yet (#9); wiring it in is a fast-follow.
+    """Write the account, its opening valuation and the opening adjustment transaction
+    together — the opening balance is the account's first valuation, dated its created_on
+    (DESIGN.md § Opening balance and backfilling history); the adjustment is what makes the
+    ledger agree with it, and arrives unassigned like any inflow with no category.
     """
     account = Account(
         name=name,
@@ -46,7 +68,11 @@ def create_account_with_opening_valuation(
     session.add(account)
     session.flush()  # assigns account.id for the valuation's FK
 
-    session.add(Valuation(account_id=account.id, date=created_on, balance_cents=opening_balance_cents))
+    valuation = Valuation(account_id=account.id, date=created_on, balance_cents=opening_balance_cents)
+    session.add(valuation)
+    session.flush()  # assigns valuation.id for the transaction's FK
+
+    session.add(opening_adjustment(account, valuation))
     session.flush()
     return account
 
@@ -58,19 +84,13 @@ def account_balance_cents(
     as_of: date | None = None,
     exclude_transaction_id: int | None = None,
 ) -> int:
-    """No stored balances (DESIGN.md § General concepts): sum the opening valuation and every
-    ledger line dated on or before `as_of` (all of them when `as_of` is None). Only one
-    valuation exists per account until balance checks are built (see
-    `create_account_with_opening_valuation`); summing them will need revisiting then.
+    """No stored balances (DESIGN.md § General concepts): sum every account line dated on or
+    before `as_of` (all of them when `as_of` is None). A valuation is never summed — it is a
+    stated fact, not a ledger line; the opening valuation's own adjustment line (see
+    `create_account_with_opening_valuation`) is what makes the balance agree with it.
     `exclude_transaction_id` leaves one transaction's own lines out, for computing the
     balance a transaction is being written or edited against.
     """
-    valuation_stmt = select(func.coalesce(func.sum(Valuation.balance_cents), 0)).where(
-        Valuation.account_id == account_id
-    )
-    if as_of is not None:
-        valuation_stmt = valuation_stmt.where(Valuation.date <= as_of)
-
     line_stmt = (
         select(func.coalesce(func.sum(AccountLine.cents), 0))
         .join(Transaction, AccountLine.transaction_id == Transaction.id)
@@ -81,4 +101,4 @@ def account_balance_cents(
     if exclude_transaction_id is not None:
         line_stmt = line_stmt.where(AccountLine.transaction_id != exclude_transaction_id)
 
-    return session.scalar(valuation_stmt) + session.scalar(line_stmt)
+    return session.scalar(line_stmt)

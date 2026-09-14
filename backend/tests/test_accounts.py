@@ -2,9 +2,10 @@
 import datetime
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
-from app.models import Account
+from app.models import Account, Transaction
 from app.services.accounts import (
     account_balance_cents,
     create_account_with_opening_valuation,
@@ -40,6 +41,40 @@ def test_opening_valuation_is_created_with_the_account(db_session):
     assert valuation.date == account.created_on
     assert valuation.balance_cents == 5_000
     assert account_balance_cents(db_session, account.id) == 5_000
+
+
+def test_opening_adjustment_transaction_is_written_with_the_account(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Cash", created_on=datetime.date(2026, 3, 15),
+        type="Cash", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=5_000,
+    )
+    db_session.flush()
+
+    valuation = account.valuations[0]
+    txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
+
+    assert txn is not None
+    assert txn.date == account.created_on
+    assert txn.valuation_id == valuation.id
+    assert len(txn.account_lines) == 1
+    assert txn.account_lines[0].account_id == account.id
+    assert txn.account_lines[0].cents == 5_000
+    assert txn.account_lines[0].budget_cents == 5_000  # unassigned inflow, on-budget
+    assert txn.category_lines == []  # the invariant holds: budget movement 5_000, no categories
+    assert account_balance_cents(db_session, account.id) == 5_000  # unchanged from before this change
+
+
+def test_opening_adjustment_on_tracking_account_lands_off_budget(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Car loan", created_on=datetime.date(2026, 3, 15),
+        type="Loan", on_budget=False, on_budget_floor_cents=0, opening_balance_cents=-5_000_00,
+    )
+    db_session.flush()
+
+    valuation = account.valuations[0]
+    txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
+
+    assert txn.account_lines[0].budget_cents == 0
 
 
 def test_debt_terms_default_to_null_not_zero(db_session):

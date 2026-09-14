@@ -84,7 +84,11 @@ class Transaction(Base, Owned):
     memo: Mapped[str | None] = mapped_column(String, nullable=True)
     # No FK yet — the payee table doesn't exist (#9's issue). Unenforced until it does.
     payee_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Set on the one transaction a valuation produced: the opening adjustment (DESIGN.md §
+    # Opening balance and backfilling history), and later the balance-check adjustment (#12).
+    valuation_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("valuation.id"), nullable=True, index=True)
 
+    valuation: Mapped["Valuation | None"] = relationship()
     account_lines: Mapped[list["AccountLine"]] = relationship(
         back_populates="transaction", cascade="all, delete-orphan"
     )

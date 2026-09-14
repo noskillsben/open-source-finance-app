@@ -110,6 +110,7 @@ class TransactionOut(BaseModel):
     date: date
     memo: str | None
     payee_id: int | None
+    valuation_id: int | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
 

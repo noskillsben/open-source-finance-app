@@ -95,7 +95,7 @@ def _transaction_query():
 
 def _transaction_out(t: Transaction) -> TransactionOut:
     return TransactionOut(
-        id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id,
+        id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id, valuation_id=t.valuation_id,
         account_lines=[
             AccountLineOut(id=l.id, account_id=l.account_id, cents=l.cents, budget_cents=l.budget_cents)
             for l in t.account_lines
