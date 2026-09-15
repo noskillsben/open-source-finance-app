@@ -45,6 +45,25 @@ class AccountCreate(BaseModel):
         return value
 
 
+class AccountUpdate(BaseModel):
+    """Editable account settings (DESIGN.md § Settings never rewrite history) — no
+    `created_on`/`opening_balance_cents`, those belong to the account's opening valuation.
+    """
+
+    name: str = Field(min_length=1)
+    type: str
+    on_budget: bool
+    on_budget_floor_cents: int = 0
+    terms: DebtTerms = DebtTerms()
+
+    @field_validator("type")
+    @classmethod
+    def type_is_known(cls, value: str) -> str:
+        if value not in ACCOUNT_TYPES:
+            raise ValueError(f"unknown account type {value!r}")
+        return value
+
+
 class AccountOut(BaseModel):
     id: int
     name: str

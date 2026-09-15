@@ -19,6 +19,7 @@ export default function Accounts({ pickerDate }) {
   const [error, setError] = useState(null)
   const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
+  const [editingId, setEditingId] = useState(null)
 
   function refresh() {
     api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
@@ -34,26 +35,54 @@ export default function Accounts({ pickerDate }) {
     setForm((f) => ({ ...f, type, on_budget: DEFAULT_ON_BUDGET[type] }))
   }
 
+  function editAccount(a) {
+    setEditingId(a.id)
+    setForm({
+      name: a.name,
+      type: a.type,
+      on_budget: a.on_budget,
+      on_budget_floor_cents: String(a.on_budget_floor_cents / 100),
+      opening_balance_cents: '',
+      created_on: a.created_on,
+    })
+    setFormError(null)
+  }
+
+  function resetForm() {
+    setEditingId(null)
+    setForm(emptyForm(pickerDate))
+    setFormError(null)
+  }
+
   async function submit(e) {
     e.preventDefault()
     setFormError(null)
 
-    const openingBalanceCents = parseCents(form.opening_balance_cents)
     const floorCents = parseCents(form.on_budget_floor_cents) ?? 0
     if (!form.name.trim()) return setFormError('Name is required.')
-    if (!form.created_on) return setFormError('Opening balance date is required.')
-    if (openingBalanceCents === null) return setFormError('Opening balance must be a number.')
 
     try {
-      await api.accounts.create({
-        name: form.name.trim(),
-        created_on: form.created_on,
-        type: form.type,
-        on_budget: form.on_budget,
-        on_budget_floor_cents: floorCents,
-        opening_balance_cents: openingBalanceCents,
-      })
-      setForm(emptyForm(pickerDate))
+      if (editingId) {
+        await api.accounts.update(editingId, {
+          name: form.name.trim(),
+          type: form.type,
+          on_budget: form.on_budget,
+          on_budget_floor_cents: floorCents,
+        })
+      } else {
+        const openingBalanceCents = parseCents(form.opening_balance_cents)
+        if (!form.created_on) return setFormError('Opening balance date is required.')
+        if (openingBalanceCents === null) return setFormError('Opening balance must be a number.')
+        await api.accounts.create({
+          name: form.name.trim(),
+          created_on: form.created_on,
+          type: form.type,
+          on_budget: form.on_budget,
+          on_budget_floor_cents: floorCents,
+          opening_balance_cents: openingBalanceCents,
+        })
+      }
+      resetForm()
       refresh()
     } catch (err) {
       setFormError(err.message)
@@ -80,7 +109,7 @@ export default function Accounts({ pickerDate }) {
             </thead>
             <tbody>
               {accounts.map((a) => (
-                <tr key={a.id}>
+                <tr key={a.id} className="cursor-pointer hover:bg-ink" onClick={() => editAccount(a)}>
                   <td className="py-1">{a.name}</td>
                   <td className="py-1">{a.type}</td>
                   <td className="py-1">{a.on_budget ? 'On-budget' : 'Tracking'}</td>
@@ -95,7 +124,9 @@ export default function Accounts({ pickerDate }) {
       </section>
 
       <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <h2 className="text-sm uppercase tracking-wide text-paper-soft">Add an account</h2>
+        <h2 className="text-sm uppercase tracking-wide text-paper-soft">
+          {editingId ? `Edit account #${editingId}` : 'Add an account'}
+        </h2>
         <form className="space-y-3" onSubmit={submit}>
           <label className="block space-y-1">
             <span className="text-sm">Name</span>
@@ -146,32 +177,50 @@ export default function Accounts({ pickerDate }) {
             />
           </label>
 
-          <label className="block space-y-1">
-            <span className="text-sm">Opening balance</span>
-            <input
-              inputMode="decimal"
-              className="w-full rounded bg-ink px-2 py-1"
-              value={form.opening_balance_cents}
-              onChange={(e) => updateField('opening_balance_cents', e.target.value)}
-              placeholder="0.00"
-            />
-          </label>
+          {!editingId && (
+            <>
+              <label className="block space-y-1">
+                <span className="text-sm">Opening balance</span>
+                <input
+                  inputMode="decimal"
+                  className="w-full rounded bg-ink px-2 py-1"
+                  value={form.opening_balance_cents}
+                  onChange={(e) => updateField('opening_balance_cents', e.target.value)}
+                  placeholder="0.00"
+                />
+              </label>
 
-          <label className="block space-y-1">
-            <span className="text-sm">Opening balance date</span>
-            <input
-              type="date"
-              className="w-full rounded bg-ink px-2 py-1"
-              value={form.created_on}
-              onChange={(e) => updateField('created_on', e.target.value)}
-            />
-          </label>
+              <label className="block space-y-1">
+                <span className="text-sm">Opening balance date</span>
+                <input
+                  type="date"
+                  className="w-full rounded bg-ink px-2 py-1"
+                  value={form.created_on}
+                  onChange={(e) => updateField('created_on', e.target.value)}
+                />
+              </label>
+            </>
+          )}
+
+          {editingId && (
+            <p className="text-xs text-paper-soft">
+              Only transactions recorded after this change use the new type, side or floor —
+              nothing already recorded is touched.
+            </p>
+          )}
 
           {formError && <p className="text-bad text-sm">{formError}</p>}
 
-          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
-            Add account
-          </button>
+          <div className="flex gap-2">
+            <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
+              {editingId ? 'Save changes' : 'Add account'}
+            </button>
+            {editingId && (
+              <button type="button" className="rounded bg-ink px-3 py-1.5 text-sm" onClick={resetForm}>
+                Cancel
+              </button>
+            )}
+          </div>
         </form>
       </section>
     </div>

@@ -12,6 +12,7 @@ from app.schemas import (
     AccountCreate,
     AccountLineOut,
     AccountOut,
+    AccountUpdate,
     CategoryCreate,
     CategoryLineOut,
     CategoryOut,
@@ -19,7 +20,7 @@ from app.schemas import (
     TransactionCreate,
     TransactionOut,
 )
-from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
+from app.services.accounts import account_balance_cents, create_account_with_opening_valuation, update_account
 from app.services.transactions import TransactionError, write_transaction
 
 app = FastAPI(title="Open Source Finance App", version="0.0.1", docs_url="/docs", openapi_url="/api/openapi.json")
@@ -67,6 +68,36 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
         id=account.id, name=account.name, created_on=account.created_on, type=account.type,
         on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
         balance_cents=payload.opening_balance_cents,
+    )
+
+
+@app.put("/api/accounts/{account_id}", response_model=AccountOut)
+def update_account_route(
+    account_id: int, payload: AccountUpdate, session: Session = Depends(get_session)
+) -> AccountOut:
+    account = session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    # "terms" wasn't sent means leave the account's existing terms alone — null means unknown,
+    # never zero (DESIGN.md § Debt terms), and an edit that omits terms isn't the user saying
+    # "I don't know these anymore."
+    terms = payload.terms.model_dump() if "terms" in payload.model_fields_set else {}
+    update_account(
+        account,
+        name=payload.name,
+        type=payload.type,
+        on_budget=payload.on_budget,
+        on_budget_floor_cents=payload.on_budget_floor_cents,
+        **terms,
+    )
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=f"An account named {payload.name!r} already exists.")
+    return AccountOut(
+        id=account.id, name=account.name, created_on=account.created_on, type=account.type,
+        on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
+        balance_cents=account_balance_cents(session, account.id),
     )
 
 

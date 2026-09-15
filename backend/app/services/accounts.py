@@ -77,6 +77,28 @@ def create_account_with_opening_valuation(
     return account
 
 
+def update_account(
+    account: Account,
+    *,
+    name: str,
+    type: str,
+    on_budget: bool,
+    on_budget_floor_cents: int,
+    **terms: object,
+) -> Account:
+    """Apply edited settings in place (DESIGN.md § Settings never rewrite history): every
+    account line already written keeps the `budget_cents` it was computed with — only a
+    transaction written after this call sees the new floor or type.
+    """
+    account.name = name
+    account.type = type
+    account.on_budget = on_budget
+    account.on_budget_floor_cents = on_budget_floor_cents
+    for field, value in terms.items():
+        setattr(account, field, value)
+    return account
+
+
 def account_balance_cents(
     session: Session,
     account_id: int,
