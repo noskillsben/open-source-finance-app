@@ -78,13 +78,17 @@ def update_account_route(
     account = session.get(Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    # "terms" wasn't sent means leave the account's existing terms alone — null means unknown,
+    # never zero (DESIGN.md § Debt terms), and an edit that omits terms isn't the user saying
+    # "I don't know these anymore."
+    terms = payload.terms.model_dump() if "terms" in payload.model_fields_set else {}
     update_account(
         account,
         name=payload.name,
         type=payload.type,
         on_budget=payload.on_budget,
         on_budget_floor_cents=payload.on_budget_floor_cents,
-        **payload.terms.model_dump(),
+        **terms,
     )
     try:
         session.flush()

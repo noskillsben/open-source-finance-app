@@ -119,6 +119,7 @@ def test_put_account_updates_settings_and_leaves_existing_lines_alone(db_session
 
     client = _client(db_session)
     try:
+        # No "terms" key at all — matches what the edit form actually sends.
         resp = client.put(
             f"/api/accounts/{account.id}",
             json={
@@ -126,7 +127,6 @@ def test_put_account_updates_settings_and_leaves_existing_lines_alone(db_session
                 "type": "Credit card",
                 "on_budget": True,
                 "on_budget_floor_cents": -1_000_00,
-                "terms": {},
             },
         )
     finally:
@@ -136,6 +136,55 @@ def test_put_account_updates_settings_and_leaves_existing_lines_alone(db_session
     body = resp.json()
     assert body["on_budget_floor_cents"] == -1_000_00
     assert account_balance_cents(db_session, account.id) == original_budget_cents  # lines untouched
+
+
+def test_put_account_without_terms_key_leaves_existing_terms_alone(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=EARLIER, type="Credit card",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=-200_00,
+    )
+    account.annual_rate = 19.99
+    account.credit_limit_cents = 5_000_00
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            f"/api/accounts/{account.id}",
+            json={"name": "Card", "type": "Credit card", "on_budget": True, "on_budget_floor_cents": 0},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    db_session.refresh(account)
+    assert float(account.annual_rate) == 19.99
+    assert account.credit_limit_cents == 5_000_00
+
+
+def test_put_account_with_terms_key_overwrites_existing_terms(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=EARLIER, type="Credit card",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=-200_00,
+    )
+    account.annual_rate = 19.99
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            f"/api/accounts/{account.id}",
+            json={
+                "name": "Card", "type": "Credit card", "on_budget": True, "on_budget_floor_cents": 0,
+                "terms": {"annual_rate": 24.99},
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    db_session.refresh(account)
+    assert float(account.annual_rate) == 24.99
 
 
 def test_put_account_renaming_to_taken_name_is_409(db_session):
