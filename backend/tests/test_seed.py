@@ -15,15 +15,19 @@ def _me(session):
     return session.scalar(select(Payee).where(func.lower(Payee.name) == "me"))
 
 
-def test_fresh_start_creates_me(db_session):
-    assert _me(db_session) is None
+def test_second_run_does_not_touch_an_existing_me(db_session):
+    # docker-entrypoint.sh already ran seed_defaults() as a committed insert before pytest
+    # started, so a real "Me" exists outside this test's transaction. This call must be a
+    # no-op, not a second insert.
+    seed_defaults(db_session)
 
     inserted = seed_defaults(db_session)
 
-    assert inserted == 1
-    me = _me(db_session)
-    assert me is not None
-    assert me.name == "Me"
+    assert inserted == 0
+    all_payees = db_session.scalars(select(Payee)).all()
+    assert len(all_payees) == 1
+    me = all_payees[0]
+    assert me.name.lower() == "me"
     assert me.archived_on is None
 
 
