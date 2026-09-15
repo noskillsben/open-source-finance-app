@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
-import { formatCents, formatDate, parseCents } from './utils/format.js'
+import { formatCents, formatDate, parseCents, todayIso } from './utils/format.js'
+import PayeePicker from './PayeePicker.jsx'
 
 const emptyLine = { account_id: '', cents: '' }
 const emptyCategoryLine = { category_id: '', cents: '' }
@@ -8,11 +9,13 @@ const emptyCategoryLine = { category_id: '', cents: '' }
 export default function Transactions() {
   const [accounts, setAccounts] = useState(null)
   const [categories, setCategories] = useState(null)
+  const [payees, setPayees] = useState(null)
   const [transactions, setTransactions] = useState(null)
   const [error, setError] = useState(null)
 
   const [date, setDate] = useState('')
   const [memo, setMemo] = useState('')
+  const [payeeId, setPayeeId] = useState(null)
   const [accountLines, setAccountLines] = useState([{ ...emptyLine }])
   const [categoryLines, setCategoryLines] = useState([])
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -22,7 +25,14 @@ export default function Transactions() {
   function refresh() {
     api.accounts.list().then(setAccounts).catch((e) => setError(e.message))
     api.categories.list().then(setCategories).catch((e) => setError(e.message))
+    api.payees.list().then(setPayees).catch((e) => setError(e.message))
     api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
+  }
+
+  async function addPayee(name) {
+    const payee = await api.payees.create({ name, created_on: date || todayIso() })
+    setPayees((current) => [...(current ?? []), payee].sort((a, b) => a.name.localeCompare(b.name)))
+    return payee
   }
 
   useEffect(refresh, [])
@@ -38,6 +48,7 @@ export default function Transactions() {
     setEditingId(null)
     setDate('')
     setMemo('')
+    setPayeeId(null)
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])
     setFormError(null)
@@ -47,6 +58,7 @@ export default function Transactions() {
     setEditingId(t.id)
     setDate(t.date)
     setMemo(t.memo || '')
+    setPayeeId(t.payee_id)
     setAccountLines(
       t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) }))
     )
@@ -106,6 +118,7 @@ export default function Transactions() {
     const body = {
       date,
       memo: memo.trim() || null,
+      payee_id: payeeId,
       account_lines: parsedAccountLines,
       category_lines: parsedCategoryLines,
     }
@@ -137,6 +150,7 @@ export default function Transactions() {
               <tr className="text-left text-paper-soft">
                 <th className="pb-1">Date</th>
                 <th className="pb-1">Memo</th>
+                <th className="pb-1">Payee</th>
                 <th className="pb-1">Account lines</th>
                 <th className="pb-1">Category lines</th>
               </tr>
@@ -150,6 +164,9 @@ export default function Transactions() {
                 >
                   <td className="py-1 align-top">{formatDate(t.date)}</td>
                   <td className="py-1 align-top">{t.memo || '—'}</td>
+                  <td className="py-1 align-top">
+                    {payees?.find((p) => p.id === t.payee_id)?.name ?? (t.payee_id ? `#${t.payee_id}` : '—')}
+                  </td>
                   <td className="py-1 align-top">
                     {t.account_lines.map((l) => (
                       <div key={l.id}>
@@ -195,6 +212,17 @@ export default function Transactions() {
               className="w-full rounded bg-ink px-2 py-1"
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm">Payee (who it went to or came from — optional)</span>
+            <PayeePicker
+              payees={payees}
+              payeeId={payeeId}
+              onSelect={setPayeeId}
+              onAdd={addPayee}
+              onError={setFormError}
             />
           </label>
 

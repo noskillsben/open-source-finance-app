@@ -8,7 +8,7 @@ from datetime import date
 
 from sqlalchemy.orm import Session
 
-from app.models import Account, AccountLine, Category, CategoryLine, Transaction
+from app.models import Account, AccountLine, Category, CategoryLine, Payee, Transaction
 from app.services.accounts import account_balance_cents, on_budget_cents
 
 
@@ -50,6 +50,9 @@ def write_transaction(
     """
     if not account_lines:
         raise TransactionError("A transaction needs at least one account line.")
+
+    if payee_id is not None and session.get(Payee, payee_id) is None:
+        raise TransactionError(f"Unknown payee id: {payee_id}")
 
     exclude_id = transaction.id if transaction is not None else None
 

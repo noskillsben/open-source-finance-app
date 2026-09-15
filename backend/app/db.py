@@ -4,9 +4,9 @@ Every table carries owner_id (single-user mode: always 1), created_at and update
 Business dates are separate columns on the tables that need them; these three are provenance.
 """
 from collections.abc import Generator
-from datetime import datetime
+from datetime import date, datetime
 
-from sqlalchemy import BigInteger, DateTime, create_engine, func
+from sqlalchemy import BigInteger, Date, DateTime, create_engine, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.config import settings
@@ -26,6 +26,16 @@ class Owned:
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(),
                                                  onupdate=func.now(), nullable=False)
+
+
+class NonLedger:
+    """Mixin: non-ledger rows are archived, never deleted (DESIGN.md § General concepts,
+    "Non-ledger rows are archived"). Every non-ledger table carries these two dates from the
+    revision that creates it — never as a later retrofit.
+    """
+
+    created_on: Mapped[date] = mapped_column(Date, nullable=False)
+    archived_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
 
 def get_session() -> Generator[Session, None, None]:

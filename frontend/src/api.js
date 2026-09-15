@@ -28,6 +28,10 @@ export const api = {
     list: () => request('/api/categories'),
     create: (category) => request('/api/categories', { method: 'POST', body: category }),
   },
+  payees: {
+    list: () => request('/api/payees'),
+    create: (payee) => request('/api/payees', { method: 'POST', body: payee }),
+  },
   transactions: {
     list: () => request('/api/transactions'),
     create: (transaction) => request('/api/transactions', { method: 'POST', body: transaction }),
