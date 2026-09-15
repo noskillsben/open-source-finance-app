@@ -22,6 +22,7 @@ export const api = {
   accounts: {
     list: (asOf) => request(asOf ? `/api/accounts?as_of=${asOf}` : '/api/accounts'),
     create: (account) => request('/api/accounts', { method: 'POST', body: account }),
+    update: (id, account) => request(`/api/accounts/${id}`, { method: 'PUT', body: account }),
   },
   categories: {
     list: () => request('/api/categories'),

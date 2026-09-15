@@ -11,6 +11,7 @@ from app.services.accounts import (
     create_account_with_opening_valuation,
     on_budget_cents,
     tracked_debt_cents,
+    update_account,
 )
 
 
@@ -86,6 +87,57 @@ def test_debt_terms_default_to_null_not_zero(db_session):
 
     assert account.annual_rate is None
     assert account.credit_limit_cents is None
+
+
+def test_editing_settings_does_not_change_budget_cents_on_existing_lines(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=datetime.date(2026, 1, 1),
+        type="Credit card", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=-200_00,
+    )
+    db_session.flush()
+    valuation = account.valuations[0]
+    txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
+    original_budget_cents = txn.account_lines[0].budget_cents
+
+    update_account(
+        account, name="Card", type="Credit card", on_budget=False, on_budget_floor_cents=-1_000_00,
+    )
+    db_session.flush()
+
+    db_session.refresh(txn)
+    assert txn.account_lines[0].budget_cents == original_budget_cents
+    assert account.on_budget_floor_cents == -1_000_00
+    assert account.on_budget is False
+
+
+def test_renaming_to_a_taken_name_case_insensitively_is_refused(db_session):
+    create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=datetime.date(2026, 1, 1),
+        type="Chequing", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+    savings = create_account_with_opening_valuation(
+        db_session, name="Savings", created_on=datetime.date(2026, 1, 1),
+        type="Savings", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+
+    update_account(savings, name="chequing", type="Savings", on_budget=True, on_budget_floor_cents=0)
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+
+def test_renaming_to_its_own_current_name_succeeds(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=datetime.date(2026, 1, 1),
+        type="Chequing", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+
+    update_account(account, name="Chequing", type="Chequing", on_budget=True, on_budget_floor_cents=100_00)
+    db_session.flush()
+
+    assert account.on_budget_floor_cents == 100_00
 
 
 @pytest.mark.parametrize(

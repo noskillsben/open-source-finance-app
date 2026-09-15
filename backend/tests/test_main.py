@@ -109,6 +109,71 @@ def test_delete_transaction_removes_its_lines_from_the_balance(db_session):
     assert account_balance_cents(db_session, account.id, as_of=LATER) == 500_00
 
 
+def test_put_account_updates_settings_and_leaves_existing_lines_alone(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=EARLIER, type="Credit card",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=-200_00,
+    )
+    db_session.flush()
+    original_budget_cents = account_balance_cents(db_session, account.id)
+
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            f"/api/accounts/{account.id}",
+            json={
+                "name": "Card",
+                "type": "Credit card",
+                "on_budget": True,
+                "on_budget_floor_cents": -1_000_00,
+                "terms": {},
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["on_budget_floor_cents"] == -1_000_00
+    assert account_balance_cents(db_session, account.id) == original_budget_cents  # lines untouched
+
+
+def test_put_account_renaming_to_taken_name_is_409(db_session):
+    create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    savings = create_account_with_opening_valuation(
+        db_session, name="Savings", created_on=EARLIER, type="Savings",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            f"/api/accounts/{savings.id}",
+            json={"name": "chequing", "type": "Savings", "on_budget": True, "on_budget_floor_cents": 0, "terms": {}},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 409
+
+
+def test_put_account_missing_is_404(db_session):
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            "/api/accounts/999999",
+            json={"name": "Nope", "type": "Cash", "on_budget": True, "on_budget_floor_cents": 0, "terms": {}},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 404
+
+
 def test_delete_missing_transaction_is_404(db_session):
     client = _client(db_session)
     try:
