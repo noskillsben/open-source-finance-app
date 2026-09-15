@@ -5,10 +5,10 @@ Import this module wherever Base.metadata must know every table (alembic/env.py 
 """
 from datetime import date
 
-from sqlalchemy import BigInteger, Date, ForeignKey, Index, Integer, Numeric, String, func
+from sqlalchemy import BigInteger, Date, ForeignKey, Index, Integer, Numeric, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.db import Base, Owned
+from app.db import Base, NonLedger, Owned
 
 
 class Account(Base, Owned):
@@ -71,6 +71,24 @@ class Category(Base, Owned):
     )
 
 
+class Payee(Base, Owned, NonLedger):
+    """Stores, companies and people the user sends money to or receives it from (DESIGN.md §
+    Payees). "Me" and its protection land in #44; default category and aliases are #27.
+    """
+
+    __tablename__ = "payee"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "ix_payee_owner_lower_name", "owner_id", func.lower(name),
+            unique=True, postgresql_where=text("archived_on IS NULL"),
+        ),
+    )
+
+
 class Transaction(Base, Owned):
     """Money actually moving in or out of one or more accounts (DESIGN.md § Transactions).
     There are no special transaction types — a paycheque, a refund and a loan draw are told
@@ -82,8 +100,7 @@ class Transaction(Base, Owned):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
     memo: Mapped[str | None] = mapped_column(String, nullable=True)
-    # No FK yet — the payee table doesn't exist (#9's issue). Unenforced until it does.
-    payee_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    payee_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("payee.id"), nullable=True, index=True)
     # Set on the one transaction a valuation produced: the opening adjustment (DESIGN.md §
     # Opening balance and backfilling history), and later the balance-check adjustment (#12).
     valuation_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("valuation.id"), nullable=True, index=True)

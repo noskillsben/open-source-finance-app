@@ -87,6 +87,18 @@ class CategoryOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PayeeCreate(BaseModel):
+    name: str = Field(min_length=1)
+    created_on: date
+
+
+class PayeeOut(BaseModel):
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
+
+
 class AccountLineIn(BaseModel):
     account_id: int
     cents: int

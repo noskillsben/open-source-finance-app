@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.db import get_session
-from app.models import Account, Category, Transaction
+from app.models import Account, Category, Payee, Transaction
 from app.schemas import (
     AccountCreate,
     AccountLineOut,
@@ -17,6 +17,8 @@ from app.schemas import (
     CategoryLineOut,
     CategoryOut,
     Health,
+    PayeeCreate,
+    PayeeOut,
     TransactionCreate,
     TransactionOut,
 )
@@ -116,6 +118,25 @@ def create_category(payload: CategoryCreate, session: Session = Depends(get_sess
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
     return CategoryOut(id=category.id, name=category.name)
+
+
+@app.get("/api/payees", response_model=list[PayeeOut])
+def list_payees(session: Session = Depends(get_session)) -> list[PayeeOut]:
+    payees = session.scalars(
+        select(Payee).where(Payee.archived_on.is_(None)).order_by(Payee.name)
+    ).all()
+    return [PayeeOut(id=p.id, name=p.name) for p in payees]
+
+
+@app.post("/api/payees", response_model=PayeeOut, status_code=201)
+def create_payee(payload: PayeeCreate, session: Session = Depends(get_session)) -> PayeeOut:
+    payee = Payee(name=payload.name, created_on=payload.created_on)
+    session.add(payee)
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=f"A payee named {payload.name!r} already exists.")
+    return PayeeOut(id=payee.id, name=payee.name)
 
 
 def _transaction_query():

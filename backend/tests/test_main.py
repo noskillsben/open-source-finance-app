@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
-from app.models import AccountLine, Category, Transaction
+from app.models import AccountLine, Category, Payee, Transaction
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import write_transaction
 
@@ -255,6 +255,48 @@ def test_delete_opening_adjustment_is_refused_and_leaves_it_in_place(db_session)
     assert resp.status_code == 400
     assert "opening-balance adjustment" in resp.json()["detail"]
     assert account_balance_cents(db_session, account.id) == 500_00
+
+
+def test_post_payee_creates_it_and_rejects_duplicate_name(db_session):
+    client = _client(db_session)
+    try:
+        first = client.post("/api/payees", json={"name": "Walmart", "created_on": EARLIER.isoformat()})
+        listed = client.get("/api/payees")
+        dup = client.post("/api/payees", json={"name": "walmart", "created_on": EARLIER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 201
+    assert dup.status_code == 409
+    assert any(p["name"] == "Walmart" for p in listed.json())
+
+
+def test_post_transaction_with_payee_id_round_trips(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    payee = Payee(name="Walmart", created_on=EARLIER)
+    db_session.add(payee)
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            "/api/transactions",
+            json={
+                "date": LATER.isoformat(),
+                "memo": None,
+                "payee_id": payee.id,
+                "account_lines": [{"account_id": account.id, "cents": -80_00}],
+                "category_lines": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201
+    assert resp.json()["payee_id"] == payee.id
 
 
 def test_edit_still_enforces_category_lines_must_sum_to_budget_movement(db_session):
