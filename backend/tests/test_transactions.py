@@ -22,7 +22,7 @@ def make_account(db_session, name, *, type="Chequing", on_budget=True, floor=0, 
 
 
 def make_category(db_session, name):
-    category = Category(name=name)
+    category = Category(name=name, created_on=TODAY)
     db_session.add(category)
     db_session.flush()
     return category

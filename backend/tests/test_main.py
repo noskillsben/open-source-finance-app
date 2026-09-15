@@ -56,7 +56,7 @@ def test_edit_transaction_via_put_changes_balance_on_every_relevant_date(db_sess
         db_session, name="Chequing", created_on=EARLIER, type="Chequing",
         on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
     )
-    groceries = Category(name="Groceries")
+    groceries = Category(name="Groceries", created_on=EARLIER)
     db_session.add(groceries)
     db_session.flush()
     txn = write_transaction(
@@ -304,7 +304,7 @@ def test_edit_still_enforces_category_lines_must_sum_to_budget_movement(db_sessi
         db_session, name="Chequing", created_on=EARLIER, type="Chequing",
         on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
     )
-    groceries = Category(name="Groceries")
+    groceries = Category(name="Groceries", created_on=EARLIER)
     db_session.add(groceries)
     db_session.flush()
     txn = write_transaction(

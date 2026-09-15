@@ -13,6 +13,8 @@ from app.schemas import (
     AccountLineOut,
     AccountOut,
     AccountUpdate,
+    ArchiveIn,
+    ArchiveOut,
     CategoryCreate,
     CategoryLineOut,
     CategoryOut,
@@ -22,7 +24,14 @@ from app.schemas import (
     TransactionCreate,
     TransactionOut,
 )
-from app.services.accounts import account_balance_cents, create_account_with_opening_valuation, update_account
+from app.services.accounts import (
+    account_balance_cents,
+    account_latest_ledger_date,
+    create_account_with_opening_valuation,
+    update_account,
+)
+from app.services.archiving import Archivable, ArchiveError, archive, unarchive
+from app.services.categories import build_category_archivable
 from app.services.transactions import TransactionError, write_transaction
 
 app = FastAPI(title="Open Source Finance App", version="0.0.1", docs_url="/docs", openapi_url="/api/openapi.json")
@@ -40,10 +49,12 @@ def health(session: Session = Depends(get_session)) -> Health:
 
 @app.get("/api/accounts", response_model=list[AccountOut])
 def list_accounts(as_of: date | None = None, session: Session = Depends(get_session)) -> list[AccountOut]:
-    accounts = session.scalars(select(Account).order_by(Account.name)).all()
+    accounts = session.scalars(
+        select(Account).where(Account.archived_on.is_(None)).order_by(Account.name)
+    ).all()
     return [
         AccountOut(
-            id=a.id, name=a.name, created_on=a.created_on, type=a.type,
+            id=a.id, name=a.name, created_on=a.created_on, archived_on=a.archived_on, type=a.type,
             on_budget=a.on_budget, on_budget_floor_cents=a.on_budget_floor_cents,
             balance_cents=account_balance_cents(session, a.id, as_of=as_of),
         )
@@ -67,8 +78,8 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"An account named {payload.name!r} already exists.")
     return AccountOut(
-        id=account.id, name=account.name, created_on=account.created_on, type=account.type,
-        on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
+        id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
+        type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
         balance_cents=payload.opening_balance_cents,
     )
 
@@ -97,27 +108,101 @@ def update_account_route(
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"An account named {payload.name!r} already exists.")
     return AccountOut(
-        id=account.id, name=account.name, created_on=account.created_on, type=account.type,
-        on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
+        id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
+        type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
         balance_cents=account_balance_cents(session, account.id),
     )
 
 
+@app.post("/api/accounts/{account_id}/archive", response_model=ArchiveOut)
+def archive_account(
+    account_id: int, payload: ArchiveIn, session: Session = Depends(get_session)
+) -> ArchiveOut:
+    account = session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    target = Archivable(
+        entity=account,
+        latest_ledger_date=account_latest_ledger_date(session, account_id),
+        balance_cents=account_balance_cents(session, account_id, as_of=payload.archived_on),
+    )
+    try:
+        warnings = archive(target, payload.archived_on)
+    except ArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    session.flush()
+    return ArchiveOut(id=account.id, archived_on=account.archived_on, warnings=warnings)
+
+
+@app.post("/api/accounts/{account_id}/unarchive", response_model=ArchiveOut)
+def unarchive_account(account_id: int, session: Session = Depends(get_session)) -> ArchiveOut:
+    account = session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    unarchive(account)
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409, detail=f"An account named {account.name!r} already exists."
+        )
+    return ArchiveOut(id=account.id, archived_on=account.archived_on, warnings=[])
+
+
 @app.get("/api/categories", response_model=list[CategoryOut])
 def list_categories(session: Session = Depends(get_session)) -> list[CategoryOut]:
-    categories = session.scalars(select(Category).order_by(Category.name)).all()
-    return [CategoryOut(id=c.id, name=c.name) for c in categories]
+    categories = session.scalars(
+        select(Category).where(Category.archived_on.is_(None)).order_by(Category.name)
+    ).all()
+    return [
+        CategoryOut(id=c.id, name=c.name, parent_id=c.parent_id, created_on=c.created_on, archived_on=c.archived_on)
+        for c in categories
+    ]
 
 
 @app.post("/api/categories", response_model=CategoryOut, status_code=201)
 def create_category(payload: CategoryCreate, session: Session = Depends(get_session)) -> CategoryOut:
-    category = Category(name=payload.name)
+    category = Category(name=payload.name, created_on=payload.created_on, parent_id=payload.parent_id)
     session.add(category)
     try:
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
-    return CategoryOut(id=category.id, name=category.name)
+    return CategoryOut(
+        id=category.id, name=category.name, parent_id=category.parent_id,
+        created_on=category.created_on, archived_on=category.archived_on,
+    )
+
+
+@app.post("/api/categories/{category_id}/archive", response_model=ArchiveOut)
+def archive_category(
+    category_id: int, payload: ArchiveIn, session: Session = Depends(get_session)
+) -> ArchiveOut:
+    category = session.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail=f"No category with id {category_id}.")
+    target = build_category_archivable(session, category, as_of=payload.archived_on)
+    try:
+        warnings = archive(target, payload.archived_on)
+    except ArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    session.flush()
+    return ArchiveOut(id=category.id, archived_on=category.archived_on, warnings=warnings)
+
+
+@app.post("/api/categories/{category_id}/unarchive", response_model=ArchiveOut)
+def unarchive_category(category_id: int, session: Session = Depends(get_session)) -> ArchiveOut:
+    category = session.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail=f"No category with id {category_id}.")
+    unarchive(category)
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(
+            status_code=409, detail=f"A category named {category.name!r} already exists."
+        )
+    return ArchiveOut(id=category.id, archived_on=category.archived_on, warnings=[])
 
 
 @app.get("/api/payees", response_model=list[PayeeOut])

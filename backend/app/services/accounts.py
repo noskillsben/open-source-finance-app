@@ -99,6 +99,18 @@ def update_account(
     return account
 
 
+def account_latest_ledger_date(session: Session, account_id: int) -> date | None:
+    """The most recent transaction date that still references this account — the archive-date
+    bound (DESIGN.md § General concepts → Non-ledger rows are archived: `archived_on` must be
+    strictly later than the latest ledger row still pointing at the entity).
+    """
+    return session.scalar(
+        select(func.max(Transaction.date))
+        .join(AccountLine, AccountLine.transaction_id == Transaction.id)
+        .where(AccountLine.account_id == account_id)
+    )
+
+
 def account_balance_cents(
     session: Session,
     account_id: int,
