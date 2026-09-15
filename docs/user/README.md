@@ -6,6 +6,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 - Run `docker compose up --build` and open http://localhost:5173.
 - Pick a date with the "Show as of" control in the header to see every balance as it stood that day — it also becomes the default date on the account form until you change it again.
+- The payee "Me" already exists the first time you open the app — no need to add it before recording a transfer between your own accounts.
 
 ## Accounts
 
