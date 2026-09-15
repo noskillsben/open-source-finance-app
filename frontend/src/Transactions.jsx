@@ -17,6 +17,7 @@ export default function Transactions() {
   const [categoryLines, setCategoryLines] = useState([])
   const [newCategoryName, setNewCategoryName] = useState('')
   const [formError, setFormError] = useState(null)
+  const [editingId, setEditingId] = useState(null)
 
   function refresh() {
     api.accounts.list().then(setAccounts).catch((e) => setError(e.message))
@@ -31,6 +32,40 @@ export default function Transactions() {
   }
   function updateCategoryLine(i, field, value) {
     setCategoryLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
+  }
+
+  function resetForm() {
+    setEditingId(null)
+    setDate('')
+    setMemo('')
+    setAccountLines([{ ...emptyLine }])
+    setCategoryLines([])
+    setFormError(null)
+  }
+
+  function editTransaction(t) {
+    setEditingId(t.id)
+    setDate(t.date)
+    setMemo(t.memo || '')
+    setAccountLines(
+      t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) }))
+    )
+    setCategoryLines(
+      t.category_lines.map((l) => ({ category_id: String(l.category_id), cents: String(l.cents / 100) }))
+    )
+    setFormError(null)
+  }
+
+  async function deleteTransaction() {
+    if (!editingId) return
+    if (!window.confirm('Delete this transaction? This cannot be undone.')) return
+    try {
+      await api.transactions.remove(editingId)
+      resetForm()
+      refresh()
+    } catch (err) {
+      setFormError(err.message)
+    }
   }
 
   async function addCategory(e) {
@@ -68,17 +103,20 @@ export default function Transactions() {
       parsedCategoryLines.push({ category_id: Number(line.category_id), cents })
     }
 
+    const body = {
+      date,
+      memo: memo.trim() || null,
+      account_lines: parsedAccountLines,
+      category_lines: parsedCategoryLines,
+    }
+
     try {
-      await api.transactions.create({
-        date,
-        memo: memo.trim() || null,
-        account_lines: parsedAccountLines,
-        category_lines: parsedCategoryLines,
-      })
-      setDate('')
-      setMemo('')
-      setAccountLines([{ ...emptyLine }])
-      setCategoryLines([])
+      if (editingId) {
+        await api.transactions.update(editingId, body)
+      } else {
+        await api.transactions.create(body)
+      }
+      resetForm()
       refresh()
     } catch (err) {
       setFormError(err.message)
@@ -105,7 +143,11 @@ export default function Transactions() {
             </thead>
             <tbody>
               {transactions.map((t) => (
-                <tr key={t.id}>
+                <tr
+                  key={t.id}
+                  className="cursor-pointer hover:bg-ink"
+                  onClick={() => editTransaction(t)}
+                >
                   <td className="py-1 align-top">{formatDate(t.date)}</td>
                   <td className="py-1 align-top">{t.memo || '—'}</td>
                   <td className="py-1 align-top">
@@ -133,7 +175,9 @@ export default function Transactions() {
       </section>
 
       <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <h2 className="text-sm uppercase tracking-wide text-paper-soft">Record a transaction</h2>
+        <h2 className="text-sm uppercase tracking-wide text-paper-soft">
+          {editingId ? `Edit transaction #${editingId}` : 'Record a transaction'}
+        </h2>
         <form className="space-y-3" onSubmit={submit}>
           <label className="block space-y-1">
             <span className="text-sm">Date</span>
@@ -220,9 +264,29 @@ export default function Transactions() {
 
           {formError && <p className="text-bad text-sm">{formError}</p>}
 
-          <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
-            Record transaction
-          </button>
+          <div className="flex gap-2">
+            <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
+              {editingId ? 'Save changes' : 'Record transaction'}
+            </button>
+            {editingId && (
+              <>
+                <button
+                  type="button"
+                  className="rounded bg-ink px-3 py-1.5 text-sm"
+                  onClick={resetForm}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="rounded bg-bad px-3 py-1.5 text-sm font-medium"
+                  onClick={deleteTransaction}
+                >
+                  Delete
+                </button>
+              </>
+            )}
+          </div>
         </form>
 
         <form className="flex gap-2 pt-2" onSubmit={addCategory}>
