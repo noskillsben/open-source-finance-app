@@ -30,5 +30,7 @@ export const api = {
   transactions: {
     list: () => request('/api/transactions'),
     create: (transaction) => request('/api/transactions', { method: 'POST', body: transaction }),
+    update: (id, transaction) => request(`/api/transactions/${id}`, { method: 'PUT', body: transaction }),
+    remove: (id) => request(`/api/transactions/${id}`, { method: 'DELETE' }),
   },
 }

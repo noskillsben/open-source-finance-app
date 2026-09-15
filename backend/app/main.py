@@ -152,3 +152,17 @@ def update_transaction(
         raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
     return _transaction_out(transaction)
+
+
+@app.delete("/api/transactions/{transaction_id}", status_code=204)
+def delete_transaction(transaction_id: int, session: Session = Depends(get_session)) -> None:
+    transaction = session.get(Transaction, transaction_id)
+    if transaction is None:
+        raise HTTPException(status_code=404, detail=f"No transaction with id {transaction_id}.")
+    if transaction.valuation_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="this is the account's opening-balance adjustment; fix it with a balance check or backfill, not by hand",
+        )
+    session.delete(transaction)
+    session.flush()

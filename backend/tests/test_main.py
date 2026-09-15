@@ -8,7 +8,8 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
-from app.services.accounts import create_account_with_opening_valuation
+from app.models import AccountLine, Category, Transaction
+from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import write_transaction
 
 EARLIER = datetime.date(2026, 3, 1)
@@ -48,3 +49,128 @@ def test_accounts_as_of_reflects_balance_on_that_date_not_today(db_session):
 
     assert earlier_balance == 500_00  # the -100 line, dated after EARLIER, isn't counted yet
     assert later_balance == 400_00
+
+
+def test_edit_transaction_via_put_changes_balance_on_every_relevant_date(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    groceries = Category(name="Groceries")
+    db_session.add(groceries)
+    db_session.flush()
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=LATER, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            f"/api/transactions/{txn.id}",
+            json={
+                "date": LATER.isoformat(),
+                "memo": "corrected",
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -50_00}],
+                "category_lines": [{"category_id": groceries.id, "cents": -50_00}],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert account_balance_cents(db_session, account.id, as_of=LATER) == 450_00
+
+
+def test_delete_transaction_removes_its_lines_from_the_balance(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=LATER, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -80_00}],
+        category_lines=[],
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.delete(f"/api/transactions/{txn.id}")
+        follow_up = client.get("/api/transactions")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 204
+    assert all(t["id"] != txn.id for t in follow_up.json())
+    assert account_balance_cents(db_session, account.id, as_of=LATER) == 500_00
+
+
+def test_delete_missing_transaction_is_404(db_session):
+    client = _client(db_session)
+    try:
+        resp = client.delete("/api/transactions/999999")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 404
+
+
+def test_delete_opening_adjustment_is_refused_and_leaves_it_in_place(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+    adjustment = (
+        db_session.query(Transaction)
+        .join(AccountLine, AccountLine.transaction_id == Transaction.id)
+        .filter(AccountLine.account_id == account.id, Transaction.valuation_id.isnot(None))
+        .one()
+    )
+
+    client = _client(db_session)
+    try:
+        resp = client.delete(f"/api/transactions/{adjustment.id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 400
+    assert "opening-balance adjustment" in resp.json()["detail"]
+    assert account_balance_cents(db_session, account.id) == 500_00
+
+
+def test_edit_still_enforces_category_lines_must_sum_to_budget_movement(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    groceries = Category(name="Groceries")
+    db_session.add(groceries)
+    db_session.flush()
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=LATER, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            f"/api/transactions/{txn.id}",
+            json={
+                "date": LATER.isoformat(),
+                "memo": None,
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -80_00}],
+                "category_lines": [{"category_id": groceries.id, "cents": -70_00}],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 400

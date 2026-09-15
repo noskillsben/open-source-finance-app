@@ -16,6 +16,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 ## Recording money
 
 - Record a transaction: give it a date and a memo, then list which accounts it touched (signed amounts) and which categories it was for (signed amounts). Category lines can be left off entirely — the money just arrives unassigned. The app only refuses to save when the category lines don't add up to what the account lines moved on-budget; everything else is recorded as entered. Add a category by name from the same screen.
+- Fix a mistake: click any transaction in the list to open it in the same form, change anything, and save — every balance shown for every date reflects the correction right away. Delete it from the same form if it shouldn't exist at all (you'll be asked to confirm). The one line you can't delete this way is an account's opening-balance adjustment; that's fixed with a balance check or backfill instead.
 
 ## Pay screen
 
