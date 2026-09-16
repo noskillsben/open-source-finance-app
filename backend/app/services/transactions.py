@@ -9,7 +9,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.models import Account, AccountLine, Category, CategoryLine, Payee, Transaction
-from app.services.accounts import account_balance_cents, on_budget_cents
+from app.services.accounts import account_balance_cents, backfill_opening_balance, on_budget_cents
 
 
 class TransactionError(ValueError):
@@ -76,6 +76,15 @@ def write_transaction(
     missing = set(account_ids) - accounts.keys()
     if missing:
         raise TransactionError(f"Unknown account id(s): {sorted(missing)}")
+
+    cents_by_account: dict[int, int] = {}
+    for line in account_lines:
+        cents_by_account[line["account_id"]] = cents_by_account.get(line["account_id"], 0) + line["cents"]
+    for account_id, new_line_cents in cents_by_account.items():
+        backfill_opening_balance(
+            session, accounts[account_id], txn_date, new_line_cents, exclude_transaction_id=exclude_id
+        )
+    session.flush()
 
     budget_movement = 0
     new_account_lines = []
