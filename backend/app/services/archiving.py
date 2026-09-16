@@ -8,6 +8,20 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Sequence
 
+from sqlalchemy import ColumnElement, or_
+
+
+def visible_as_of(model, as_of: date | None) -> ColumnElement[bool]:
+    """The row-visibility half of DESIGN.md § General concepts → Non-ledger rows are
+    archived: "A row is shown on a given picker date if `created_on <= date` and
+    (`archived_on` is null or `date < archived_on`)." With no `as_of`, keep today's
+    existing behaviour of excluding archived rows only — the picker date, never wall-clock
+    "today", is the only thing this defaults against.
+    """
+    if as_of is None:
+        return model.archived_on.is_(None)
+    return (model.created_on <= as_of) & (or_(model.archived_on.is_(None), as_of < model.archived_on))
+
 
 class ArchiveError(Exception):
     """A settings-surface rule refused the archive — a block, not a ledger validation
