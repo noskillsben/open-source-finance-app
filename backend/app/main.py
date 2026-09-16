@@ -30,7 +30,7 @@ from app.services.accounts import (
     create_account_with_opening_valuation,
     update_account,
 )
-from app.services.archiving import Archivable, ArchiveError, archive, unarchive
+from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import build_category_archivable
 from app.services.transactions import TransactionError, write_transaction
 
@@ -50,7 +50,7 @@ def health(session: Session = Depends(get_session)) -> Health:
 @app.get("/api/accounts", response_model=list[AccountOut])
 def list_accounts(as_of: date | None = None, session: Session = Depends(get_session)) -> list[AccountOut]:
     accounts = session.scalars(
-        select(Account).where(Account.archived_on.is_(None)).order_by(Account.name)
+        select(Account).where(visible_as_of(Account, as_of)).order_by(Account.name)
     ).all()
     return [
         AccountOut(
@@ -150,9 +150,9 @@ def unarchive_account(account_id: int, session: Session = Depends(get_session)) 
 
 
 @app.get("/api/categories", response_model=list[CategoryOut])
-def list_categories(session: Session = Depends(get_session)) -> list[CategoryOut]:
+def list_categories(as_of: date | None = None, session: Session = Depends(get_session)) -> list[CategoryOut]:
     categories = session.scalars(
-        select(Category).where(Category.archived_on.is_(None)).order_by(Category.name)
+        select(Category).where(visible_as_of(Category, as_of)).order_by(Category.name)
     ).all()
     return [
         CategoryOut(id=c.id, name=c.name, parent_id=c.parent_id, created_on=c.created_on, archived_on=c.archived_on)

@@ -264,3 +264,164 @@ def test_post_archive_category_cascades_to_children(db_session):
     db_session.refresh(child)
     assert child.archived_on == LATER
     assert all(c["id"] not in (parent.id, child.id) for c in listed.json())
+
+
+BEFORE_CREATED = EARLIER - datetime.timedelta(days=1)
+
+
+def test_account_dated_after_as_of_is_excluded(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.get(f"/api/accounts?as_of={BEFORE_CREATED.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all(a["id"] != account.id for a in resp.json())
+
+
+def test_account_dated_exactly_on_as_of_is_included(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.get(f"/api/accounts?as_of={EARLIER.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(a["id"] == account.id for a in resp.json())
+
+
+def test_account_excluded_once_as_of_reaches_its_archived_on(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    target = Archivable(entity=account, latest_ledger_date=account_latest_ledger_date(db_session, account.id))
+    archive(target, LATER)
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        before_archive = client.get(f"/api/accounts?as_of={(LATER - datetime.timedelta(days=1)).isoformat()}")
+        on_archive = client.get(f"/api/accounts?as_of={LATER.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(a["id"] == account.id for a in before_archive.json())
+    assert all(a["id"] != account.id for a in on_archive.json())
+
+
+def test_unarchived_account_reappears_at_every_date_since_created_on(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    target = Archivable(entity=account, latest_ledger_date=account_latest_ledger_date(db_session, account.id))
+    archive(target, LATER)
+    db_session.flush()
+    unarchive(account)
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.get(f"/api/accounts?as_of={EARLIER.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(a["id"] == account.id for a in resp.json())
+
+
+def test_accounts_with_no_as_of_only_excludes_archived_rows(db_session):
+    future_account = create_account_with_opening_valuation(
+        db_session, name="Future", created_on=LATER + datetime.timedelta(days=365),
+        type="Chequing", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.get("/api/accounts")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(a["id"] == future_account.id for a in resp.json())
+
+
+def test_category_dated_after_as_of_is_excluded(db_session):
+    category = make_category(db_session, "Groceries", created_on=EARLIER)
+
+    client = _client(db_session)
+    try:
+        resp = client.get(f"/api/categories?as_of={BEFORE_CREATED.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all(c["id"] != category.id for c in resp.json())
+
+
+def test_category_dated_exactly_on_as_of_is_included(db_session):
+    category = make_category(db_session, "Groceries", created_on=EARLIER)
+
+    client = _client(db_session)
+    try:
+        resp = client.get(f"/api/categories?as_of={EARLIER.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(c["id"] == category.id for c in resp.json())
+
+
+def test_category_excluded_once_as_of_reaches_its_archived_on(db_session):
+    category = make_category(db_session, "Groceries", created_on=EARLIER)
+    target = build_category_archivable(db_session, category, as_of=LATER)
+    archive(target, LATER)
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        before_archive = client.get(f"/api/categories?as_of={(LATER - datetime.timedelta(days=1)).isoformat()}")
+        on_archive = client.get(f"/api/categories?as_of={LATER.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(c["id"] == category.id for c in before_archive.json())
+    assert all(c["id"] != category.id for c in on_archive.json())
+
+
+def test_unarchived_category_reappears_at_every_date_since_created_on(db_session):
+    category = make_category(db_session, "Groceries", created_on=EARLIER)
+    target = build_category_archivable(db_session, category, as_of=LATER)
+    archive(target, LATER)
+    db_session.flush()
+    unarchive(category)
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.get(f"/api/categories?as_of={EARLIER.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(c["id"] == category.id for c in resp.json())
+
+
+def test_categories_with_no_as_of_only_excludes_archived_rows(db_session):
+    future_category = make_category(db_session, "Future", created_on=LATER + datetime.timedelta(days=365))
+
+    client = _client(db_session)
+    try:
+        resp = client.get("/api/categories")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert any(c["id"] == future_category.id for c in resp.json())
