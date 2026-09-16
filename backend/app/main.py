@@ -21,6 +21,7 @@ from app.schemas import (
     CategoryLineOut,
     CategoryOut,
     Health,
+    IntegrityFindingOut,
     PayeeCreate,
     PayeeOut,
     TransactionCreate,
@@ -34,6 +35,7 @@ from app.services.accounts import (
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import build_category_archivable
+from app.services.integrity import find_integrity_issues
 from app.services.transactions import TransactionError, write_transaction
 from app.services.valuations import check_balance, entries_added_since_check, latest_valuation
 
@@ -339,6 +341,36 @@ def update_transaction(
     return _transaction_out(session, transaction)
 
 
+@app.post("/api/transactions/{transaction_id}/re-save", response_model=TransactionOut)
+def re_save_transaction(transaction_id: int, session: Session = Depends(get_session)) -> TransactionOut:
+    """The integrity check's fix: run a transaction back through the normal write path with
+    its own stored lines, so its `budget_cents` reflect current settings (DESIGN.md § General
+    concepts → Settings never rewrite history). No separate fix logic — same write as any edit.
+    """
+    transaction = session.get(Transaction, transaction_id)
+    if transaction is None:
+        raise HTTPException(status_code=404, detail=f"No transaction with id {transaction_id}.")
+    account_lines = [{"account_id": l.account_id, "cents": l.cents} for l in transaction.account_lines]
+    category_lines = [
+        {"category_id": l.category_id, "cents": l.cents, "need_level": l.need_level}
+        for l in transaction.category_lines
+    ]
+    try:
+        transaction = write_transaction(
+            session,
+            transaction=transaction,
+            txn_date=transaction.date,
+            memo=transaction.memo,
+            payee_id=transaction.payee_id,
+            account_lines=account_lines,
+            category_lines=category_lines,
+        )
+    except TransactionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    session.flush()
+    return _transaction_out(session, transaction)
+
+
 @app.delete("/api/transactions/{transaction_id}", status_code=204)
 def delete_transaction(transaction_id: int, session: Session = Depends(get_session)) -> None:
     transaction = session.get(Transaction, transaction_id)
@@ -351,3 +383,18 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
         )
     session.delete(transaction)
     session.flush()
+
+
+@app.get("/api/integrity-check", response_model=list[IntegrityFindingOut])
+def integrity_check(session: Session = Depends(get_session)) -> list[IntegrityFindingOut]:
+    """The app's own integrity check, not a dev-only tool (DESIGN.md § Transactions →
+    Invariant): replays every transaction and lists any drift. No fixing here — that's
+    `re_save_transaction`, one row at a time.
+    """
+    return [
+        IntegrityFindingOut(
+            transaction_id=f.transaction_id, date=f.date, payee_id=f.payee_id,
+            kind=f.kind, expected_cents=f.expected_cents, stored_cents=f.stored_cents,
+        )
+        for f in find_integrity_issues(session)
+    ]
