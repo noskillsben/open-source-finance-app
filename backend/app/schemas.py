@@ -73,6 +73,8 @@ class AccountOut(BaseModel):
     on_budget: bool
     on_budget_floor_cents: int
     balance_cents: int
+    checked_on: date | None = None
+    entries_added_since_check: int = 0
 
     model_config = {"from_attributes": True}
 
@@ -164,5 +166,23 @@ class TransactionOut(BaseModel):
     valuation_id: int | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
+    predates_check_notes: list[str] = []
 
     model_config = {"from_attributes": True}
+
+
+class BalanceCheckIn(BaseModel):
+    """DESIGN.md § Balance checks — one table: a stated balance on a date, and where the
+    difference goes if there is one. Unassigned by default (category_id omitted or null).
+    """
+
+    date: date
+    stated_balance_cents: int
+    category_id: int | None = None
+
+
+class BalanceCheckOut(BaseModel):
+    valuation_id: int
+    diff_cents: int
+    transaction: TransactionOut | None
+    account: AccountOut

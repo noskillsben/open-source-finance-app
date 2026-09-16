@@ -21,6 +21,7 @@ export default function Transactions() {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
+  const [predatesCheckNotes, setPredatesCheckNotes] = useState([])
 
   function refresh() {
     api.accounts.list().then(setAccounts).catch((e) => setError(e.message))
@@ -55,6 +56,7 @@ export default function Transactions() {
   }
 
   function editTransaction(t) {
+    setPredatesCheckNotes([])
     setEditingId(t.id)
     setDate(t.date)
     setMemo(t.memo || '')
@@ -124,11 +126,10 @@ export default function Transactions() {
     }
 
     try {
-      if (editingId) {
-        await api.transactions.update(editingId, body)
-      } else {
-        await api.transactions.create(body)
-      }
+      const saved = editingId
+        ? await api.transactions.update(editingId, body)
+        : await api.transactions.create(body)
+      setPredatesCheckNotes(saved.predates_check_notes || [])
       resetForm()
       refresh()
     } catch (err) {
@@ -195,6 +196,13 @@ export default function Transactions() {
         <h2 className="text-sm uppercase tracking-wide text-paper-soft">
           {editingId ? `Edit transaction #${editingId}` : 'Record a transaction'}
         </h2>
+        {predatesCheckNotes.length > 0 && (
+          <div className="rounded bg-ink p-2 text-sm text-paper-soft space-y-1">
+            {predatesCheckNotes.map((note, i) => (
+              <p key={i}>{note}</p>
+            ))}
+          </div>
+        )}
         <form className="space-y-3" onSubmit={submit}>
           <label className="block space-y-1">
             <span className="text-sm">Date</span>
@@ -301,7 +309,10 @@ export default function Transactions() {
                 <button
                   type="button"
                   className="rounded bg-ink px-3 py-1.5 text-sm"
-                  onClick={resetForm}
+                  onClick={() => {
+                    resetForm()
+                    setPredatesCheckNotes([])
+                  }}
                 >
                   Cancel
                 </button>

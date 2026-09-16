@@ -3,6 +3,8 @@ import { api } from './api.js'
 import { DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, TRACKING_TYPES } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 
+const VALUE_TYPES = ['Asset', 'Investment']
+
 function emptyForm(pickerDate) {
   return {
     name: '',
@@ -14,15 +16,26 @@ function emptyForm(pickerDate) {
   }
 }
 
+function emptyCheckForm(pickerDate) {
+  return { date: pickerDate, stated_balance_cents: '', category_id: '' }
+}
+
 export default function Accounts({ pickerDate }) {
   const [accounts, setAccounts] = useState(null)
+  const [categories, setCategories] = useState(null)
   const [error, setError] = useState(null)
   const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
 
+  const [checkingId, setCheckingId] = useState(null)
+  const [checkForm, setCheckForm] = useState(() => emptyCheckForm(pickerDate))
+  const [checkError, setCheckError] = useState(null)
+  const [checkResult, setCheckResult] = useState(null)
+
   function refresh() {
     api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
+    api.categories.list().then(setCategories).catch((e) => setError(e.message))
   }
 
   useEffect(refresh, [pickerDate])
@@ -36,6 +49,7 @@ export default function Accounts({ pickerDate }) {
   }
 
   function editAccount(a) {
+    resetCheck()
     setEditingId(a.id)
     setForm({
       name: a.name,
@@ -52,6 +66,47 @@ export default function Accounts({ pickerDate }) {
     setEditingId(null)
     setForm(emptyForm(pickerDate))
     setFormError(null)
+  }
+
+  function startCheck(account) {
+    setEditingId(null)
+    setCheckingId(account.id)
+    setCheckForm(emptyCheckForm(pickerDate))
+    setCheckError(null)
+    setCheckResult(null)
+  }
+
+  function resetCheck() {
+    setCheckingId(null)
+    setCheckForm(emptyCheckForm(pickerDate))
+    setCheckError(null)
+    setCheckResult(null)
+  }
+
+  function updateCheckField(field, value) {
+    setCheckForm((f) => ({ ...f, [field]: value }))
+  }
+
+  async function submitCheck(e) {
+    e.preventDefault()
+    setCheckError(null)
+    setCheckResult(null)
+
+    if (!checkForm.date) return setCheckError('Date is required.')
+    const statedCents = parseCents(checkForm.stated_balance_cents)
+    if (statedCents === null) return setCheckError('Stated balance must be a number.')
+
+    try {
+      const result = await api.accounts.checkBalance(checkingId, {
+        date: checkForm.date,
+        stated_balance_cents: statedCents,
+        category_id: checkForm.category_id ? Number(checkForm.category_id) : null,
+      })
+      setCheckResult(result)
+      refresh()
+    } catch (err) {
+      setCheckError(err.message)
+    }
   }
 
   async function submit(e) {
@@ -105,16 +160,38 @@ export default function Accounts({ pickerDate }) {
                 <th className="pb-1">Type</th>
                 <th className="pb-1">Side</th>
                 <th className="pb-1 text-right">Balance</th>
+                <th className="pb-1"></th>
               </tr>
             </thead>
             <tbody>
               {accounts.map((a) => (
                 <tr key={a.id} className="cursor-pointer hover:bg-ink" onClick={() => editAccount(a)}>
-                  <td className="py-1">{a.name}</td>
+                  <td className="py-1">
+                    {a.name}
+                    {a.checked_on && (
+                      <div className="text-xs text-paper-soft">
+                        {VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'} {formatDate(a.checked_on)}
+                        {a.entries_added_since_check > 0 &&
+                          ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
+                      </div>
+                    )}
+                  </td>
                   <td className="py-1">{a.type}</td>
                   <td className="py-1">{a.on_budget ? 'On-budget' : 'Tracking'}</td>
                   <td className={`py-1 text-right ${a.balance_cents < 0 ? 'text-bad' : ''}`}>
                     {formatCents(a.balance_cents)}
+                  </td>
+                  <td className="py-1 text-right">
+                    <button
+                      type="button"
+                      className="text-xs text-accent"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        startCheck(a)
+                      }}
+                    >
+                      {VALUE_TYPES.includes(a.type) ? 'Update value' : 'Check balance'}
+                    </button>
                   </td>
                 </tr>
               ))}
@@ -122,6 +199,74 @@ export default function Accounts({ pickerDate }) {
           </table>
         )}
       </section>
+
+      {checkingId && (
+        <section className="rounded-lg bg-ink-soft p-4 space-y-3">
+          <h2 className="text-sm uppercase tracking-wide text-paper-soft">
+            {VALUE_TYPES.includes(accounts.find((a) => a.id === checkingId)?.type) ? 'Update value' : 'Check balance'}
+            {' — '}
+            {accounts.find((a) => a.id === checkingId)?.name}
+          </h2>
+          <form className="space-y-3" onSubmit={submitCheck}>
+            <label className="block space-y-1">
+              <span className="text-sm">Date</span>
+              <input
+                type="date"
+                className="w-full rounded bg-ink px-2 py-1"
+                value={checkForm.date}
+                onChange={(e) => updateCheckField('date', e.target.value)}
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-sm">Stated balance</span>
+              <input
+                inputMode="decimal"
+                className="w-full rounded bg-ink px-2 py-1"
+                value={checkForm.stated_balance_cents}
+                onChange={(e) => updateCheckField('stated_balance_cents', e.target.value)}
+                placeholder="0.00"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-sm">Category for the difference (optional — otherwise ready to assign)</span>
+              <select
+                className="w-full rounded bg-ink px-2 py-1"
+                value={checkForm.category_id}
+                onChange={(e) => updateCheckField('category_id', e.target.value)}
+              >
+                <option value="">Ready to assign</option>
+                {categories?.map((c) => (
+                  <option key={c.id} value={c.id}>{c.name}</option>
+                ))}
+              </select>
+            </label>
+
+            {checkError && <p className="text-bad text-sm">{checkError}</p>}
+            {checkResult && checkResult.diff_cents === 0 && (
+              <p className="text-sm text-paper-soft">That matches the ledger — nothing recorded.</p>
+            )}
+            {checkResult && checkResult.diff_cents !== 0 && (
+              <p className="text-sm text-paper-soft">
+                Adjustment of {formatCents(checkResult.diff_cents)} recorded
+                {checkForm.category_id
+                  ? ` to ${categories?.find((c) => c.id === Number(checkForm.category_id))?.name}.`
+                  : ' to ready to assign.'}
+              </p>
+            )}
+
+            <div className="flex gap-2">
+              <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
+                Save
+              </button>
+              <button type="button" className="rounded bg-ink px-3 py-1.5 text-sm" onClick={resetCheck}>
+                Close
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       <section className="rounded-lg bg-ink-soft p-4 space-y-3">
         <h2 className="text-sm uppercase tracking-wide text-paper-soft">
