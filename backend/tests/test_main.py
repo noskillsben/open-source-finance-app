@@ -257,6 +257,87 @@ def test_delete_opening_adjustment_is_refused_and_leaves_it_in_place(db_session)
     assert account_balance_cents(db_session, account.id) == 500_00
 
 
+def test_balance_check_matching_writes_no_adjustment(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            f"/api/accounts/{account.id}/balance-check",
+            json={"date": LATER.isoformat(), "stated_balance_cents": 500_00},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["diff_cents"] == 0
+    assert body["transaction"] is None
+    assert body["account"]["checked_on"] == LATER.isoformat()
+
+
+def test_balance_check_mismatch_with_category_creates_adjustment(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    missed = Category(name="Missed transactions", created_on=EARLIER)
+    db_session.add(missed)
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            f"/api/accounts/{account.id}/balance-check",
+            json={"date": LATER.isoformat(), "stated_balance_cents": 480_00, "category_id": missed.id},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["diff_cents"] == -20_00
+    assert body["transaction"]["category_lines"] == [
+        {"id": body["transaction"]["category_lines"][0]["id"], "category_id": missed.id, "cents": -20_00, "need_level": None}
+    ]
+    assert body["transaction"]["valuation_id"] == body["valuation_id"]
+
+
+def test_transaction_dated_on_or_before_a_check_gets_a_note(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        client.post(
+            f"/api/accounts/{account.id}/balance-check",
+            json={"date": LATER.isoformat(), "stated_balance_cents": 500_00},
+        )
+        resp = client.post(
+            "/api/transactions",
+            json={
+                "date": EARLIER.isoformat(),
+                "memo": None,
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -10_00}],
+                "category_lines": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201
+    assert len(resp.json()["predates_check_notes"]) == 1
+    assert "check on Chequing" in resp.json()["predates_check_notes"][0]
+
+
 def test_post_payee_creates_it_and_rejects_duplicate_name(db_session):
     client = _client(db_session)
     try:

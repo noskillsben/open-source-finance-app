@@ -42,11 +42,15 @@ def write_transaction(
     payee_id: int | None,
     account_lines: list[dict],
     category_lines: list[dict],
+    valuation_id: int | None = None,
 ) -> Transaction:
     """Create (transaction=None) or edit (transaction=existing row) a transaction: recompute
     every account line's budget_cents from scratch, check the invariant, and replace the
     lines outright (DESIGN.md § One write path — a rule-generated line would be regenerated
     here too, but none exist yet: #9 builds no rules).
+
+    `valuation_id` is only ever set on a new transaction — it names the balance check that
+    produced this adjustment (DESIGN.md § Balance checks) and is never reassigned on an edit.
     """
     if not account_lines:
         raise TransactionError("A transaction needs at least one account line.")
@@ -57,7 +61,7 @@ def write_transaction(
     exclude_id = transaction.id if transaction is not None else None
 
     if transaction is None:
-        transaction = Transaction(date=txn_date, memo=memo, payee_id=payee_id)
+        transaction = Transaction(date=txn_date, memo=memo, payee_id=payee_id, valuation_id=valuation_id)
         session.add(transaction)
     else:
         transaction.date = txn_date

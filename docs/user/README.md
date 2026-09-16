@@ -27,4 +27,6 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Balance checks
 
+- Check balance (money accounts) or update value (assets and investments): from the account list, click "Check balance" / "Update value", type the real balance and a date, and optionally pick a category for the difference — otherwise it lands in ready to assign. If it already matches the ledger, nothing is recorded. Nothing ever locks: the account shows "balance checked <date>" (or "value updated <date>"), and if you later save a transaction dated on or before that check, the badge picks up an "N entries added since" count.
+
 ## Reports

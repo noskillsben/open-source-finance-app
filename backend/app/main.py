@@ -15,6 +15,8 @@ from app.schemas import (
     AccountUpdate,
     ArchiveIn,
     ArchiveOut,
+    BalanceCheckIn,
+    BalanceCheckOut,
     CategoryCreate,
     CategoryLineOut,
     CategoryOut,
@@ -33,6 +35,7 @@ from app.services.accounts import (
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import build_category_archivable
 from app.services.transactions import TransactionError, write_transaction
+from app.services.valuations import check_balance, entries_added_since_check, latest_valuation
 
 app = FastAPI(title="Open Source Finance App", version="0.0.1", docs_url="/docs", openapi_url="/api/openapi.json")
 
@@ -47,19 +50,25 @@ def health(session: Session = Depends(get_session)) -> Health:
     return Health(status="ok", database=database, app_mode=settings.app_mode)
 
 
+def _account_out(session: Session, account: Account, *, as_of: date | None = None) -> AccountOut:
+    valuation = latest_valuation(session, account.id)
+    return AccountOut(
+        id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
+        type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
+        balance_cents=account_balance_cents(session, account.id, as_of=as_of),
+        checked_on=valuation.date if valuation is not None else None,
+        entries_added_since_check=(
+            entries_added_since_check(session, account.id, valuation) if valuation is not None else 0
+        ),
+    )
+
+
 @app.get("/api/accounts", response_model=list[AccountOut])
 def list_accounts(as_of: date | None = None, session: Session = Depends(get_session)) -> list[AccountOut]:
     accounts = session.scalars(
         select(Account).where(visible_as_of(Account, as_of)).order_by(Account.name)
     ).all()
-    return [
-        AccountOut(
-            id=a.id, name=a.name, created_on=a.created_on, archived_on=a.archived_on, type=a.type,
-            on_budget=a.on_budget, on_budget_floor_cents=a.on_budget_floor_cents,
-            balance_cents=account_balance_cents(session, a.id, as_of=as_of),
-        )
-        for a in accounts
-    ]
+    return [_account_out(session, a, as_of=as_of) for a in accounts]
 
 
 @app.post("/api/accounts", response_model=AccountOut, status_code=201)
@@ -77,11 +86,7 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
         )
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"An account named {payload.name!r} already exists.")
-    return AccountOut(
-        id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
-        type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
-        balance_cents=payload.opening_balance_cents,
-    )
+    return _account_out(session, account)
 
 
 @app.put("/api/accounts/{account_id}", response_model=AccountOut)
@@ -107,10 +112,35 @@ def update_account_route(
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"An account named {payload.name!r} already exists.")
-    return AccountOut(
-        id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
-        type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
-        balance_cents=account_balance_cents(session, account.id),
+    return _account_out(session, account)
+
+
+@app.post("/api/accounts/{account_id}/balance-check", response_model=BalanceCheckOut)
+def balance_check_account(
+    account_id: int, payload: BalanceCheckIn, session: Session = Depends(get_session)
+) -> BalanceCheckOut:
+    """DESIGN.md § Balance checks — one table: state a balance, get the difference and, if
+    it's non-zero, an adjustment through the normal write path. Nothing locks.
+    """
+    account = session.get(Account, account_id)
+    if account is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    if payload.category_id is not None and session.get(Category, payload.category_id) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown category id: {payload.category_id}")
+
+    valuation, transaction, diff_cents = check_balance(
+        session,
+        account_id=account_id,
+        check_date=payload.date,
+        stated_balance_cents=payload.stated_balance_cents,
+        category_id=payload.category_id,
+    )
+    session.flush()
+    return BalanceCheckOut(
+        valuation_id=valuation.id,
+        diff_cents=diff_cents,
+        transaction=_transaction_out(session, transaction) if transaction is not None else None,
+        account=_account_out(session, account),
     )
 
 
@@ -230,7 +260,24 @@ def _transaction_query():
     )
 
 
-def _transaction_out(t: Transaction) -> TransactionOut:
+def _predates_check_notes(session: Session, transaction: Transaction) -> list[str]:
+    """"This predates your <date> check" (DESIGN.md § Balance checks) — one note per account
+    this transaction touches whose latest check is on or after this transaction's date. The
+    check's own adjustment never notes itself.
+    """
+    notes = []
+    for line in transaction.account_lines:
+        valuation = latest_valuation(session, line.account_id)
+        if (
+            valuation is not None
+            and transaction.date <= valuation.date
+            and transaction.valuation_id != valuation.id
+        ):
+            notes.append(f"This predates your {valuation.date} check on {line.account.name}.")
+    return notes
+
+
+def _transaction_out(session: Session, t: Transaction) -> TransactionOut:
     return TransactionOut(
         id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id, valuation_id=t.valuation_id,
         account_lines=[
@@ -241,13 +288,14 @@ def _transaction_out(t: Transaction) -> TransactionOut:
             CategoryLineOut(id=l.id, category_id=l.category_id, cents=l.cents, need_level=l.need_level)
             for l in t.category_lines
         ],
+        predates_check_notes=_predates_check_notes(session, t),
     )
 
 
 @app.get("/api/transactions", response_model=list[TransactionOut])
 def list_transactions(session: Session = Depends(get_session)) -> list[TransactionOut]:
     transactions = session.scalars(_transaction_query().order_by(Transaction.date, Transaction.id)).all()
-    return [_transaction_out(t) for t in transactions]
+    return [_transaction_out(session, t) for t in transactions]
 
 
 @app.post("/api/transactions", response_model=TransactionOut, status_code=201)
@@ -265,7 +313,7 @@ def create_transaction(payload: TransactionCreate, session: Session = Depends(ge
     except TransactionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
-    return _transaction_out(transaction)
+    return _transaction_out(session, transaction)
 
 
 @app.put("/api/transactions/{transaction_id}", response_model=TransactionOut)
@@ -288,7 +336,7 @@ def update_transaction(
     except TransactionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
-    return _transaction_out(transaction)
+    return _transaction_out(session, transaction)
 
 
 @app.delete("/api/transactions/{transaction_id}", status_code=204)
