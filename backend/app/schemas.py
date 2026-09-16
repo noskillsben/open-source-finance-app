@@ -68,6 +68,7 @@ class AccountOut(BaseModel):
     id: int
     name: str
     created_on: date
+    archived_on: date | None
     type: str
     on_budget: bool
     on_budget_floor_cents: int
@@ -78,13 +79,32 @@ class AccountOut(BaseModel):
 
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1)
+    created_on: date
+    parent_id: int | None = None
 
 
 class CategoryOut(BaseModel):
     id: int
     name: str
+    parent_id: int | None
+    created_on: date
+    archived_on: date | None
 
     model_config = {"from_attributes": True}
+
+
+class ArchiveIn(BaseModel):
+    """Archiving is the only "delete"; it defaults to the picker date in the UI, but the
+    backend never reads the wall clock, so the caller always states the date explicitly.
+    """
+
+    archived_on: date
+
+
+class ArchiveOut(BaseModel):
+    id: int
+    archived_on: date | None
+    warnings: list[str] = []
 
 
 class PayeeCreate(BaseModel):

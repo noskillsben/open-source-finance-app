@@ -11,14 +11,13 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base, NonLedger, Owned
 
 
-class Account(Base, Owned):
+class Account(Base, Owned, NonLedger):
     """Where money, debt or value is held (DESIGN.md § Accounts)."""
 
     __tablename__ = "account"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
-    created_on: Mapped[date] = mapped_column(Date, nullable=False)
     type: Mapped[str] = mapped_column(String, nullable=False)
     on_budget: Mapped[bool] = mapped_column(nullable=False)
     on_budget_floor_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
@@ -39,7 +38,10 @@ class Account(Base, Owned):
     valuations: Mapped[list["Valuation"]] = relationship(back_populates="account", order_by="Valuation.date")
 
     __table_args__ = (
-        Index("ix_account_owner_lower_name", "owner_id", func.lower(name), unique=True),
+        Index(
+            "ix_account_owner_lower_name", "owner_id", func.lower(name),
+            unique=True, postgresql_where=text("archived_on IS NULL"),
+        ),
     )
 
 
@@ -56,7 +58,7 @@ class Valuation(Base, Owned):
     account: Mapped["Account"] = relationship(back_populates="valuations")
 
 
-class Category(Base, Owned):
+class Category(Base, Owned, NonLedger):
     """Minimal category — just enough to file a transaction line under (DESIGN.md § Categories).
     Domains, need levels, pools and goals are #2's job.
     """
@@ -65,9 +67,15 @@ class Category(Base, Owned):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
+    # Grouping for the tree view only — a parent is still postable like any other category
+    # (DESIGN.md § Categories). Self-referential, so archiving cascades to children in one pass.
+    parent_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=True, index=True)
 
     __table_args__ = (
-        Index("ix_category_owner_lower_name", "owner_id", func.lower(name), unique=True),
+        Index(
+            "ix_category_owner_lower_name", "owner_id", func.lower(name),
+            unique=True, postgresql_where=text("archived_on IS NULL"),
+        ),
     )
 
 

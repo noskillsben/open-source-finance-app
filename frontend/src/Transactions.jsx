@@ -84,7 +84,7 @@ export default function Transactions() {
     e.preventDefault()
     if (!newCategoryName.trim()) return
     try {
-      await api.categories.create({ name: newCategoryName.trim() })
+      await api.categories.create({ name: newCategoryName.trim(), created_on: date || todayIso() })
       setNewCategoryName('')
       refresh()
     } catch (err) {
