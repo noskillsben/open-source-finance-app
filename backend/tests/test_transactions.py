@@ -4,8 +4,9 @@ one thing the app refuses: category lines that don't sum to the budget movement.
 import datetime
 
 import pytest
+from sqlalchemy import select
 
-from app.models import Category
+from app.models import Category, Transaction, Valuation
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import TransactionError, write_transaction
 
@@ -286,6 +287,139 @@ def test_edit_regenerates_budget_cents_and_reruns_the_invariant(db_session):
     assert len(edited.account_lines) == 1
     assert edited.account_lines[0].cents == -50_00
     assert edited.account_lines[0].budget_cents == -50_00
+
+
+def opening_line(db_session, account):
+    valuation = db_session.scalar(select(Valuation).where(Valuation.account_id == account.id))
+    txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
+    return next(line for line in txn.account_lines if line.account_id == account.id), valuation, txn
+
+
+def test_backfill_moves_opening_balance_back(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    backfill_date = TODAY - datetime.timedelta(days=14)
+
+    write_transaction(
+        db_session, transaction=None, txn_date=backfill_date, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    line, valuation, _ = opening_line(db_session, chequing)
+    assert chequing.created_on == backfill_date
+    assert valuation.date == backfill_date
+    assert line.cents == 1_080_00
+    assert line.budget_cents == 1_080_00
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 1_000_00
+    assert account_balance_cents(db_session, chequing.id, as_of=backfill_date) == 1_000_00
+
+
+def test_second_backfill_further_back_composes(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    first_backfill = TODAY - datetime.timedelta(days=14)
+    second_backfill = TODAY - datetime.timedelta(days=45)
+
+    write_transaction(
+        db_session, transaction=None, txn_date=first_backfill, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    write_transaction(
+        db_session, transaction=None, txn_date=second_backfill, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -40_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -40_00}],
+    )
+    db_session.flush()
+
+    line, valuation, _ = opening_line(db_session, chequing)
+    assert chequing.created_on == second_backfill
+    assert valuation.date == second_backfill
+    assert line.cents == 1_120_00  # 1,000 + 80 + 40
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 1_000_00
+    assert account_balance_cents(db_session, chequing.id, as_of=first_backfill) == 1_000_00
+    assert account_balance_cents(db_session, chequing.id, as_of=second_backfill) == 1_080_00
+
+
+def test_transaction_dated_exactly_on_current_start_date_is_ordinary(db_session):
+    """The boundary is exclusive: a transaction dated on (not before) the current start is
+    plain activity, not a backfill — the opening line is untouched and the balance simply
+    reflects it, same as any other day (DESIGN.md § Opening balance and backfilling history).
+    """
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+
+    write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -50_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -50_00}],
+    )
+    db_session.flush()
+
+    line, valuation, _ = opening_line(db_session, chequing)
+    assert chequing.created_on == TODAY
+    assert valuation.date == TODAY
+    assert line.cents == 1_000_00  # opening untouched
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 950_00
+
+
+def test_edit_backfilled_transaction_date_further_back_does_not_double_count(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    first_backfill = TODAY - datetime.timedelta(days=14)
+    further_back = TODAY - datetime.timedelta(days=45)
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=first_backfill, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    write_transaction(
+        db_session, transaction=txn, txn_date=further_back, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    line, valuation, _ = opening_line(db_session, chequing)
+    assert chequing.created_on == further_back
+    assert valuation.date == further_back
+    assert line.cents == 1_080_00  # amount never changed — the −80 isn't subtracted twice
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 1_000_00
+    assert account_balance_cents(db_session, chequing.id, as_of=first_backfill) == 1_000_00
+
+
+def test_edit_backfilled_transaction_amount_adjusts_opening_by_the_net_change(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    backfill_date = TODAY - datetime.timedelta(days=14)
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=backfill_date, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    write_transaction(
+        db_session, transaction=txn, txn_date=backfill_date, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -100_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -100_00}],
+    )
+    db_session.flush()
+
+    line, valuation, _ = opening_line(db_session, chequing)
+    assert chequing.created_on == backfill_date
+    assert valuation.date == backfill_date
+    assert line.cents == 1_100_00  # S(1,000) − new_cents(−100), not stacked on the old −80
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 1_000_00
+    assert account_balance_cents(db_session, chequing.id, as_of=backfill_date) == 1_000_00
 
 
 def test_category_name_unique_case_insensitively(db_session):
