@@ -186,3 +186,18 @@ class BalanceCheckOut(BaseModel):
     diff_cents: int
     transaction: TransactionOut | None
     account: AccountOut
+
+
+class IntegrityFindingOut(BaseModel):
+    """One replayed mismatch (DESIGN.md § Transactions → Invariant). `payee_id` is resolved
+    to a name client-side, same as everywhere else a transaction is listed.
+    """
+
+    transaction_id: int
+    date: date
+    payee_id: int | None
+    kind: str
+    expected_cents: int
+    stored_cents: int
+
+    model_config = {"from_attributes": True}

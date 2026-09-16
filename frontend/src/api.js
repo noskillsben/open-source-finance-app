@@ -38,5 +38,9 @@ export const api = {
     create: (transaction) => request('/api/transactions', { method: 'POST', body: transaction }),
     update: (id, transaction) => request(`/api/transactions/${id}`, { method: 'PUT', body: transaction }),
     remove: (id) => request(`/api/transactions/${id}`, { method: 'DELETE' }),
+    reSave: (id) => request(`/api/transactions/${id}/re-save`, { method: 'POST' }),
+  },
+  integrityCheck: {
+    list: () => request('/api/integrity-check'),
   },
 }

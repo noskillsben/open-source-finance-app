@@ -16,11 +16,15 @@ class TransactionError(ValueError):
     """The transaction's lines don't add up — a 4xx, not a 500."""
 
 
-def _line_budget_cents(session: Session, account: Account, txn_date: date, cents: int, exclude_transaction_id: int | None) -> int:
+def line_budget_cents(session: Session, account: Account, txn_date: date, cents: int, exclude_transaction_id: int | None) -> int:
     """How much of this line's movement lands on-budget: the change in on-budget money the
     line causes, computed from the account's balance immediately before it (DESIGN.md §
     Settings never rewrite history — this is fixed at write time and never recomputed).
     Tracking accounts never land on-budget.
+
+    Reused read-only by the integrity check (app/services/integrity.py): calling it again
+    against an account's *current* floor is exactly what "would this compute differently
+    under today's settings" means — there is no second formula.
     """
     if not account.on_budget:
         return 0
@@ -102,7 +106,7 @@ def write_transaction(
     for line in account_lines:
         account = accounts[line["account_id"]]
         cents = line["cents"]
-        budget_cents = _line_budget_cents(session, account, txn_date, cents, exclude_id)
+        budget_cents = line_budget_cents(session, account, txn_date, cents, exclude_id)
         budget_movement += budget_cents
         new_account_lines.append(AccountLine(account_id=account.id, cents=cents, budget_cents=budget_cents))
 
