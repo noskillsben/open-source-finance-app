@@ -367,6 +367,61 @@ def test_transaction_dated_exactly_on_current_start_date_is_ordinary(db_session)
     assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 950_00
 
 
+def test_edit_backfilled_transaction_date_further_back_does_not_double_count(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    first_backfill = TODAY - datetime.timedelta(days=14)
+    further_back = TODAY - datetime.timedelta(days=45)
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=first_backfill, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    write_transaction(
+        db_session, transaction=txn, txn_date=further_back, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    line, valuation, _ = opening_line(db_session, chequing)
+    assert chequing.created_on == further_back
+    assert valuation.date == further_back
+    assert line.cents == 1_080_00  # amount never changed — the −80 isn't subtracted twice
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 1_000_00
+    assert account_balance_cents(db_session, chequing.id, as_of=first_backfill) == 1_000_00
+
+
+def test_edit_backfilled_transaction_amount_adjusts_opening_by_the_net_change(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    backfill_date = TODAY - datetime.timedelta(days=14)
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=backfill_date, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    write_transaction(
+        db_session, transaction=txn, txn_date=backfill_date, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -100_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -100_00}],
+    )
+    db_session.flush()
+
+    line, valuation, _ = opening_line(db_session, chequing)
+    assert chequing.created_on == backfill_date
+    assert valuation.date == backfill_date
+    assert line.cents == 1_100_00  # S(1,000) − new_cents(−100), not stacked on the old −80
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 1_000_00
+    assert account_balance_cents(db_session, chequing.id, as_of=backfill_date) == 1_000_00
+
+
 def test_category_name_unique_case_insensitively(db_session):
     from sqlalchemy.exc import IntegrityError
 

@@ -60,6 +60,13 @@ def write_transaction(
 
     exclude_id = transaction.id if transaction is not None else None
 
+    old_date: date | None = None
+    old_cents_by_account: dict[int, int] = {}
+    if transaction is not None:
+        old_date = transaction.date
+        for line in transaction.account_lines:
+            old_cents_by_account[line.account_id] = old_cents_by_account.get(line.account_id, 0) + line.cents
+
     if transaction is None:
         transaction = Transaction(date=txn_date, memo=memo, payee_id=payee_id, valuation_id=valuation_id)
         session.add(transaction)
@@ -80,9 +87,13 @@ def write_transaction(
     cents_by_account: dict[int, int] = {}
     for line in account_lines:
         cents_by_account[line["account_id"]] = cents_by_account.get(line["account_id"], 0) + line["cents"]
-    for account_id, new_line_cents in cents_by_account.items():
+    touched_account_ids = set(cents_by_account) | set(old_cents_by_account)
+    for account_id in touched_account_ids:
+        account = accounts.get(account_id) or session.get(Account, account_id)
         backfill_opening_balance(
-            session, accounts[account_id], txn_date, new_line_cents, exclude_transaction_id=exclude_id
+            session, account, txn_date, cents_by_account.get(account_id, 0),
+            old_line_date=old_date, old_line_cents=old_cents_by_account.get(account_id, 0),
+            exclude_transaction_id=exclude_id,
         )
     session.flush()
 

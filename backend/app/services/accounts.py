@@ -54,12 +54,22 @@ def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
     )
 
 
+def _opening_line_budget_cents(account: Account, amount: int) -> int:
+    return (
+        on_budget_cents(amount, account.on_budget_floor_cents) - on_budget_cents(0, account.on_budget_floor_cents)
+        if account.on_budget
+        else 0
+    )
+
+
 def backfill_opening_balance(
     session: Session,
     account: Account,
     txn_date: date,
     new_line_cents: int,
     *,
+    old_line_date: date | None = None,
+    old_line_cents: int = 0,
     exclude_transaction_id: int | None = None,
 ) -> None:
     """A transaction dated on or before an account's opening moves the opening back to it
@@ -69,29 +79,38 @@ def backfill_opening_balance(
     the user originally stated stays true on the date they stated it. A second, earlier
     backfill just runs this again against whatever the adjustment currently is.
 
-    No-op when `txn_date` isn't strictly earlier than the account's current opening (a
-    transaction dated on or after the start is ordinary activity — the stated opening balance
-    already stays true under plain summation), or when the opening adjustment *is* the
-    transaction being written (editing it directly).
+    `old_line_date`/`old_line_cents` are this same account line's *previous* date and cents,
+    for the edit path — the caller must capture them before clearing the transaction's old
+    lines. When the old date was already netted into the opening (it equals the opening's
+    current date), the old cents are already baked into the opening line: the delta applied
+    is `new − old`, not the gross `new`, and staying at or before that date still counts as
+    netted (unlike a fresh line, which needs a strictly earlier date to trigger). Moving the
+    line's date out past the opening gives the netted amount back rather than firing at all.
+    On create, `old_line_date` is None and this behaves exactly as before.
     """
     opening_transaction = _opening_adjustment_transaction(session, account)
-    if opening_transaction is None or opening_transaction.date <= txn_date:
+    if opening_transaction is None or opening_transaction.id == exclude_transaction_id:
         return
-    if opening_transaction.id == exclude_transaction_id:
-        return
+
+    boundary = opening_transaction.date
+    was_netted = old_line_date is not None and old_line_date == boundary
+    effective_cents = new_line_cents - (old_line_cents if was_netted else 0)
+    fires = txn_date <= boundary if was_netted else txn_date < boundary
 
     opening_line = next(line for line in opening_transaction.account_lines if line.account_id == account.id)
-    new_amount = opening_line.cents - new_line_cents
 
+    if not fires:
+        if was_netted:  # this line moved out of backfill range entirely — give its cut back
+            opening_line.cents += old_line_cents
+            opening_line.budget_cents = _opening_line_budget_cents(account, opening_line.cents)
+        return
+
+    new_amount = opening_line.cents - effective_cents
     account.created_on = txn_date
     opening_transaction.date = txn_date
     opening_transaction.valuation.date = txn_date
     opening_line.cents = new_amount
-    opening_line.budget_cents = (
-        on_budget_cents(new_amount, account.on_budget_floor_cents) - on_budget_cents(0, account.on_budget_floor_cents)
-        if account.on_budget
-        else 0
-    )
+    opening_line.budget_cents = _opening_line_budget_cents(account, new_amount)
 
 
 def create_account_with_opening_valuation(
