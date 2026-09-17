@@ -98,7 +98,7 @@ def test_archive_refused_on_or_before_a_ledger_row_referencing_the_category(db_s
     write_transaction(
         db_session, transaction=None, txn_date=LATER, memo=None, payee_id=None,
         account_lines=[{"account_id": account.id, "cents": -80_00}],
-        category_lines=[{"category_id": groceries.id, "cents": 0}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
     )
     db_session.flush()
 

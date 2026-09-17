@@ -23,13 +23,11 @@ def _opening_adjustment_transaction(session: Session, account: Account) -> Trans
 
 
 def on_budget_cents(balance_cents: int, floor_cents: int) -> int:
-    """How far above the floor the balance sits — this account's on-budget money."""
-    return max(balance_cents, floor_cents) - floor_cents
-
-
-def tracked_debt_cents(balance_cents: int, floor_cents: int) -> int:
-    """How far below the floor the balance sits — debt the app tracks but doesn't budget with."""
-    return min(balance_cents - floor_cents, 0)
+    """How far above the floor the balance sits — this account's on-budget money. Unclamped:
+    it goes negative below the floor instead of being held at zero (DESIGN.md § On-budget
+    floor, "the floor does not clamp").
+    """
+    return balance_cents - floor_cents
 
 
 def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
@@ -38,12 +36,7 @@ def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
     dated the valuation's date, referencing it. Not a rule the write path runs — this is
     the single exception to "nothing posts itself" (DESIGN.md § General concepts).
     """
-    budget_cents = (
-        on_budget_cents(valuation.balance_cents, account.on_budget_floor_cents)
-        - on_budget_cents(0, account.on_budget_floor_cents)
-        if account.on_budget
-        else 0
-    )
+    budget_cents = valuation.balance_cents if account.on_budget else 0
     return Transaction(
         date=valuation.date,
         memo=None,
@@ -51,14 +44,6 @@ def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
         valuation_id=valuation.id,
         account_lines=[AccountLine(account_id=account.id, cents=valuation.balance_cents, budget_cents=budget_cents)],
         category_lines=[],
-    )
-
-
-def _opening_line_budget_cents(account: Account, amount: int) -> int:
-    return (
-        on_budget_cents(amount, account.on_budget_floor_cents) - on_budget_cents(0, account.on_budget_floor_cents)
-        if account.on_budget
-        else 0
     )
 
 
@@ -102,7 +87,7 @@ def backfill_opening_balance(
     if not fires:
         if was_netted:  # this line moved out of backfill range entirely — give its cut back
             opening_line.cents += old_line_cents
-            opening_line.budget_cents = _opening_line_budget_cents(account, opening_line.cents)
+            opening_line.budget_cents = opening_line.cents if account.on_budget else 0
         return
 
     new_amount = opening_line.cents - effective_cents
@@ -110,7 +95,7 @@ def backfill_opening_balance(
     opening_transaction.date = txn_date
     opening_transaction.valuation.date = txn_date
     opening_line.cents = new_amount
-    opening_line.budget_cents = _opening_line_budget_cents(account, new_amount)
+    opening_line.budget_cents = new_amount if account.on_budget else 0
 
 
 def create_account_with_opening_valuation(
@@ -188,14 +173,11 @@ def account_balance_cents(
     account_id: int,
     *,
     as_of: date | None = None,
-    exclude_transaction_id: int | None = None,
 ) -> int:
     """No stored balances (DESIGN.md § General concepts): sum every account line dated on or
     before `as_of` (all of them when `as_of` is None). A valuation is never summed — it is a
     stated fact, not a ledger line; the opening valuation's own adjustment line (see
     `create_account_with_opening_valuation`) is what makes the balance agree with it.
-    `exclude_transaction_id` leaves one transaction's own lines out, for computing the
-    balance a transaction is being written or edited against.
     """
     line_stmt = (
         select(func.coalesce(func.sum(AccountLine.cents), 0))
@@ -204,7 +186,5 @@ def account_balance_cents(
     )
     if as_of is not None:
         line_stmt = line_stmt.where(Transaction.date <= as_of)
-    if exclude_transaction_id is not None:
-        line_stmt = line_stmt.where(AccountLine.transaction_id != exclude_transaction_id)
 
     return session.scalar(line_stmt)

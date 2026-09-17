@@ -9,32 +9,24 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.models import Account, AccountLine, Category, CategoryLine, Payee, Transaction
-from app.services.accounts import account_balance_cents, backfill_opening_balance, on_budget_cents
+from app.services.accounts import backfill_opening_balance
 
 
 class TransactionError(ValueError):
     """The transaction's lines don't add up — a 4xx, not a 500."""
 
 
-def line_budget_cents(session: Session, account: Account, txn_date: date, cents: int, exclude_transaction_id: int | None) -> int:
-    """How much of this line's movement lands on-budget: the change in on-budget money the
-    line causes, computed from the account's balance immediately before it (DESIGN.md §
-    Settings never rewrite history — this is fixed at write time and never recomputed).
-    Tracking accounts never land on-budget.
+def line_budget_cents(account: Account, cents: int) -> int:
+    """How much of this line's movement lands on-budget: the line's own cents when the
+    account is on-budget, 0 when it's tracking (DESIGN.md § Transactions → Invariant). A pure
+    function of the line and the account's *current* setting — fixed at write time, never
+    recomputed from a balance, and never dependent on write order.
 
     Reused read-only by the integrity check (app/services/integrity.py): calling it again
-    against an account's *current* floor is exactly what "would this compute differently
-    under today's settings" means — there is no second formula.
+    against an account's *current* on-budget flag is exactly what "would this compute
+    differently under today's settings" means — there is no second formula.
     """
-    if not account.on_budget:
-        return 0
-    balance_before = account_balance_cents(
-        session, account.id, as_of=txn_date, exclude_transaction_id=exclude_transaction_id
-    )
-    balance_after = balance_before + cents
-    return on_budget_cents(balance_after, account.on_budget_floor_cents) - on_budget_cents(
-        balance_before, account.on_budget_floor_cents
-    )
+    return cents if account.on_budget else 0
 
 
 def write_transaction(
@@ -106,7 +98,7 @@ def write_transaction(
     for line in account_lines:
         account = accounts[line["account_id"]]
         cents = line["cents"]
-        budget_cents = line_budget_cents(session, account, txn_date, cents, exclude_id)
+        budget_cents = line_budget_cents(account, cents)
         budget_movement += budget_cents
         new_account_lines.append(AccountLine(account_id=account.id, cents=cents, budget_cents=budget_cents))
 

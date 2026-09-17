@@ -27,9 +27,11 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
     - "invariant": the category lines, as stored, don't sum to the budget movement, as
       stored. Enforced on every write — only reachable here through a row that bypassed it.
     - "settings_drift": recomputing each account line's on-budget cents against the
-      account's *current* floor gives a different budget movement than what's stored — an
-      old row that would write differently today (DESIGN.md § Settings never rewrite
-      history). Re-saving applies today's settings; nothing here does that itself.
+      account's *current* on-budget flag gives a different budget movement than what's
+      stored — an old row written while the account's budget side was different (DESIGN.md
+      § Settings never rewrite history). A floor change alone never produces this finding,
+      since `budget_cents` no longer reads the floor at all. Re-saving applies today's
+      settings; nothing here does that itself.
     """
     transactions = (
         session.query(Transaction)
@@ -55,10 +57,7 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
                     )
                 )
 
-        recomputed_movement = sum(
-            line_budget_cents(session, line.account, txn.date, line.cents, txn.id)
-            for line in txn.account_lines
-        )
+        recomputed_movement = sum(line_budget_cents(line.account, line.cents) for line in txn.account_lines)
         if recomputed_movement != stored_movement:
             findings.append(
                 IntegrityFinding(
