@@ -25,6 +25,9 @@ export const api = {
     update: (id, account) => request(`/api/accounts/${id}`, { method: 'PUT', body: account }),
     checkBalance: (id, check) => request(`/api/accounts/${id}/balance-check`, { method: 'POST', body: check }),
   },
+  valuations: {
+    remove: (id) => request(`/api/valuations/${id}`, { method: 'DELETE' }),
+  },
   categories: {
     list: () => request('/api/categories'),
     create: (category) => request('/api/categories', { method: 'POST', body: category }),
