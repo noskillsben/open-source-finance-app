@@ -9,6 +9,7 @@ from app.models import Account, Transaction
 from app.services.accounts import (
     account_balance_cents,
     create_account_with_opening_valuation,
+    credit_limit_note,
     on_budget_cents,
     update_account,
 )
@@ -156,3 +157,21 @@ def test_renaming_to_its_own_current_name_succeeds(db_session):
 )
 def test_on_budget_floor_formula(balance_cents, floor_cents, expected_on_budget):
     assert on_budget_cents(balance_cents, floor_cents) == expected_on_budget
+
+
+def test_credit_limit_note_is_silent_when_limit_is_unknown():
+    assert credit_limit_note(-500_00, None) is None
+
+
+def test_credit_limit_note_is_silent_when_balance_is_within_the_limit():
+    assert credit_limit_note(-750_00, 1_000_00) is None
+
+
+def test_credit_limit_note_warns_past_the_limit():
+    assert credit_limit_note(-1_500_00, 1_000_00) is not None
+
+
+def test_credit_limit_note_with_zero_limit_warns_below_zero():
+    # 0 means no credit, not unknown (DESIGN.md § Credit limit — the floor of reality).
+    assert credit_limit_note(-1_00, 0) is not None
+    assert credit_limit_note(0, 0) is None

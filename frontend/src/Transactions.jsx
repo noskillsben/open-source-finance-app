@@ -129,7 +129,7 @@ export default function Transactions() {
       const saved = editingId
         ? await api.transactions.update(editingId, body)
         : await api.transactions.create(body)
-      setPredatesCheckNotes(saved.predates_check_notes || [])
+      setPredatesCheckNotes(saved.notes || [])
       resetForm()
       refresh()
     } catch (err) {

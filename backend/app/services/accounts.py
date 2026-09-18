@@ -30,6 +30,20 @@ def on_budget_cents(balance_cents: int, floor_cents: int) -> int:
     return balance_cents - floor_cents
 
 
+def credit_limit_note(balance_cents: int, credit_limit_cents: int | None) -> str | None:
+    """DESIGN.md § Credit limit — the floor of reality: a balance may not physically go below
+    `-credit_limit_cents` — a wallet holding $100 cannot dispense $200, a card at its limit is
+    declined at the till. Null means unknown and nothing is said; 0 means no credit, so it
+    warns below zero. Read-time only, and it warns rather than blocks — an impossible balance
+    is a sign the record is wrong, not a reason to lose it.
+    """
+    if credit_limit_cents is None:
+        return None
+    if balance_cents < -credit_limit_cents:
+        return "This balance is past the credit limit"
+    return None
+
+
 def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
     """The one line the app maintains for the user (DESIGN.md § Opening balance and
     backfilling history): an unassigned account line for the valuation's stated balance,

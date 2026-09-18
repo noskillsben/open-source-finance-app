@@ -187,6 +187,46 @@ def test_put_account_with_terms_key_overwrites_existing_terms(db_session):
     assert float(account.annual_rate) == 24.99
 
 
+def test_put_account_floor_below_credit_limit_is_400(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=EARLIER, type="Credit card",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    account.credit_limit_cents = 500_00
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.put(
+            f"/api/accounts/{account.id}",
+            json={
+                "name": "Card", "type": "Credit card", "on_budget": True,
+                "on_budget_floor_cents": -600_00,
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 400
+
+
+def test_post_account_floor_below_credit_limit_is_400(db_session):
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            "/api/accounts",
+            json={
+                "name": "Card", "created_on": EARLIER.isoformat(), "type": "Credit card",
+                "on_budget": True, "on_budget_floor_cents": -600_00, "opening_balance_cents": 0,
+                "terms": {"credit_limit_cents": 500_00},
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 400
+
+
 def test_put_account_renaming_to_taken_name_is_409(db_session):
     create_account_with_opening_valuation(
         db_session, name="Chequing", created_on=EARLIER, type="Chequing",
@@ -334,8 +374,136 @@ def test_transaction_dated_on_or_before_a_check_gets_a_note(db_session):
         app.dependency_overrides.clear()
 
     assert resp.status_code == 201
-    assert len(resp.json()["predates_check_notes"]) == 1
-    assert "check on Chequing" in resp.json()["predates_check_notes"][0]
+    assert len(resp.json()["notes"]) == 1
+    assert "check on Chequing" in resp.json()["notes"][0]
+
+
+def test_wallet_spending_past_its_credit_limit_warns_and_still_saves(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Wallet", created_on=EARLIER, type="Cash",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=100_00,
+    )
+    account.credit_limit_cents = 0
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            "/api/transactions",
+            json={
+                "date": LATER.isoformat(),
+                "memo": None,
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -200_00}],
+                "category_lines": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201  # a warning, never a block, on the recording surface
+    assert any("credit limit" in note for note in resp.json()["notes"])
+    assert account_balance_cents(db_session, account.id) == -100_00
+
+
+def test_card_save_past_its_limit_warns(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=EARLIER, type="Credit card",
+        on_budget=True, on_budget_floor_cents=-500_00, opening_balance_cents=-400_00,
+    )
+    account.credit_limit_cents = 500_00
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            "/api/transactions",
+            json={
+                "date": LATER.isoformat(),
+                "memo": None,
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -200_00}],
+                "category_lines": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201
+    assert any("credit limit" in note for note in resp.json()["notes"])
+
+
+def test_null_credit_limit_stays_silent(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=EARLIER, type="Credit card",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=-100_00,
+    )
+    db_session.flush()
+    assert account.credit_limit_cents is None
+
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            "/api/transactions",
+            json={
+                "date": LATER.isoformat(),
+                "memo": None,
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -900_00}],
+                "category_lines": [],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 201
+    assert resp.json()["notes"] == []
+
+
+def test_backfilling_an_older_transaction_shows_a_breach_on_the_account_page_with_no_save_involved(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=EARLIER, type="Credit card",
+        on_budget=True, on_budget_floor_cents=-100_00, opening_balance_cents=-50_00,
+    )
+    account.credit_limit_cents = 100_00
+    db_session.flush()
+
+    later_date = LATER
+    client = _client(db_session)
+    try:
+        client.post(
+            "/api/transactions",
+            json={
+                "date": later_date.isoformat(),
+                "memo": None,
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -40_00}],
+                "category_lines": [],
+            },
+        )
+        # Backfilled between the opening and the later transaction — on its own date the
+        # balance doesn't breach, so the save itself carries no credit-limit note.
+        backfill_date = datetime.date(2026, 3, 5)
+        backfill_resp = client.post(
+            "/api/transactions",
+            json={
+                "date": backfill_date.isoformat(),
+                "memo": None,
+                "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": -20_00}],
+                "category_lines": [],
+            },
+        )
+        listing = client.get("/api/accounts")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert backfill_resp.status_code == 201
+    assert not any("credit limit" in note for note in backfill_resp.json()["notes"])
+
+    card = next(a for a in listing.json() if a["id"] == account.id)
+    assert card["balance_cents"] == -110_00  # -50 - 40 - 20, past the -100 limit
+    assert any("credit limit" in note for note in card["notes"])
 
 
 def test_post_payee_creates_it_and_rejects_duplicate_name(db_session):
