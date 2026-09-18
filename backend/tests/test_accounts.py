@@ -10,7 +10,6 @@ from app.services.accounts import (
     account_balance_cents,
     create_account_with_opening_valuation,
     on_budget_cents,
-    tracked_debt_cents,
     update_account,
 )
 
@@ -141,19 +140,19 @@ def test_renaming_to_its_own_current_name_succeeds(db_session):
 
 
 @pytest.mark.parametrize(
-    "balance_cents, floor_cents, expected_on_budget, expected_tracked_debt",
+    "balance_cents, floor_cents, expected_on_budget",
     [
-        (0, 0, 0, 0),
+        (0, 0, 0),
         # Savings, no floor.
-        (10_000_00, 0, 10_000_00, 0),
+        (10_000_00, 0, 10_000_00),
         # Chequing with a $500 overdraft floor, balance within it.
-        (-200_00, -500_00, 300_00, 0),
-        # Credit card, $1,000 of budgetable credit: balance -250 -> 750 on-budget, no tracked debt.
-        (-250_00, -1_000_00, 750_00, 0),
-        # Same card past the floor: balance -1,500 -> 0 on-budget, 500 tracked debt.
-        (-1_500_00, -1_000_00, 0, -500_00),
+        (-200_00, -500_00, 300_00),
+        # Credit card, $1,000 of budgetable credit: balance -250 -> 750 on-budget.
+        (-250_00, -1_000_00, 750_00),
+        # Same card past the floor: unclamped, on-budget money goes negative — no separate
+        # "tracked debt" figure (DESIGN.md § On-budget floor, "the floor does not clamp").
+        (-1_500_00, -1_000_00, -500_00),
     ],
 )
-def test_on_budget_floor_formula(balance_cents, floor_cents, expected_on_budget, expected_tracked_debt):
+def test_on_budget_floor_formula(balance_cents, floor_cents, expected_on_budget):
     assert on_budget_cents(balance_cents, floor_cents) == expected_on_budget
-    assert tracked_debt_cents(balance_cents, floor_cents) == expected_tracked_debt

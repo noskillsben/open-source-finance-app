@@ -175,6 +175,11 @@ export default function Accounts({ pickerDate }) {
                           ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
                       </div>
                     )}
+                    {a.on_budget && a.balance_cents < a.on_budget_floor_cents && (
+                      <div className="text-xs text-bad">
+                        below your floor by {formatCents(a.on_budget_floor_cents - a.balance_cents)}
+                      </div>
+                    )}
                   </td>
                   <td className="py-1">{a.type}</td>
                   <td className="py-1">{a.on_budget ? 'On-budget' : 'Tracking'}</td>

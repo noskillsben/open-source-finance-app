@@ -4,9 +4,9 @@ one thing the app refuses: category lines that don't sum to the budget movement.
 import datetime
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select
 
-from app.models import Category, Transaction, Valuation
+from app.models import AccountLine, Category, Transaction, Valuation
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import TransactionError, write_transaction
 
@@ -74,10 +74,13 @@ def test_pay_the_card_above_floor(db_session):
     assert lines[card.id] == 300_00
 
 
-def test_pay_the_card_eating_tracked_debt_first(db_session):
+def test_pay_the_card_below_its_floor_is_a_plain_transfer(db_session):
+    """DESIGN.md § Money crossing the budget boundary: the floor is not a second boundary,
+    so paying a card that is below or heading below its floor is ordinary on-budget movement
+    on both legs — there is no separate "tracked debt" slice to eat first.
+    """
     chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
     card = make_account(db_session, "Card", type="Credit card", floor=-1_000_00, opening_balance=-2_000_00)
-    debt_payments = make_category(db_session, "Debt payments")
 
     txn = write_transaction(
         db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
@@ -85,12 +88,97 @@ def test_pay_the_card_eating_tracked_debt_first(db_session):
             {"account_id": chequing.id, "cents": -300_00},
             {"account_id": card.id, "cents": 300_00},
         ],
-        category_lines=[{"category_id": debt_payments.id, "cents": -300_00}],
+        category_lines=[],
     )
 
     lines = {line.account_id: line.budget_cents for line in txn.account_lines}
     assert lines[chequing.id] == -300_00
-    assert lines[card.id] == 0  # all below floor: tracked debt, not on-budget
+    assert lines[card.id] == 300_00  # fully on-budget, whether above or below the floor
+
+
+def test_groceries_on_debit_passing_the_floor_saves_with_its_full_category_line(db_session):
+    """DESIGN.md § On-budget floor, worked example: Chequing at $100 with floor 0, a -$150
+    grocery run. The floor does not clamp, so this used to be refused; it now saves with the
+    full -150 category line.
+    """
+    chequing = make_account(db_session, "Chequing", opening_balance=100_00)
+    groceries = make_category(db_session, "Groceries")
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -150_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -150_00}],
+    )
+
+    assert txn.account_lines[0].budget_cents == -150_00
+    assert account_balance_cents(db_session, chequing.id) == -50_00
+
+
+def test_further_purchase_on_an_already_past_floor_account_saves(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=-50_00)
+    groceries = make_category(db_session, "Groceries")
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -25_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -25_00}],
+    )
+
+    assert txn.account_lines[0].budget_cents == -25_00
+    assert account_balance_cents(db_session, chequing.id) == -75_00
+
+
+def test_deposit_into_an_overdrawn_account_produces_budget_movement(db_session):
+    """DESIGN.md § On-budget floor: a deposit into an overdrawn account has to register real
+    budget movement, not zero — the clamp used to make this money vanish from the budget.
+    """
+    chequing = make_account(db_session, "Chequing", opening_balance=-200_00)
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": 80_00}],
+        category_lines=[],
+    )
+
+    assert txn.account_lines[0].budget_cents == 80_00
+
+
+def test_sum_of_budget_cents_equals_nominal_balance_of_on_budget_accounts(db_session):
+    """DESIGN.md § Transactions → Invariant: `Σ budget_cents` over every line is exactly the
+    nominal balance of the on-budget accounts — checked here across a mix of above- and
+    below-floor activity and a tracking account, which must contribute nothing.
+    """
+    chequing = make_account(db_session, "Chequing", opening_balance=100_00)
+    card = make_account(db_session, "Card", type="Credit card", floor=-1_000_00, opening_balance=-200_00)
+    car_loan = make_account(db_session, "Car loan", type="Loan", on_budget=False, opening_balance=-5_000_00)
+    groceries = make_category(db_session, "Groceries")
+
+    write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -150_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -150_00}],
+    )
+    write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": card.id, "cents": -900_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -900_00}],
+    )
+    write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": car_loan.id, "cents": -100_00}],
+        category_lines=[],
+    )
+    db_session.flush()
+
+    total_budget_cents = db_session.scalar(
+        select(func.sum(AccountLine.budget_cents))
+        .join(Transaction, AccountLine.transaction_id == Transaction.id)
+        .where(AccountLine.account_id.in_([chequing.id, card.id]))
+    )
+    nominal_on_budget_balance = account_balance_cents(db_session, chequing.id) + account_balance_cents(
+        db_session, card.id
+    )
+    assert total_budget_cents == nominal_on_budget_balance
 
 
 def test_transfer_chequing_to_savings(db_session):

@@ -77,6 +77,9 @@ def test_category_lines_that_dont_sum_to_the_budget_movement_are_flagged(db_sess
 
 
 def test_settings_drift_is_flagged_and_re_save_clears_it(db_session):
+    """DESIGN.md § Settings never rewrite history: `budget_cents` no longer reads the floor
+    at all, so only a real change to an account's budget side can produce drift.
+    """
     card = make_account(db_session, "Card", type="Credit card", floor=-1_000_00, opening_balance=0)
     txn = write_transaction(
         db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
@@ -84,18 +87,18 @@ def test_settings_drift_is_flagged_and_re_save_clears_it(db_session):
         category_lines=[],
     )
     db_session.flush()
-    assert txn.account_lines[0].budget_cents == -100_00  # fully on-budget under the old floor
+    assert txn.account_lines[0].budget_cents == -100_00  # fully on-budget while the card was on-budget
     findings_before = [f for f in find_integrity_issues(db_session) if f.transaction_id == txn.id]
     assert findings_before == []
 
-    card.on_budget_floor_cents = 0  # tighten the floor after the fact
+    card.on_budget = False  # the card became tracking-only after the fact
     db_session.flush()
 
     findings = [f for f in find_integrity_issues(db_session) if f.transaction_id == txn.id]
     assert len(findings) == 1
     assert findings[0].kind == "settings_drift"
     assert findings[0].stored_cents == -100_00  # what's on the row
-    assert findings[0].expected_cents == 0  # what today's floor would compute
+    assert findings[0].expected_cents == 0  # what today's budget side would compute
 
     client = _client(db_session)
     try:
@@ -107,6 +110,33 @@ def test_settings_drift_is_flagged_and_re_save_clears_it(db_session):
     assert resp.json()["account_lines"][0]["budget_cents"] == 0
     findings_after = [f for f in find_integrity_issues(db_session) if f.transaction_id == txn.id]
     assert findings_after == []
+
+
+def test_inserting_an_earlier_transaction_on_a_floored_account_produces_no_settings_drift(db_session):
+    """DESIGN.md § Settings never rewrite history: `budget_cents` is a pure function of the
+    line and the account's on-budget flag, never of a running balance — so writing an earlier
+    or same-day transaction on a floored account can't make a later, unrelated line's
+    `budget_cents` look wrong.
+    """
+    card = make_account(db_session, "Card", type="Credit card", floor=-1_000_00, opening_balance=-900_00)
+    later_txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": card.id, "cents": -200_00}],
+        category_lines=[],
+    )
+    db_session.flush()
+    assert later_txn.account_lines[0].budget_cents == -200_00
+
+    earlier = TODAY - datetime.timedelta(days=1)
+    write_transaction(
+        db_session, transaction=None, txn_date=earlier, memo=None, payee_id=None,
+        account_lines=[{"account_id": card.id, "cents": -50_00}],
+        category_lines=[],
+    )
+    db_session.flush()
+
+    findings = [f for f in find_integrity_issues(db_session) if f.transaction_id == later_txn.id]
+    assert findings == []
 
 
 def test_integrity_check_route_lists_findings(db_session):

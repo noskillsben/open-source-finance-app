@@ -10,14 +10,14 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Accounts
 
-- Add an account: give it a name, a type (Cash, Chequing, Savings, Credit card, Line of credit, Mortgage, Payment plan, Loan, Investment, or Asset), whether it's on-budget or tracking, an on-budget floor (for overdraft or budgeting with credit), and an opening balance dated whenever you like. It shows up right away in the account list with its type, side, and balance.
+- Add an account: give it a name, a type (Cash, Chequing, Savings, Credit card, Line of credit, Mortgage, Payment plan, Loan, Investment, or Asset), whether it's on-budget or tracking, an on-budget floor (for overdraft or budgeting with credit), and an opening balance dated whenever you like. It shows up right away in the account list with its type, side, and balance. An on-budget account that's below its floor shows *below your floor by $X.XX* under its name.
 - Edit an account: click it in the account list to change its name, type, on-budget/tracking side, or floor, and save. Only transactions recorded after the change use the new setting — nothing already recorded is touched. Renaming to a name already in use is refused.
 
 ## Categories and goals
 
 ## Recording money
 
-- Record a transaction: give it a date and a memo, then list which accounts it touched (signed amounts) and which categories it was for (signed amounts). Category lines can be left off entirely — the money just arrives unassigned. The app only refuses to save when the category lines don't add up to what the account lines moved on-budget; everything else is recorded as entered. Add a category by name from the same screen.
+- Record a transaction: give it a date and a memo, then list which accounts it touched (signed amounts) and which categories it was for (signed amounts). Category lines can be left off entirely — the money just arrives unassigned. The app only refuses to save when the category lines don't add up to what the account lines moved on-budget; everything else is recorded as entered, including spending that takes an account below its on-budget floor. Add a category by name from the same screen.
 - Pick a payee for a transaction — who it went to or came from — by searching for it in a searchable list, or leave it blank if you don't know. If the payee doesn't exist yet, add it by name right from the same box.
 - Fix a mistake: click any transaction in the list to open it in the same form, change anything, and save — every balance shown for every date reflects the correction right away. Delete it from the same form if it shouldn't exist at all (you'll be asked to confirm). The one line you can't delete this way is an account's opening-balance adjustment; that's fixed with a balance check or backfill instead.
 
@@ -31,6 +31,6 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Integrity check
 
-- Open the integrity check page any time to see any transaction whose category lines don't add up, or whose on-budget amount would come out differently if it were saved again under an account's current floor. Nothing runs in the background and nothing is dev-only — it's a page like any other. Fix one row at a time with its "Re-save" button, which writes the transaction again through the normal save path; there's no "fix everything" button on purpose.
+- Open the integrity check page any time to see any transaction whose category lines don't add up, or whose on-budget amount would come out differently if it were saved again under an account's current on-budget/tracking side. Nothing runs in the background and nothing is dev-only — it's a page like any other. Fix one row at a time with its "Re-save" button, which writes the transaction again through the normal save path; there's no "fix everything" button on purpose.
 
 ## Reports
