@@ -10,7 +10,8 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import get_session
 from app.main import app
-from app.models import Account, Category
+from app.models import Account, Category, Payee
+from app.seed import guard_not_me
 from app.services.accounts import (
     account_balance_cents,
     account_latest_ledger_date,
@@ -18,6 +19,7 @@ from app.services.accounts import (
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive
 from app.services.categories import build_category_archivable
+from app.services.payees import payee_latest_ledger_date
 from app.services.transactions import write_transaction
 
 EARLIER = datetime.date(2026, 1, 1)
@@ -425,3 +427,83 @@ def test_categories_with_no_as_of_only_excludes_archived_rows(db_session):
         app.dependency_overrides.clear()
 
     assert any(c["id"] == future_category.id for c in resp.json())
+
+
+def make_payee(db_session, name, *, created_on=EARLIER):
+    payee = Payee(name=name, created_on=created_on)
+    db_session.add(payee)
+    db_session.flush()
+    return payee
+
+
+def test_post_archive_and_unarchive_payee_round_trip(db_session):
+    payee = make_payee(db_session, "Walmart")
+
+    client = _client(db_session)
+    try:
+        archived = client.post(f"/api/payees/{payee.id}/archive", json={"archived_on": LATER.isoformat()})
+        listed_after_archive = client.get("/api/payees")
+        unarchived = client.post(f"/api/payees/{payee.id}/unarchive")
+        listed_after_unarchive = client.get("/api/payees")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert archived.status_code == 200
+    assert archived.json()["archived_on"] == LATER.isoformat()
+    assert all(p["id"] != payee.id for p in listed_after_archive.json())
+
+    assert unarchived.status_code == 200
+    assert unarchived.json()["archived_on"] is None
+    assert any(p["id"] == payee.id for p in listed_after_unarchive.json())
+
+
+def test_payee_dated_after_as_of_is_excluded(db_session):
+    payee = make_payee(db_session, "Walmart", created_on=EARLIER)
+
+    client = _client(db_session)
+    try:
+        resp = client.get(f"/api/payees?as_of={BEFORE_CREATED.isoformat()}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all(p["id"] != payee.id for p in resp.json())
+
+
+def test_archive_refused_on_or_before_a_ledger_row_referencing_the_payee(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    payee = make_payee(db_session, "Walmart")
+    write_transaction(
+        db_session, transaction=None, txn_date=LATER, memo=None, payee_id=payee.id,
+        account_lines=[{"account_id": account.id, "cents": -80_00}],
+        category_lines=[],
+    )
+    db_session.flush()
+
+    target = Archivable(entity=payee, latest_ledger_date=payee_latest_ledger_date(db_session, payee.id))
+    with pytest.raises(ArchiveError):
+        archive(target, LATER)
+
+
+def test_post_archive_me_is_400(db_session):
+    me = make_payee(db_session, "Me", created_on=datetime.date.min)
+
+    client = _client(db_session)
+    try:
+        resp = client.post(f"/api/payees/{me.id}/archive", json={"archived_on": LATER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 400
+
+
+def test_guard_not_me_raises_for_me_and_not_for_an_ordinary_payee(db_session):
+    me = make_payee(db_session, "Me", created_on=datetime.date.min)
+    ordinary = make_payee(db_session, "Walmart")
+
+    with pytest.raises(ArchiveError):
+        guard_not_me(me)
+
+    guard_not_me(ordinary)  # does not raise

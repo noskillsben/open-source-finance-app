@@ -12,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Payee
+from app.services.archiving import ArchiveError
 
 # Me must be valid on every picker date, including transactions backdated before the
 # container's first boot — created_on cannot be date.today() (CLAUDE.md: never date.today()
@@ -25,6 +26,21 @@ _SINCE_ALWAYS = date.min
 
 def _me_exists(session: Session) -> bool:
     return session.scalar(select(Payee.id).where(Payee.created_on == _SINCE_ALWAYS)) is not None
+
+
+def is_me(payee: Payee) -> bool:
+    """Identify the seeded Me the way this module does — by the sentinel `created_on`, not
+    by name, since Me can be renamed (DESIGN.md § Founding decisions → Minimal protected
+    data).
+    """
+    return payee.created_on == _SINCE_ALWAYS
+
+
+def guard_not_me(payee: Payee) -> None:
+    """Refuse to archive or rename Me — the only protected record in the app (DESIGN.md §
+    Founding decisions → Minimal protected data)."""
+    if is_me(payee):
+        raise ArchiveError("Me cannot be archived or renamed.")
 
 
 def _insert_me(session: Session) -> None:
