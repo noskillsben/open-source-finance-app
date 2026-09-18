@@ -74,6 +74,7 @@ class AccountOut(BaseModel):
     on_budget_floor_cents: int
     balance_cents: int
     checked_on: date | None = None
+    checked_valuation_id: int | None = None
     entries_added_since_check: int = 0
     notes: list[str] = []
 

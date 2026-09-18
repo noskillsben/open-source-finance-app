@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.db import get_session
-from app.models import Account, Category, Payee, Transaction
+from app.models import Account, Category, Payee, Transaction, Valuation
 from app.schemas import (
     AccountCreate,
     AccountLineOut,
@@ -28,6 +28,8 @@ from app.schemas import (
     TransactionOut,
 )
 from app.services.accounts import (
+    _opening_adjustment_transaction,
+    _opening_valuation,
     account_balance_cents,
     account_latest_ledger_date,
     create_account_with_opening_valuation,
@@ -65,6 +67,7 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
         type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
         balance_cents=balance_cents,
         checked_on=valuation.date if valuation is not None else None,
+        checked_valuation_id=valuation.id if valuation is not None else None,
         entries_added_since_check=(
             entries_added_since_check(session, account.id, valuation) if valuation is not None else 0
         ),
@@ -408,11 +411,35 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
     if transaction is None:
         raise HTTPException(status_code=404, detail=f"No transaction with id {transaction_id}.")
     if transaction.valuation_id is not None:
+        account = transaction.valuation.account
+        if transaction is _opening_adjustment_transaction(session, account):
+            raise HTTPException(
+                status_code=400,
+                detail="this is the account's opening-balance adjustment; fix it with a balance check or backfill, not by hand",
+            )
+    session.delete(transaction)
+    session.flush()
+
+
+@app.delete("/api/valuations/{valuation_id}", status_code=204)
+def delete_valuation(valuation_id: int, session: Session = Depends(get_session)) -> None:
+    """DESIGN.md § Balance checks — "Nothing is locked": a valuation and its adjustment (if
+    any) are deleted together, one write. The opening valuation is the one exception — it's
+    what makes the account's start date true, and is corrected by backfilling instead.
+    """
+    valuation = session.get(Valuation, valuation_id)
+    if valuation is None:
+        raise HTTPException(status_code=404, detail=f"No valuation with id {valuation_id}.")
+    account = valuation.account
+    if valuation is _opening_valuation(session, account):
         raise HTTPException(
             status_code=400,
-            detail="this is the account's opening-balance adjustment; fix it with a balance check or backfill, not by hand",
+            detail="this is the account's opening valuation; fix it by backfilling instead",
         )
-    session.delete(transaction)
+    adjustment = session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
+    if adjustment is not None:
+        session.delete(adjustment)
+    session.delete(valuation)
     session.flush()
 
 

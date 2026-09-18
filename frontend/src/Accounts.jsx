@@ -32,6 +32,7 @@ export default function Accounts({ pickerDate }) {
   const [checkForm, setCheckForm] = useState(() => emptyCheckForm(pickerDate))
   const [checkError, setCheckError] = useState(null)
   const [checkResult, setCheckResult] = useState(null)
+  const [undoError, setUndoError] = useState(null)
 
   function refresh() {
     api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
@@ -109,6 +110,17 @@ export default function Accounts({ pickerDate }) {
     }
   }
 
+  async function undoCheck(e, account) {
+    e.stopPropagation()
+    setUndoError(null)
+    try {
+      await api.valuations.remove(account.checked_valuation_id)
+      refresh()
+    } catch (err) {
+      setUndoError(err.message)
+    }
+  }
+
   async function submit(e) {
     e.preventDefault()
     setFormError(null)
@@ -150,6 +162,7 @@ export default function Accounts({ pickerDate }) {
 
       <section className="rounded-lg bg-ink-soft p-4 space-y-2">
         {error && <p className="text-bad">Could not reach the backend: {error}</p>}
+        {undoError && <p className="text-bad">{undoError}</p>}
         {!error && !accounts && <p>Loading…</p>}
         {accounts && accounts.length === 0 && <p className="text-paper-soft">No accounts yet.</p>}
         {accounts && accounts.length > 0 && (
@@ -173,6 +186,14 @@ export default function Accounts({ pickerDate }) {
                         {VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'} {formatDate(a.checked_on)}
                         {a.entries_added_since_check > 0 &&
                           ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
+                        {' — '}
+                        <button
+                          type="button"
+                          className="text-accent underline"
+                          onClick={(e) => undoCheck(e, a)}
+                        >
+                          Undo check
+                        </button>
                       </div>
                     )}
                     {a.on_budget && a.balance_cents < a.on_budget_floor_cents && (

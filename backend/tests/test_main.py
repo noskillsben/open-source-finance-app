@@ -5,12 +5,14 @@ checks the `as_of` query param actually reaches it.
 import datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.db import get_session
 from app.main import app
-from app.models import AccountLine, Category, Payee, Transaction
+from app.models import AccountLine, Category, Payee, Transaction, Valuation
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import write_transaction
+from app.services.valuations import check_balance
 
 EARLIER = datetime.date(2026, 3, 1)
 LATER = datetime.date(2026, 3, 15)
@@ -578,4 +580,112 @@ def test_edit_still_enforces_category_lines_must_sum_to_budget_movement(db_sessi
     finally:
         app.dependency_overrides.clear()
 
+
+def test_delete_balance_checks_own_adjustment_via_transaction_route_now_succeeds(db_session):
+    """The old guard refused any transaction with a `valuation_id`, so a balance-check
+    adjustment (not the opening one) could never be deleted. Narrowed to the opening
+    adjustment specifically (DESIGN.md § Balance checks — "Nothing is locked").
+    """
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+    _, adjustment, diff = check_balance(
+        db_session, account_id=account.id, check_date=LATER,
+        stated_balance_cents=520_00, category_id=None,
+    )
+    db_session.flush()
+    assert diff == 20_00
+
+    client = _client(db_session)
+    try:
+        resp = client.delete(f"/api/transactions/{adjustment.id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 204
+    assert account_balance_cents(db_session, account.id, as_of=LATER) == 500_00
+
+
+def test_delete_valuation_removes_it_and_its_adjustment_together(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+    balance_before_check = account_balance_cents(db_session, account.id)
+
+    valuation, adjustment, diff = check_balance(
+        db_session, account_id=account.id, check_date=LATER,
+        stated_balance_cents=520_00, category_id=None,
+    )
+    db_session.flush()
+    assert diff == 20_00
+
+    client = _client(db_session)
+    try:
+        resp = client.delete(f"/api/valuations/{valuation.id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 204
+    assert db_session.get(Valuation, valuation.id) is None
+    assert db_session.get(Transaction, adjustment.id) is None
+    assert account_balance_cents(db_session, account.id) == balance_before_check
+
+
+def test_delete_valuation_with_no_adjustment_deletes_cleanly(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+
+    valuation, adjustment, diff = check_balance(
+        db_session, account_id=account.id, check_date=LATER,
+        stated_balance_cents=500_00, category_id=None,
+    )
+    db_session.flush()
+    assert diff == 0
+    assert adjustment is None
+
+    client = _client(db_session)
+    try:
+        resp = client.delete(f"/api/valuations/{valuation.id}")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 204
+    assert db_session.get(Valuation, valuation.id) is None
+    assert account_balance_cents(db_session, account.id) == 500_00
+
+
+def test_delete_opening_valuation_is_refused(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+    opening_valuation = db_session.scalar(select(Valuation).where(Valuation.account_id == account.id))
+
+    client = _client(db_session)
+    try:
+        resp = client.delete(f"/api/valuations/{opening_valuation.id}")
+    finally:
+        app.dependency_overrides.clear()
+
     assert resp.status_code == 400
+    assert "opening valuation" in resp.json()["detail"]
+    assert db_session.get(Valuation, opening_valuation.id) is not None
+    assert account_balance_cents(db_session, account.id) == 500_00
+
+
+def test_delete_missing_valuation_is_404(db_session):
+    client = _client(db_session)
+    try:
+        resp = client.delete("/api/valuations/999999")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 404
