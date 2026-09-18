@@ -1,84 +1,92 @@
-"""Proves `alembic upgrade head` is a clean no-op against a populated database, not an empty one
-(issue #15) — both broken migrations in the old app passed every empty-database test.
-
-Uses `app.db.SessionLocal` directly, with a real commit, rather than the rollback-wrapped
-`db_session` fixture: `alembic/env.py`'s `run_migrations_online()` opens its own connection
-(`engine_from_config(..., poolclass=NullPool)`), which under READ COMMITTED cannot see rows still
-sitting in another connection's uncommitted transaction. Only a real commit makes the inserted
-rows part of the populated database alembic's own connection sees — the fixture would leave
-`command.upgrade` running against what looks, from its side, like an empty database. Because the
-commit escapes the fixture's rollback-on-teardown, this test deletes what it created itself.
+"""The populated-database migration harness issue #15 promised and never delivered, and issue
+#66 built for real: for each revision, a fresh throwaway database is taken to that revision's
+`down_revision`, loaded with `fixtures/<revision>.sql` (raw SQL — the ORM models describe head
+and can't populate an older schema), upgraded to head, and checked that the data survived, that
+any backfill landed the values the revision promised, and that a second `upgrade head` is a
+no-op. `test_upgrade_head_is_a_noop_against_a_populated_database` (the old harness) is deleted:
+it ran `alembic upgrade head` against a database already at head, which is a no-op by
+definition and proved nothing.
 """
 import datetime
+from pathlib import Path
 
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import select
+import pytest
+from sqlalchemy import create_engine, text
+from sqlalchemy.orm import sessionmaker
 
-from app.db import SessionLocal
-from app.models import Account, Category, Transaction, Valuation
-from app.services.accounts import create_account_with_opening_valuation
-from app.services.transactions import write_transaction
+from app.models import Category, Transaction
+from conftest import migrate
 
-TODAY = datetime.date(2026, 3, 1)
+FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
-def test_upgrade_head_is_a_noop_against_a_populated_database():
-    session = SessionLocal()
-    ids = {"account": None, "category": None, "valuation": None, "opening_txn": None, "txn": None}
+def _assert_749e15077f93(session):
+    pass  # nothing existed before this revision; nothing to populate or check
+
+
+def _assert_769d6a847874(session):
+    from app.models import Account, Valuation
+
+    account = session.get(Account, 1)
+    assert account.name == "Chequing"
+    valuation = session.get(Valuation, 1)
+    assert valuation.balance_cents == 50000
+
+
+def _assert_208c0d25ef38(session):
+    txn = session.get(Transaction, 1)
+    assert txn.valuation_id is None  # the column this revision adds; nullable, untouched
+    assert txn.account_lines[0].cents == -8000
+    assert txn.category_lines[0].cents == -8000
+
+
+def _assert_ffe95c16a43c(session):
+    txn = session.get(Transaction, 1)
+    assert txn.payee_id is None  # the column this revision adds; nullable, untouched
+    assert txn.account_lines[0].cents == -8000
+
+
+def _assert_cfce036f3c04(session):
+    backfilled = session.get(Category, 1)
+    assert backfilled.created_on == datetime.date(2026, 1, 5)  # its category_line's transaction date
+    assert backfilled.archived_on is None
+
+    fallback = session.get(Category, 2)
+    assert fallback.created_on == fallback.created_at.date()  # no category_line -> created_at::date
+
+
+REVISIONS = [
+    {"revision": "749e15077f93", "down_revision": None, "assert_data": _assert_749e15077f93},
+    {"revision": "769d6a847874", "down_revision": "749e15077f93", "assert_data": _assert_769d6a847874},
+    {"revision": "208c0d25ef38", "down_revision": "769d6a847874", "assert_data": _assert_208c0d25ef38},
+    {"revision": "ffe95c16a43c", "down_revision": "208c0d25ef38", "assert_data": _assert_ffe95c16a43c},
+    {"revision": "cfce036f3c04", "down_revision": "ffe95c16a43c", "assert_data": _assert_cfce036f3c04},
+]
+
+
+def _load_fixture(connection, revision: str) -> None:
+    sql = (FIXTURES_DIR / f"{revision}.sql").read_text()
+    for statement in filter(None, (s.strip() for s in sql.split(";"))):
+        connection.execute(text(statement))
+
+
+@pytest.mark.parametrize("case", REVISIONS, ids=lambda c: c["revision"])
+def test_revision_survives_a_populated_database(throwaway_database, case):
+    url = throwaway_database
+    migrate(url, case["down_revision"] or "base")
+
+    engine = create_engine(url)
     try:
-        account = create_account_with_opening_valuation(
-            session, name="Chequing", created_on=TODAY, type="Chequing",
-            on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
-        )
-        ids["account"] = account.id
-        valuation = account.valuations[0]
-        ids["valuation"] = valuation.id
-        ids["opening_txn"] = session.execute(
-            select(Transaction.id).where(Transaction.valuation_id == valuation.id)
-        ).scalar_one()
+        with engine.begin() as connection:
+            _load_fixture(connection, case["revision"])
 
-        category = Category(name="Groceries", created_on=TODAY)
-        session.add(category)
-        session.flush()
-        ids["category"] = category.id
+        migrate(url, "head")
+        Session = sessionmaker(bind=engine)
+        with Session() as session:
+            case["assert_data"](session)
 
-        txn = write_transaction(
-            session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
-            account_lines=[{"account_id": account.id, "cents": -80_00}],
-            category_lines=[{"category_id": category.id, "cents": -80_00}],
-        )
-        ids["txn"] = txn.id
-        account_line_cents = txn.account_lines[0].cents
-        category_line_cents = txn.category_lines[0].cents
-        session.commit()
-
-        command.upgrade(Config("alembic.ini"), "head")
-
-        session.expire_all()
-        assert session.get(Account, ids["account"]).name == "Chequing"
-        assert session.get(Category, ids["category"]).name == "Groceries"
-        reloaded = session.get(Transaction, ids["txn"])
-        assert reloaded.account_lines[0].cents == account_line_cents
-        assert reloaded.category_lines[0].cents == category_line_cents
+        migrate(url, "head")  # second upgrade must be a no-op
+        with Session() as session:
+            case["assert_data"](session)
     finally:
-        session.rollback()
-        for key in ("txn", "opening_txn"):
-            if ids[key] is not None:
-                row = session.get(Transaction, ids[key])
-                if row is not None:
-                    session.delete(row)
-        if ids["valuation"] is not None:
-            row = session.get(Valuation, ids["valuation"])
-            if row is not None:
-                session.delete(row)
-        if ids["account"] is not None:
-            row = session.get(Account, ids["account"])
-            if row is not None:
-                session.delete(row)
-        if ids["category"] is not None:
-            row = session.get(Category, ids["category"])
-            if row is not None:
-                session.delete(row)
-        session.commit()
-        session.close()
+        engine.dispose()

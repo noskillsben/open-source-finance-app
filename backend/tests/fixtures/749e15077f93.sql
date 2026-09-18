@@ -1,0 +1,3 @@
+-- down_revision is None: at this point the database has no tables at all, so there is nothing
+-- to populate. This revision's own test still proves the empty-to-head path and the
+-- upgrade-head-twice no-op, which is why the harness runs it too.
