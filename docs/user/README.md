@@ -11,7 +11,8 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 ## Accounts
 
 - Add an account: give it a name, a type (Cash, Chequing, Savings, Credit card, Line of credit, Mortgage, Payment plan, Loan, Investment, or Asset), whether it's on-budget or tracking, an on-budget floor (for overdraft or budgeting with credit), and an opening balance dated whenever you like. It shows up right away in the account list with its type, side, and balance. An on-budget account that's below its floor shows *below your floor by $X.XX* under its name.
-- Edit an account: click it in the account list to change its name, type, on-budget/tracking side, or floor, and save. Only transactions recorded after the change use the new setting — nothing already recorded is touched. Renaming to a name already in use is refused.
+- Edit an account: click it in the account list to change its name, type, on-budget/tracking side, or floor, and save. Only transactions recorded after the change use the new setting — nothing already recorded is touched. Renaming to a name already in use is refused. If the account has a stated credit limit, the floor can't be set below it — you can't budget with credit the lender hasn't extended.
+- Credit limit: state one on the account form (0 for a wallet or chequing account with no overdraft, a dollar amount for a card, line of credit or loan; leave it blank if you don't know it). A balance that goes past it — a wallet spending more than it holds, a card past its limit — gets a warning, never a block: on the transaction that caused it, and standing on the account page for as long as the balance stays past it, even if a later edit or backfill is what pushed it there.
 
 ## Categories and goals
 

@@ -31,6 +31,7 @@ from app.services.accounts import (
     account_balance_cents,
     account_latest_ledger_date,
     create_account_with_opening_valuation,
+    credit_limit_note,
     update_account,
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
@@ -54,14 +55,20 @@ def health(session: Session = Depends(get_session)) -> Health:
 
 def _account_out(session: Session, account: Account, *, as_of: date | None = None) -> AccountOut:
     valuation = latest_valuation(session, account.id)
+    balance_cents = account_balance_cents(session, account.id, as_of=as_of)
+    notes = []
+    limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)
+    if limit_note is not None:
+        notes.append(f"{limit_note}.")
     return AccountOut(
         id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
         type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
-        balance_cents=account_balance_cents(session, account.id, as_of=as_of),
+        balance_cents=balance_cents,
         checked_on=valuation.date if valuation is not None else None,
         entries_added_since_check=(
             entries_added_since_check(session, account.id, valuation) if valuation is not None else 0
         ),
+        notes=notes,
     )
 
 
@@ -73,8 +80,21 @@ def list_accounts(as_of: date | None = None, session: Session = Depends(get_sess
     return [_account_out(session, a, as_of=as_of) for a in accounts]
 
 
+def _reject_floor_below_credit_limit(floor_cents: int, credit_limit_cents: int | None) -> None:
+    """DESIGN.md § On-budget floor: the floor may not be set below `-credit_limit_cents` where
+    that limit is known — you cannot budget with credit the lender has not extended. A settings
+    surface, so this one is a block, unlike the credit-limit warnings above.
+    """
+    if credit_limit_cents is not None and floor_cents < -credit_limit_cents:
+        raise HTTPException(
+            status_code=400,
+            detail=f"The on-budget floor can't be set below the credit limit of -{credit_limit_cents} cents.",
+        )
+
+
 @app.post("/api/accounts", response_model=AccountOut, status_code=201)
 def create_account(payload: AccountCreate, session: Session = Depends(get_session)) -> AccountOut:
+    _reject_floor_below_credit_limit(payload.on_budget_floor_cents, payload.terms.credit_limit_cents)
     try:
         account = create_account_with_opening_valuation(
             session,
@@ -101,7 +121,12 @@ def update_account_route(
     # "terms" wasn't sent means leave the account's existing terms alone — null means unknown,
     # never zero (DESIGN.md § Debt terms), and an edit that omits terms isn't the user saying
     # "I don't know these anymore."
-    terms = payload.terms.model_dump() if "terms" in payload.model_fields_set else {}
+    terms_sent = "terms" in payload.model_fields_set
+    terms = payload.terms.model_dump() if terms_sent else {}
+    effective_credit_limit_cents = (
+        payload.terms.credit_limit_cents if terms_sent else account.credit_limit_cents
+    )
+    _reject_floor_below_credit_limit(payload.on_budget_floor_cents, effective_credit_limit_cents)
     update_account(
         account,
         name=payload.name,
@@ -262,9 +287,11 @@ def _transaction_query():
     )
 
 
-def _predates_check_notes(session: Session, transaction: Transaction) -> list[str]:
-    """"This predates your <date> check" (DESIGN.md § Balance checks) — one note per account
-    this transaction touches whose latest check is on or after this transaction's date. The
+def _transaction_notes(session: Session, transaction: Transaction) -> list[str]:
+    """Advisory notes for a save: "This predates your <date> check" (DESIGN.md § Balance
+    checks) for each account whose latest check is on or after this transaction's date, and a
+    credit-limit note (DESIGN.md § Credit limit — the floor of reality) when the balance on
+    this transaction's own date, after this save, is past the account's credit limit. The
     check's own adjustment never notes itself.
     """
     notes = []
@@ -276,6 +303,10 @@ def _predates_check_notes(session: Session, transaction: Transaction) -> list[st
             and transaction.valuation_id != valuation.id
         ):
             notes.append(f"This predates your {valuation.date} check on {line.account.name}.")
+        balance_cents = account_balance_cents(session, line.account_id, as_of=transaction.date)
+        limit_note = credit_limit_note(balance_cents, line.account.credit_limit_cents)
+        if limit_note is not None:
+            notes.append(f"{limit_note} on {line.account.name}.")
     return notes
 
 
@@ -290,7 +321,7 @@ def _transaction_out(session: Session, t: Transaction) -> TransactionOut:
             CategoryLineOut(id=l.id, category_id=l.category_id, cents=l.cents, need_level=l.need_level)
             for l in t.category_lines
         ],
-        predates_check_notes=_predates_check_notes(session, t),
+        notes=_transaction_notes(session, t),
     )
 
 

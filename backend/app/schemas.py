@@ -75,6 +75,7 @@ class AccountOut(BaseModel):
     balance_cents: int
     checked_on: date | None = None
     entries_added_since_check: int = 0
+    notes: list[str] = []
 
     model_config = {"from_attributes": True}
 
@@ -166,7 +167,7 @@ class TransactionOut(BaseModel):
     valuation_id: int | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
-    predates_check_notes: list[str] = []
+    notes: list[str] = []
 
     model_config = {"from_attributes": True}
 
