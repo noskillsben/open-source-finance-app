@@ -8,7 +8,11 @@ from sqlalchemy import select
 
 from app.models import Account, AccountLine, Transaction, Valuation
 from app.data_steps import backfill_opening_adjustments
-from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
+from app.services.accounts import (
+    _opening_adjustment_transaction,
+    account_balance_cents,
+    create_account_with_opening_valuation,
+)
 
 TODAY = datetime.date(2026, 3, 1)
 
@@ -71,3 +75,24 @@ def test_backfill_is_a_no_op_on_a_second_run(db_session):
     all_lines = db_session.scalars(select(AccountLine).where(AccountLine.account_id == stale.id)).all()
     assert len(all_lines) == 1  # writing it twice would double the balance
     assert account_balance_cents(db_session, stale.id) == 1_000_00
+
+
+def test_backfill_step_and_opening_adjustment_transaction_agree_on_the_opening_valuation(db_session):
+    """Two valuations share `created_on` — a balance check dated the account's start, run
+    before this backfill step catches up. Both call sites must land on the same one: the
+    earliest by (date, id), not whichever the row happens to be dated `created_on` (issue #67).
+    """
+    stale = _account_with_only_a_valuation(db_session, "Old Chequing", balance_cents=1_000_00)
+    db_session.add(Valuation(account_id=stale.id, date=TODAY, balance_cents=1_000_00))
+    db_session.flush()
+
+    written = backfill_opening_adjustments(db_session)
+    db_session.flush()
+
+    assert written == 1  # only the true opening valuation gets an adjustment
+    opening_valuation = min(stale.valuations, key=lambda v: v.id)
+    txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == opening_valuation.id))
+    assert txn is not None
+
+    db_session.refresh(stale)
+    assert _opening_adjustment_transaction(db_session, stale).id == txn.id
