@@ -1,7 +1,9 @@
 """DESIGN.md § Balance checks — one table."""
 import datetime
 
-from app.models import Transaction
+from sqlalchemy import select
+
+from app.models import Transaction, Valuation
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import write_transaction
 from app.services.valuations import check_balance, entries_added_since_check, latest_valuation
@@ -105,3 +107,47 @@ def test_entries_added_since_check(db_session):
 
     assert entries_added_since_check(db_session, account.id, valuation) == 1
     assert latest_valuation(db_session, account.id).id == valuation.id
+
+
+def test_balance_check_on_opening_date_survives_a_later_backfill(db_session):
+    """A balance check dated on the account's created_on is a second valuation sharing that
+    date with the true opening valuation. Backfilling an earlier transaction must move only
+    the opening adjustment — the balance check's own valuation, adjustment and date stay put
+    (DESIGN.md § Opening balance and backfilling history).
+    """
+    account = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    opening_valuation = db_session.scalar(select(Valuation).where(Valuation.account_id == account.id))
+    opening_txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == opening_valuation.id))
+
+    check_valuation, check_txn, diff = check_balance(
+        db_session, account_id=account.id, check_date=TODAY,
+        stated_balance_cents=1_020_00, category_id=None,
+    )
+    db_session.flush()
+    assert diff == 20_00
+    assert check_valuation.id != opening_valuation.id
+
+    backfill_date = TODAY - datetime.timedelta(days=5)
+    write_transaction(
+        db_session, transaction=None, txn_date=backfill_date, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -30_00}],
+        category_lines=[],
+    )
+    db_session.flush()
+
+    db_session.refresh(account)
+    db_session.refresh(opening_valuation)
+    db_session.refresh(opening_txn)
+    db_session.refresh(check_valuation)
+    db_session.refresh(check_txn)
+
+    assert account.created_on == backfill_date
+    assert opening_valuation.date == backfill_date
+    assert opening_txn.date == backfill_date
+    opening_line = next(line for line in opening_txn.account_lines if line.account_id == account.id)
+    assert opening_line.cents == 1_030_00  # 1,000 opening + 30 backfilled
+
+    assert check_valuation.date == TODAY  # untouched
+    assert check_valuation.balance_cents == 1_020_00  # untouched
+    assert check_txn.date == TODAY  # untouched
+    assert check_txn.account_lines[0].cents == 20_00  # untouched

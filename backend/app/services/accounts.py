@@ -9,14 +9,23 @@ from sqlalchemy.orm import Session
 from app.models import Account, AccountLine, Transaction, Valuation
 
 
+def _opening_valuation(session: Session, account: Account) -> Valuation | None:
+    """The account's opening valuation — its *earliest* (DESIGN.md § Opening balance and
+    backfilling history), not the one matching `created_on`: that date itself moves when a
+    transaction is backfilled, so matching on it can't tell the opening apart from a later
+    balance check dated the same day. `order_by(date, id)` is the one definition of "the
+    opening valuation," shared by every caller.
+    """
+    return session.scalar(
+        select(Valuation).where(Valuation.account_id == account.id).order_by(Valuation.date, Valuation.id)
+    )
+
+
 def _opening_adjustment_transaction(session: Session, account: Account) -> Transaction | None:
     """The transaction that made the ledger agree with this account's opening valuation
-    (DESIGN.md § Opening balance and backfilling history), found by the valuation dated on
-    the account's `created_on` — not any later balance check.
+    (DESIGN.md § Opening balance and backfilling history) — not any later balance check.
     """
-    valuation = session.scalar(
-        select(Valuation).where(Valuation.account_id == account.id, Valuation.date == account.created_on)
-    )
+    valuation = _opening_valuation(session, account)
     if valuation is None:
         return None
     return session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))

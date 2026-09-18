@@ -4,8 +4,8 @@ someone has to remember to run — see CLAUDE.md § Repo hygiene).
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Transaction, Valuation
-from app.services.accounts import opening_adjustment
+from app.models import Account, Transaction
+from app.services.accounts import _opening_valuation, opening_adjustment
 
 
 def backfill_opening_adjustments(session: Session) -> int:
@@ -18,9 +18,7 @@ def backfill_opening_adjustments(session: Session) -> int:
     written = 0
     accounts = session.scalars(select(Account)).all()
     for account in accounts:
-        opening = session.scalars(
-            select(Valuation).where(Valuation.account_id == account.id).order_by(Valuation.date, Valuation.id)
-        ).first()
+        opening = _opening_valuation(session, account)
         if opening is None:
             continue
 
