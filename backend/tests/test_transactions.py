@@ -6,7 +6,8 @@ import datetime
 import pytest
 from sqlalchemy import func, select
 
-from app.models import AccountLine, Category, Transaction, Valuation
+from app.models import AccountLine, Category, Payee, Transaction, Valuation
+from app.services.archiving import ArchiveError, Archivable, archive, visible_as_of
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import TransactionError, write_transaction
 
@@ -516,3 +517,96 @@ def test_category_name_unique_case_insensitively(db_session):
     make_category(db_session, "Groceries")
     with pytest.raises(IntegrityError):
         make_category(db_session, "groceries")
+
+
+def make_payee(db_session, name):
+    payee = Payee(name=name, created_on=TODAY)
+    db_session.add(payee)
+    db_session.flush()
+    return payee
+
+
+def visible_ids(db_session, model, as_of):
+    return set(db_session.scalars(select(model.id).where(visible_as_of(model, as_of))))
+
+
+def test_backdated_transaction_moves_category_and_payee_created_on_back(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    grocer = make_payee(db_session, "Grocer")
+    earlier = TODAY - datetime.timedelta(days=10)
+    assert groceries.id not in visible_ids(db_session, Category, earlier)
+
+    write_transaction(
+        db_session, transaction=None, txn_date=earlier, memo=None, payee_id=grocer.id,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    assert groceries.created_on == earlier
+    assert grocer.created_on == earlier
+    assert groceries.id in visible_ids(db_session, Category, earlier)
+    assert grocer.id in visible_ids(db_session, Payee, earlier)
+
+
+def test_transaction_on_or_after_created_on_changes_nothing(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    grocer = make_payee(db_session, "Grocer")
+
+    for day in (TODAY, TODAY + datetime.timedelta(days=5)):
+        write_transaction(
+            db_session, transaction=None, txn_date=day, memo=None, payee_id=grocer.id,
+            account_lines=[{"account_id": chequing.id, "cents": -10_00}],
+            category_lines=[{"category_id": groceries.id, "cents": -10_00}],
+        )
+    db_session.flush()
+
+    assert groceries.created_on == TODAY
+    assert grocer.created_on == TODAY
+
+
+def test_editing_date_earlier_moves_created_on_again(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    grocer = make_payee(db_session, "Grocer")
+    first = TODAY - datetime.timedelta(days=5)
+    further = TODAY - datetime.timedelta(days=30)
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=first, memo=None, payee_id=grocer.id,
+        account_lines=[{"account_id": chequing.id, "cents": -10_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -10_00}],
+    )
+    db_session.flush()
+    assert groceries.created_on == first
+
+    write_transaction(
+        db_session, transaction=txn, txn_date=further, memo=None, payee_id=grocer.id,
+        account_lines=[{"account_id": chequing.id, "cents": -10_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -10_00}],
+    )
+    db_session.flush()
+
+    assert groceries.created_on == further
+    assert grocer.created_on == further
+
+
+def test_archive_bound_still_holds_after_backdating(db_session):
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    earlier = TODAY - datetime.timedelta(days=10)
+
+    write_transaction(
+        db_session, transaction=None, txn_date=earlier, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+
+    target = Archivable(entity=groceries, latest_ledger_date=earlier)
+    with pytest.raises(ArchiveError):
+        archive(target, earlier)
+    archive(target, earlier + datetime.timedelta(days=1))
+    assert groceries.archived_on == earlier + datetime.timedelta(days=1)
