@@ -3,8 +3,11 @@ import datetime
 
 import pytest
 from sqlalchemy import select
+from fastapi.testclient import TestClient
 from sqlalchemy.exc import IntegrityError
 
+from app.db import get_session
+from app.main import app
 from app.models import Account, Transaction
 from app.services.accounts import (
     account_balance_cents,
@@ -175,3 +178,55 @@ def test_credit_limit_note_with_zero_limit_warns_below_zero():
     # 0 means no credit, not unknown (DESIGN.md § Credit limit — the floor of reality).
     assert credit_limit_note(-1_00, 0) is not None
     assert credit_limit_note(0, 0) is None
+
+
+def _client(db_session):
+    def override():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override
+    return TestClient(app)
+
+
+def _account_body(**terms):
+    return {
+        "name": "Card", "type": "Credit card", "on_budget": True, "on_budget_floor_cents": 0,
+        "created_on": "2026-03-01", "opening_balance_cents": 0, "terms": terms,
+    }
+
+
+def test_interest_rate_round_trips_as_an_exact_string_through_create_list_and_update(db_session):
+    client = _client(db_session)
+    try:
+        created = client.post("/api/accounts", json=_account_body(annual_rate=5.99, deferred_rate="0"))
+        account_id = created.json()["id"]
+        listed = client.get("/api/accounts")
+        body = _account_body(annual_rate=5.99)
+        updated = client.put(
+            f"/api/accounts/{account_id}",
+            json={k: v for k, v in body.items() if k not in ("created_on", "opening_balance_cents")},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert created.status_code == 201
+    assert created.json()["terms"]["annual_rate"] == "5.9900"  # a string, not 5.99 or 5.989999...
+    assert created.json()["terms"]["deferred_rate"] == "0.0000"  # a stated 0 stays 0
+    listed_terms = next(a for a in listed.json() if a["id"] == account_id)["terms"]
+    assert listed_terms["annual_rate"] == "5.9900"
+    assert updated.status_code == 200
+    assert updated.json()["terms"]["annual_rate"] == "5.9900"
+    assert updated.json()["terms"]["deferred_rate"] is None  # update overwrote terms; unstated is unknown
+
+
+def test_null_interest_rate_stays_null_through_the_api(db_session):
+    client = _client(db_session)
+    try:
+        created = client.post("/api/accounts", json=_account_body())
+        listed = client.get("/api/accounts")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert created.json()["terms"]["annual_rate"] is None
+    assert created.json()["terms"]["deferred_rate"] is None
+    assert listed.json()[0]["terms"]["annual_rate"] is None

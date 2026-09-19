@@ -1,7 +1,8 @@
 """Pydantic models — the API shape. Never persisted."""
 from datetime import date
+from decimal import Decimal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from app.account_types import ACCOUNT_TYPES
 
@@ -16,7 +17,7 @@ class DebtTerms(BaseModel):
     """All fields nullable — null means unknown, never zero (DESIGN.md § Debt terms)."""
 
     credit_limit_cents: int | None = None
-    annual_rate: float | None = None
+    annual_rate: Decimal | None = None
     compounding_rule: str | None = None
     statement_close_day: int | None = None
     grace_days: int | None = None
@@ -24,8 +25,17 @@ class DebtTerms(BaseModel):
     amortization_end: date | None = None
     prepayment_model: str | None = None
     promo_expiry_date: date | None = None
-    deferred_rate: float | None = None
+    deferred_rate: Decimal | None = None
     minimum_payment_rule: str | None = None
+
+    @field_serializer("annual_rate", "deferred_rate")
+    def _rate_as_string(self, value: Decimal | None) -> str | None:
+        """Rates leave the API as exact strings at the column's four places (`"5.9900"`), never
+        a float. Rounding: half-even at four decimal places, matching `Numeric(9, 4)`.
+        """
+        if value is None:
+            return None
+        return format(value.quantize(Decimal("0.0001")), "f")
 
 
 class AccountCreate(BaseModel):
@@ -77,6 +87,7 @@ class AccountOut(BaseModel):
     checked_valuation_id: int | None = None
     entries_added_since_check: int = 0
     notes: list[str] = []
+    terms: DebtTerms = DebtTerms()
 
     model_config = {"from_attributes": True}
 
