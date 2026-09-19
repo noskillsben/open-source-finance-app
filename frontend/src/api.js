@@ -29,11 +29,11 @@ export const api = {
     remove: (id) => request(`/api/valuations/${id}`, { method: 'DELETE' }),
   },
   categories: {
-    list: () => request('/api/categories'),
+    list: (asOf) => request(asOf ? `/api/categories?as_of=${asOf}` : '/api/categories'),
     create: (category) => request('/api/categories', { method: 'POST', body: category }),
   },
   payees: {
-    list: () => request('/api/payees'),
+    list: (asOf) => request(asOf ? `/api/payees?as_of=${asOf}` : '/api/payees'),
     create: (payee) => request('/api/payees', { method: 'POST', body: payee }),
   },
   transactions: {
