@@ -29,6 +29,16 @@ def line_budget_cents(account: Account, cents: int) -> int:
     return cents if account.on_budget else 0
 
 
+def backdate_created_on(entity, txn_date: date) -> None:
+    """A row can't be invisible at the date of a ledger row that references it: if the entity
+    was created after `txn_date`, move its `created_on` back to it (DESIGN.md § General
+    concepts → Non-ledger rows are archived; the same silent move as an account's backfill,
+    minus the opening valuation, which categories and payees don't have).
+    """
+    if entity.created_on > txn_date:
+        entity.created_on = txn_date
+
+
 def write_transaction(
     session: Session,
     *,
@@ -51,7 +61,8 @@ def write_transaction(
     if not account_lines:
         raise TransactionError("A transaction needs at least one account line.")
 
-    if payee_id is not None and session.get(Payee, payee_id) is None:
+    payee = session.get(Payee, payee_id) if payee_id is not None else None
+    if payee_id is not None and payee is None:
         raise TransactionError(f"Unknown payee id: {payee_id}")
 
     exclude_id = transaction.id if transaction is not None else None
@@ -104,8 +115,8 @@ def write_transaction(
 
     if category_lines:
         category_ids = [line["category_id"] for line in category_lines]
-        categories = {c.id for c in session.query(Category).filter(Category.id.in_(category_ids)).all()}
-        missing_categories = set(category_ids) - categories
+        categories = {c.id: c for c in session.query(Category).filter(Category.id.in_(category_ids)).all()}
+        missing_categories = set(category_ids) - categories.keys()
         if missing_categories:
             raise TransactionError(f"Unknown category id(s): {sorted(missing_categories)}")
 
@@ -115,6 +126,11 @@ def write_transaction(
                 f"Category lines sum to {category_total} cents but the budget movement is "
                 f"{budget_movement} cents. They must match."
             )
+        for category in categories.values():
+            backdate_created_on(category, txn_date)
+
+    if payee is not None:
+        backdate_created_on(payee, txn_date)
 
     new_category_lines = [
         CategoryLine(category_id=line["category_id"], cents=line["cents"], need_level=line.get("need_level"))
