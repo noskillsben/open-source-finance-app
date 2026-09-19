@@ -20,6 +20,7 @@ from app.schemas import (
     CategoryCreate,
     CategoryLineOut,
     CategoryOut,
+    DebtTerms,
     Health,
     IntegrityFindingOut,
     PayeeCreate,
@@ -74,6 +75,7 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
             entries_added_since_check(session, account.id, valuation) if valuation is not None else 0
         ),
         notes=notes,
+        terms=DebtTerms.model_validate(account, from_attributes=True),
     )
 
 

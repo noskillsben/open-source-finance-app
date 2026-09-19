@@ -4,6 +4,7 @@ Tables arrive with the issues that build them, each as an Alembic revision.
 Import this module wherever Base.metadata must know every table (alembic/env.py does).
 """
 from datetime import date
+from decimal import Decimal
 
 from sqlalchemy import BigInteger, Date, ForeignKey, Index, Integer, Numeric, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -24,7 +25,7 @@ class Account(Base, Owned, NonLedger):
 
     # Debt terms (DESIGN.md § Debt terms) — all nullable, null means unknown, never zero.
     credit_limit_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    annual_rate: Mapped[float | None] = mapped_column(Numeric(9, 4), nullable=True)
+    annual_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 4), nullable=True)
     compounding_rule: Mapped[str | None] = mapped_column(String, nullable=True)
     statement_close_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     grace_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -32,7 +33,7 @@ class Account(Base, Owned, NonLedger):
     amortization_end: Mapped[date | None] = mapped_column(Date, nullable=True)
     prepayment_model: Mapped[str | None] = mapped_column(String, nullable=True)
     promo_expiry_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    deferred_rate: Mapped[float | None] = mapped_column(Numeric(9, 4), nullable=True)
+    deferred_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 4), nullable=True)
     minimum_payment_rule: Mapped[str | None] = mapped_column(String, nullable=True)
 
     valuations: Mapped[list["Valuation"]] = relationship(back_populates="account", order_by="Valuation.date")
