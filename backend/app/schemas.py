@@ -119,6 +119,8 @@ class PayeeCreate(BaseModel):
 class PayeeOut(BaseModel):
     id: int
     name: str
+    created_on: date
+    archived_on: date | None
 
     model_config = {"from_attributes": True}
 
