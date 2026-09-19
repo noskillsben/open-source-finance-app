@@ -1,19 +1,19 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
-import { formatCents, formatDate, parseCents, todayIso } from './utils/format.js'
+import { formatCents, formatDate, parseCents } from './utils/format.js'
 import PayeePicker from './PayeePicker.jsx'
 
 const emptyLine = { account_id: '', cents: '' }
 const emptyCategoryLine = { category_id: '', cents: '' }
 
-export default function Transactions() {
+export default function Transactions({ pickerDate }) {
   const [accounts, setAccounts] = useState(null)
   const [categories, setCategories] = useState(null)
   const [payees, setPayees] = useState(null)
   const [transactions, setTransactions] = useState(null)
   const [error, setError] = useState(null)
 
-  const [date, setDate] = useState('')
+  const [date, setDate] = useState(pickerDate)
   const [memo, setMemo] = useState('')
   const [payeeId, setPayeeId] = useState(null)
   const [accountLines, setAccountLines] = useState([{ ...emptyLine }])
@@ -25,18 +25,18 @@ export default function Transactions() {
 
   function refresh() {
     api.accounts.list().then(setAccounts).catch((e) => setError(e.message))
-    api.categories.list().then(setCategories).catch((e) => setError(e.message))
-    api.payees.list().then(setPayees).catch((e) => setError(e.message))
+    api.categories.list(pickerDate).then(setCategories).catch((e) => setError(e.message))
+    api.payees.list(pickerDate).then(setPayees).catch((e) => setError(e.message))
     api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
   }
 
   async function addPayee(name) {
-    const payee = await api.payees.create({ name, created_on: date || todayIso() })
+    const payee = await api.payees.create({ name, created_on: date })
     setPayees((current) => [...(current ?? []), payee].sort((a, b) => a.name.localeCompare(b.name)))
     return payee
   }
 
-  useEffect(refresh, [])
+  useEffect(refresh, [pickerDate])
 
   function updateAccountLine(i, field, value) {
     setAccountLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
@@ -47,7 +47,7 @@ export default function Transactions() {
 
   function resetForm() {
     setEditingId(null)
-    setDate('')
+    setDate(pickerDate)
     setMemo('')
     setPayeeId(null)
     setAccountLines([{ ...emptyLine }])
@@ -86,7 +86,7 @@ export default function Transactions() {
     e.preventDefault()
     if (!newCategoryName.trim()) return
     try {
-      await api.categories.create({ name: newCategoryName.trim(), created_on: date || todayIso() })
+      await api.categories.create({ name: newCategoryName.trim(), created_on: date })
       setNewCategoryName('')
       refresh()
     } catch (err) {

@@ -40,7 +40,7 @@ export default function App() {
       )}
 
       <Accounts pickerDate={pickerDate} />
-      <Transactions />
+      <Transactions pickerDate={pickerDate} />
       <IntegrityCheck />
     </div>
   )
