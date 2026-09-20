@@ -389,7 +389,7 @@ def _transaction_notes(session: Session, transaction: Transaction) -> list[str]:
     return notes
 
 
-def _transaction_out(session: Session, t: Transaction) -> TransactionOut:
+def _transaction_shape(t: Transaction, notes: list[str]) -> TransactionOut:
     return TransactionOut(
         id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id, valuation_id=t.valuation_id,
         account_lines=[
@@ -400,14 +400,20 @@ def _transaction_out(session: Session, t: Transaction) -> TransactionOut:
             CategoryLineOut(id=l.id, category_id=l.category_id, cents=l.cents, need_level=l.need_level)
             for l in t.category_lines
         ],
-        notes=_transaction_notes(session, t),
+        notes=notes,
     )
+
+
+def _transaction_out(session: Session, t: Transaction) -> TransactionOut:
+    return _transaction_shape(t, _transaction_notes(session, t))
 
 
 @app.get("/api/transactions", response_model=list[TransactionOut])
 def list_transactions(session: Session = Depends(get_session)) -> list[TransactionOut]:
     transactions = session.scalars(_transaction_query().order_by(Transaction.date, Transaction.id)).all()
-    return [_transaction_out(session, t) for t in transactions]
+    # Notes belong to the save response and the account page, never the historical list
+    # (each one costs per-line queries), so the list carries none.
+    return [_transaction_shape(t, []) for t in transactions]
 
 
 @app.post("/api/transactions", response_model=TransactionOut, status_code=201)

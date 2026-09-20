@@ -5,7 +5,7 @@ checks the `as_of` query param actually reaches it.
 import datetime
 
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from app.db import get_session
 from app.main import app
@@ -918,3 +918,55 @@ def test_transaction_dated_before_archived_on_gets_no_archive_note(db_session):
     resp = _post_archived_entity_transaction(db_session, LATER, archive=archive)
     assert resp.status_code == 201
     assert resp.json()["notes"] == []
+
+
+def _list_query_count(db_session, client):
+    statements = []
+
+    def count(conn, cursor, statement, *args):
+        statements.append(statement)
+
+    engine = db_session.get_bind()
+    event.listen(engine, "before_cursor_execute", count)
+    try:
+        db_session.expire_all()
+        resp = client.get("/api/transactions")
+    finally:
+        event.remove(engine, "before_cursor_execute", count)
+    assert resp.status_code == 200
+    return len(statements), resp.json()
+
+
+def test_list_transactions_query_count_does_not_grow_with_the_ledger(db_session):
+    accounts = [
+        create_account_with_opening_valuation(
+            db_session, name=name, created_on=EARLIER, type="Chequing",
+            on_budget=False, on_budget_floor_cents=0, opening_balance_cents=500_00,
+        )
+        for name in ("Chequing", "Savings", "Wallet")
+    ]
+    accounts[2].credit_limit_cents = 0
+    db_session.flush()
+
+    def add(i):
+        write_transaction(
+            db_session, transaction=None, txn_date=LATER, memo=f"t{i}", payee_id=None,
+            account_lines=[{"account_id": accounts[i % 3].id, "cents": -1_00}],
+            category_lines=[],
+        )
+        db_session.flush()
+
+    client = _client(db_session)
+    try:
+        add(0)
+        one, body = _list_query_count(db_session, client)
+        openings = len(body) - 1  # each account's opening balance is a transaction too
+        for i in range(1, 20):
+            add(i)
+        twenty, body = _list_query_count(db_session, client)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert len(body) == openings + 20
+    assert all(t["notes"] == [] for t in body)
+    assert twenty == one
