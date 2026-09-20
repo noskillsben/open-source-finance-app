@@ -10,9 +10,9 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Accounts
 
-- Add an account: give it a name, a type (Cash, Chequing, Savings, Credit card, Line of credit, Mortgage, Payment plan, Loan, Investment, or Asset), whether it's on-budget or tracking, an on-budget floor (for overdraft or budgeting with credit), and an opening balance dated whenever you like. It shows up right away in the account list with its type, side, and balance. An on-budget account that's below its floor shows *below your floor by $X.XX* under its name.
+- Add an account: give it a name, a type (Cash, Chequing, Savings, Credit card, Line of credit, Mortgage, Payment plan, Loan, Investment, or Asset), whether it's on-budget or tracking, an on-budget floor (for overdraft or budgeting with credit), a credit limit, and an opening balance dated whenever you like. It shows up right away in the account list with its type, side, and balance. An on-budget account that's below its floor shows *below your floor by $X.XX* under its name.
 - Edit an account: click it in the account list to change its name, type, on-budget/tracking side, or floor, and save. Only transactions recorded after the change use the new setting — nothing already recorded is touched. Renaming to a name already in use is refused. If the account has a stated credit limit, the floor can't be set below it — you can't budget with credit the lender hasn't extended.
-- Credit limit (not yet usable from the app): an account can carry the limit its lender set, and a balance past it warns rather than blocks — on the transaction that caused it, and standing on the account page. The field has no input on the account form yet, so no limit can be stated and no warning fires; #84 adds it.
+- Credit limit: on the account form, state the limit your lender set. Cash, Chequing and Savings start at 0 (no credit); the credit and loan types start blank, meaning unknown — blank and 0 are different answers, and blank says nothing. A balance past the limit warns rather than blocks: on the transaction that caused it, and as a standing note under the account's name in the account list. A floor set below a stated limit is refused.
 
 ## Categories and goals
 
