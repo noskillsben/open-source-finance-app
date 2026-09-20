@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import Accounts from './Accounts.jsx'
+import Categories from './Categories.jsx'
 import IntegrityCheck from './IntegrityCheck.jsx'
+import Payees from './Payees.jsx'
 import Transactions from './Transactions.jsx'
 import { api } from './api.js'
 import { todayIso } from './utils/format.js'
@@ -41,6 +43,8 @@ export default function App() {
 
       <Accounts pickerDate={pickerDate} />
       <Transactions pickerDate={pickerDate} />
+      <Categories pickerDate={pickerDate} />
+      <Payees pickerDate={pickerDate} />
       <IntegrityCheck />
     </div>
   )

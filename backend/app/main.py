@@ -85,16 +85,19 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
     )
 
 
+def _visible(model, as_of: date | None, include_archived: bool):
+    # `include_archived` is the "show archived" toggle: every row that existed by `as_of`,
+    # archived or not, so the UI can offer Unarchive. Without it, the effective-date rule applies.
+    if not include_archived:
+        return visible_as_of(model, as_of)
+    return (model.created_on <= as_of) if as_of is not None else true()
+
+
 @app.get("/api/accounts", response_model=list[AccountOut])
 def list_accounts(
     as_of: date | None = None, include_archived: bool = False, session: Session = Depends(get_session)
 ) -> list[AccountOut]:
-    # `include_archived` is the "show archived" toggle: every account that existed by `as_of`,
-    # archived or not, so the UI can offer Unarchive. Without it, the effective-date rule applies.
-    visible = (
-        (Account.created_on <= as_of) if include_archived and as_of is not None
-        else (true() if include_archived else visible_as_of(Account, as_of))
-    )
+    visible = _visible(Account, as_of, include_archived)
     accounts = session.scalars(select(Account).where(visible).order_by(Account.name)).all()
     return [_account_out(session, a, as_of=as_of) for a in accounts]
 
@@ -226,9 +229,11 @@ def unarchive_account(account_id: int, session: Session = Depends(get_session)) 
 
 
 @app.get("/api/categories", response_model=list[CategoryOut])
-def list_categories(as_of: date | None = None, session: Session = Depends(get_session)) -> list[CategoryOut]:
+def list_categories(
+    as_of: date | None = None, include_archived: bool = False, session: Session = Depends(get_session)
+) -> list[CategoryOut]:
     categories = session.scalars(
-        select(Category).where(visible_as_of(Category, as_of)).order_by(Category.name)
+        select(Category).where(_visible(Category, as_of, include_archived)).order_by(Category.name)
     ).all()
     return [
         CategoryOut(id=c.id, name=c.name, parent_id=c.parent_id, created_on=c.created_on, archived_on=c.archived_on)
@@ -282,9 +287,11 @@ def unarchive_category(category_id: int, session: Session = Depends(get_session)
 
 
 @app.get("/api/payees", response_model=list[PayeeOut])
-def list_payees(as_of: date | None = None, session: Session = Depends(get_session)) -> list[PayeeOut]:
+def list_payees(
+    as_of: date | None = None, include_archived: bool = False, session: Session = Depends(get_session)
+) -> list[PayeeOut]:
     payees = session.scalars(
-        select(Payee).where(visible_as_of(Payee, as_of)).order_by(Payee.name)
+        select(Payee).where(_visible(Payee, as_of, include_archived)).order_by(Payee.name)
     ).all()
     return [
         PayeeOut(id=p.id, name=p.name, created_on=p.created_on, archived_on=p.archived_on)
