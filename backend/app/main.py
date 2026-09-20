@@ -33,6 +33,7 @@ from app.services.accounts import (
     _opening_valuation,
     account_balance_cents,
     account_latest_ledger_date,
+    backfill_opening_balance,
     create_account_with_opening_valuation,
     credit_limit_note,
     update_account,
@@ -456,6 +457,14 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
                 status_code=400,
                 detail="this is the account's opening-balance adjustment; fix it with a balance check or backfill, not by hand",
             )
+    # Undo any backfill this transaction caused: the same unwind the edit path runs, with the
+    # new line at 0 cents. Restores the opening amount; created_on and the opening date stay.
+    for line in transaction.account_lines:
+        backfill_opening_balance(
+            session, line.account, transaction.date, 0,
+            old_line_date=transaction.date, old_line_cents=line.cents,
+            exclude_transaction_id=transaction.id,
+        )
     session.delete(transaction)
     session.flush()
 

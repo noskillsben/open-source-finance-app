@@ -22,6 +22,13 @@ class Account(Base, Owned, NonLedger):
     type: Mapped[str] = mapped_column(String, nullable=False)
     on_budget: Mapped[bool] = mapped_column(nullable=False)
     on_budget_floor_cents: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
+    # The date the opening balance was first stated (DESIGN.md § Opening balance and
+    # backfilling history). Set once at creation and never moved: `created_on` and the opening
+    # valuation's date slide back on a backfill, this doesn't. A line dated before it is netted
+    # into the opening; a line on or after it is plain activity.
+    opening_stated_on: Mapped[date] = mapped_column(
+        Date, nullable=False, default=lambda ctx: ctx.get_current_parameters()["created_on"]
+    )
 
     # Debt terms (DESIGN.md § Debt terms) — all nullable, null means unknown, never zero.
     credit_limit_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

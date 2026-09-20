@@ -55,12 +55,21 @@ def _assert_cfce036f3c04(session):
     assert fallback.created_on == fallback.created_at.date()  # no category_line -> created_at::date
 
 
+def _assert_a82c4d9e1b70(session):
+    from app.models import Account, AccountLine
+
+    assert session.get(Account, 1).opening_stated_on == datetime.date(2026, 1, 1)  # backfilled from created_on
+    assert session.get(Account, 2).opening_stated_on == datetime.date(2026, 3, 10)
+    assert session.get(AccountLine, 1).cents == -8000  # existing ledger untouched
+
+
 REVISIONS = [
     {"revision": "749e15077f93", "down_revision": None, "assert_data": _assert_749e15077f93},
     {"revision": "769d6a847874", "down_revision": "749e15077f93", "assert_data": _assert_769d6a847874},
     {"revision": "208c0d25ef38", "down_revision": "769d6a847874", "assert_data": _assert_208c0d25ef38},
     {"revision": "ffe95c16a43c", "down_revision": "208c0d25ef38", "assert_data": _assert_ffe95c16a43c},
     {"revision": "cfce036f3c04", "down_revision": "ffe95c16a43c", "assert_data": _assert_cfce036f3c04},
+    {"revision": "a82c4d9e1b70", "down_revision": "cfce036f3c04", "assert_data": _assert_a82c4d9e1b70},
 ]
 
 
