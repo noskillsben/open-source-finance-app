@@ -20,10 +20,18 @@ export async function request(path, options = {}) {
 export const api = {
   health: () => request('/api/health'),
   accounts: {
-    list: (asOf) => request(asOf ? `/api/accounts?as_of=${asOf}` : '/api/accounts'),
+    list: (asOf, includeArchived = false) => {
+      const params = new URLSearchParams()
+      if (asOf) params.set('as_of', asOf)
+      if (includeArchived) params.set('include_archived', 'true')
+      const query = params.toString()
+      return request(query ? `/api/accounts?${query}` : '/api/accounts')
+    },
     create: (account) => request('/api/accounts', { method: 'POST', body: account }),
     update: (id, account) => request(`/api/accounts/${id}`, { method: 'PUT', body: account }),
     checkBalance: (id, check) => request(`/api/accounts/${id}/balance-check`, { method: 'POST', body: check }),
+    archive: (id, archivedOn) => request(`/api/accounts/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
+    unarchive: (id) => request(`/api/accounts/${id}/unarchive`, { method: 'POST' }),
   },
   valuations: {
     remove: (id) => request(`/api/valuations/${id}`, { method: 'DELETE' }),
@@ -31,10 +39,14 @@ export const api = {
   categories: {
     list: (asOf) => request(asOf ? `/api/categories?as_of=${asOf}` : '/api/categories'),
     create: (category) => request('/api/categories', { method: 'POST', body: category }),
+    archive: (id, archivedOn) => request(`/api/categories/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
+    unarchive: (id) => request(`/api/categories/${id}/unarchive`, { method: 'POST' }),
   },
   payees: {
     list: (asOf) => request(asOf ? `/api/payees?as_of=${asOf}` : '/api/payees'),
     create: (payee) => request('/api/payees', { method: 'POST', body: payee }),
+    archive: (id, archivedOn) => request(`/api/payees/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
+    unarchive: (id) => request(`/api/payees/${id}/unarchive`, { method: 'POST' }),
   },
   transactions: {
     list: () => request('/api/transactions'),
