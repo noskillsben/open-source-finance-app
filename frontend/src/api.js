@@ -17,6 +17,14 @@ export async function request(path, options = {}) {
   return res.status === 204 ? null : res.json()
 }
 
+function listPath(base, asOf, includeArchived) {
+  const params = new URLSearchParams()
+  if (asOf) params.set('as_of', asOf)
+  if (includeArchived) params.set('include_archived', 'true')
+  const query = params.toString()
+  return query ? `${base}?${query}` : base
+}
+
 export const api = {
   health: () => request('/api/health'),
   accounts: {
@@ -37,13 +45,13 @@ export const api = {
     remove: (id) => request(`/api/valuations/${id}`, { method: 'DELETE' }),
   },
   categories: {
-    list: (asOf) => request(asOf ? `/api/categories?as_of=${asOf}` : '/api/categories'),
+    list: (asOf, includeArchived = false) => request(listPath('/api/categories', asOf, includeArchived)),
     create: (category) => request('/api/categories', { method: 'POST', body: category }),
     archive: (id, archivedOn) => request(`/api/categories/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/categories/${id}/unarchive`, { method: 'POST' }),
   },
   payees: {
-    list: (asOf) => request(asOf ? `/api/payees?as_of=${asOf}` : '/api/payees'),
+    list: (asOf, includeArchived = false) => request(listPath('/api/payees', asOf, includeArchived)),
     create: (payee) => request('/api/payees', { method: 'POST', body: payee }),
     archive: (id, archivedOn) => request(`/api/payees/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/payees/${id}/unarchive`, { method: 'POST' }),

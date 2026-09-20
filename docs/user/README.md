@@ -17,6 +17,12 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Categories and goals
 
+- See your categories in the Categories list, with sub-categories indented under their parent. Click "Archive" on a row to archive it as of the "Show as of" date; any warning is shown, but the category is archived regardless. Tick "Show archived" to see archived categories and "Unarchive" one; that's refused if another category now has the same name. There's no rename here yet.
+
+## Payees
+
+- See your payees in the Payees list. Click "Archive" on a row to archive it as of the "Show as of" date (the payee "Me" can't be archived). Tick "Show archived" to see archived payees and "Unarchive" one; that's refused if another payee now has the same name.
+
 ## Recording money
 
 - Record a transaction: give it a date and a memo, then list which accounts it touched (signed amounts) and which categories it was for (signed amounts). Category lines can be left off entirely — the money just arrives unassigned. The app only refuses to save when the category lines don't add up to what the account lines moved on-budget; everything else is recorded as entered, including spending that takes an account below its on-budget floor. Add a category by name from the same screen.

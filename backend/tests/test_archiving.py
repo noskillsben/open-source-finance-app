@@ -529,6 +529,38 @@ def test_accounts_list_include_archived_returns_archived_rows(db_session):
     assert row["archived_on"] == LATER.isoformat()
 
 
+def test_categories_list_include_archived_returns_archived_rows(db_session):
+    category = make_category(db_session, "Groceries")
+
+    client = _client(db_session)
+    try:
+        client.post(f"/api/categories/{category.id}/archive", json={"archived_on": LATER.isoformat()})
+        plain = client.get("/api/categories")
+        with_archived = client.get("/api/categories?include_archived=true")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all(c["id"] != category.id for c in plain.json())
+    row = next(c for c in with_archived.json() if c["id"] == category.id)
+    assert row["archived_on"] == LATER.isoformat()
+
+
+def test_payees_list_include_archived_returns_archived_rows(db_session):
+    payee = make_payee(db_session, "Walmart")
+
+    client = _client(db_session)
+    try:
+        client.post(f"/api/payees/{payee.id}/archive", json={"archived_on": LATER.isoformat()})
+        plain = client.get("/api/payees")
+        with_archived = client.get("/api/payees?include_archived=true")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all(p["id"] != payee.id for p in plain.json())
+    row = next(p for p in with_archived.json() if p["id"] == payee.id)
+    assert row["archived_on"] == LATER.isoformat()
+
+
 def test_post_unarchive_account_into_a_taken_name_is_409(db_session):
     archived = create_account_with_opening_valuation(
         db_session, name="Chequing", created_on=EARLIER, type="Chequing",
