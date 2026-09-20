@@ -76,49 +76,52 @@ def backfill_opening_balance(
     txn_date: date,
     new_line_cents: int,
     *,
-    old_line_date: date | None = None,
     old_line_cents: int = 0,
+    old_line_netted: bool = False,
     exclude_transaction_id: int | None = None,
-) -> None:
-    """A transaction dated on or before an account's opening moves the opening back to it
+) -> bool:
+    """A transaction dated before an account's current start moves the opening back to it
     (DESIGN.md § Opening balance and backfilling history): the account's `created_on` and its
     opening valuation's date both move to `txn_date`, and the opening adjustment's line is
     reduced by exactly the delta the new line introduces — not a full resum — so the balance
     the user originally stated stays true on the date they stated it. A second, earlier
     backfill just runs this again against whatever the adjustment currently is.
 
-    `old_line_date`/`old_line_cents` are this same account line's *previous* date and cents,
-    for the edit path — the caller must capture them before clearing the transaction's old
-    lines. When the old date was already netted into the opening (it equals the opening's
-    current date), the old cents are already baked into the opening line: the delta applied
-    is `new − old`, not the gross `new`, and staying at or before that date still counts as
-    netted (unlike a fresh line, which needs a strictly earlier date to trigger). Moving the
-    line's date out past the opening gives the netted amount back rather than firing at all.
-    On create, `old_line_date` is None and this behaves exactly as before.
+    Whether a line is *netted* into the opening is decided once, when it is written, and
+    stored on the line (`AccountLine.netted_into_opening`); this returns that answer for the
+    new line so the caller can store it. A fresh or plain line nets iff it is dated before the
+    opening's current date. A line that was already netted (`old_line_netted`, read back from
+    its stored flag) stays netted while it is dated before `account.opening_stated_on` — the
+    date the balance was first stated, which never moves — and is given back once it moves
+    out past it. A plain line dated between the current opening and the stated date is
+    ordinary activity and never touches the opening.
+
+    `old_line_cents`/`old_line_netted` are this account's previous lines' cents and stored
+    flag, for the edit and delete paths — the caller must capture them before clearing the
+    transaction's old lines (delete passes new cents 0). The opening line moves by the delta
+    only: `netted(new) − netted(old)`. Its date only ever moves earlier, to the earliest
+    netted line; it is never recomputed after a delete or a move out of range.
     """
     opening_transaction = _opening_adjustment_transaction(session, account)
     if opening_transaction is None or opening_transaction.id == exclude_transaction_id:
-        return
+        return False
 
-    boundary = opening_transaction.date
-    was_netted = old_line_date is not None and old_line_date == boundary
-    effective_cents = new_line_cents - (old_line_cents if was_netted else 0)
-    fires = txn_date <= boundary if was_netted else txn_date < boundary
+    if old_line_netted:
+        new_netted = txn_date < account.opening_stated_on
+    else:
+        new_netted = txn_date < opening_transaction.date
+    delta = (new_line_cents if new_netted else 0) - (old_line_cents if old_line_netted else 0)
 
-    opening_line = next(line for line in opening_transaction.account_lines if line.account_id == account.id)
+    if new_netted and txn_date < opening_transaction.date:
+        account.created_on = txn_date
+        opening_transaction.date = txn_date
+        opening_transaction.valuation.date = txn_date
 
-    if not fires:
-        if was_netted:  # this line moved out of backfill range entirely — give its cut back
-            opening_line.cents += old_line_cents
-            opening_line.budget_cents = opening_line.cents if account.on_budget else 0
-        return
-
-    new_amount = opening_line.cents - effective_cents
-    account.created_on = txn_date
-    opening_transaction.date = txn_date
-    opening_transaction.valuation.date = txn_date
-    opening_line.cents = new_amount
-    opening_line.budget_cents = new_amount if account.on_budget else 0
+    if delta:
+        opening_line = next(line for line in opening_transaction.account_lines if line.account_id == account.id)
+        opening_line.cents -= delta
+        opening_line.budget_cents = opening_line.cents if account.on_budget else 0
+    return new_netted
 
 
 def create_account_with_opening_valuation(

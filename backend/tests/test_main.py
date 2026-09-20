@@ -111,6 +111,163 @@ def test_delete_transaction_removes_its_lines_from_the_balance(db_session):
     assert account_balance_cents(db_session, account.id, as_of=LATER) == 500_00
 
 
+def _delete(db_session, txn_id):
+    client = _client(db_session)
+    try:
+        return client.delete(f"/api/transactions/{txn_id}")
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _opening_line_cents(db_session, account):
+    valuation = db_session.scalar(select(Valuation).where(Valuation.account_id == account.id).order_by(Valuation.date))
+    txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
+    return next(line for line in txn.account_lines if line.account_id == account.id).cents
+
+
+def _grocery_write(db_session, account, groceries, day, cents):
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=day, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": cents}],
+        category_lines=[{"category_id": groceries.id, "cents": cents}],
+    )
+    db_session.flush()
+    return txn
+
+
+def _account_and_groceries(db_session, opened_on):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=opened_on, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=1_000_00,
+    )
+    groceries = Category(name="Groceries", created_on=opened_on)
+    db_session.add(groceries)
+    db_session.flush()
+    return account, groceries
+
+
+def test_delete_backfilled_transaction_restores_the_stated_opening(db_session):
+    opened = datetime.date(2026, 9, 10)
+    backfill_date = datetime.date(2026, 8, 15)
+    account, groceries = _account_and_groceries(db_session, opened)
+    txn = _grocery_write(db_session, account, groceries, backfill_date, -80_00)
+    assert _opening_line_cents(db_session, account) == 1_080_00
+
+    assert _delete(db_session, txn.id).status_code == 204
+
+    assert _opening_line_cents(db_session, account) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
+    assert account.created_on == backfill_date  # the date is left where the backfill put it
+
+
+def test_delete_transaction_that_never_backfilled_leaves_the_opening_alone(db_session):
+    opened = datetime.date(2026, 9, 10)
+    account, groceries = _account_and_groceries(db_session, opened)
+    later = _grocery_write(db_session, account, groceries, datetime.date(2026, 9, 20), -80_00)
+    same_day = _grocery_write(db_session, account, groceries, opened, -30_00)
+
+    assert _delete(db_session, later.id).status_code == 204
+    assert _opening_line_cents(db_session, account) == 1_000_00
+    assert _delete(db_session, same_day.id).status_code == 204
+    assert _opening_line_cents(db_session, account) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=datetime.date(2026, 9, 30)) == 1_000_00
+
+
+def test_delete_second_backfill_leaves_the_first_intact(db_session):
+    opened = datetime.date(2026, 9, 10)
+    first_date = datetime.date(2026, 8, 15)
+    second_date = datetime.date(2026, 7, 1)
+    account, groceries = _account_and_groceries(db_session, opened)
+    _grocery_write(db_session, account, groceries, first_date, -80_00)
+    second = _grocery_write(db_session, account, groceries, second_date, -40_00)
+    assert _opening_line_cents(db_session, account) == 1_120_00
+
+    assert _delete(db_session, second.id).status_code == 204
+
+    assert _opening_line_cents(db_session, account) == 1_080_00
+    assert account_balance_cents(db_session, account.id, as_of=first_date) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
+
+
+def _put(db_session, txn_id, day, account, groceries, cents):
+    client = _client(db_session)
+    try:
+        return client.put(
+            f"/api/transactions/{txn_id}",
+            json={
+                "date": day.isoformat(), "memo": None, "payee_id": None,
+                "account_lines": [{"account_id": account.id, "cents": cents}],
+                "category_lines": [{"category_id": groceries.id, "cents": cents}],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_edit_unrelated_same_day_transaction_leaves_the_opening_alone(db_session):
+    opened = datetime.date(2026, 9, 10)
+    account, groceries = _account_and_groceries(db_session, opened)
+    same_day = _grocery_write(db_session, account, groceries, opened, -30_00)
+
+    assert _put(db_session, same_day.id, opened, account, groceries, -45_00).status_code == 200
+
+    assert _opening_line_cents(db_session, account) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 955_00
+
+
+def test_delete_first_of_two_backfills_leaves_the_second_intact(db_session):
+    opened = datetime.date(2026, 9, 10)
+    first_date = datetime.date(2026, 8, 15)
+    second_date = datetime.date(2026, 7, 1)
+    account, groceries = _account_and_groceries(db_session, opened)
+    first = _grocery_write(db_session, account, groceries, first_date, -80_00)
+    _grocery_write(db_session, account, groceries, second_date, -40_00)
+
+    assert _delete(db_session, first.id).status_code == 204
+
+    assert _opening_line_cents(db_session, account) == 1_040_00  # 1,000 + the second's 40
+    assert account_balance_cents(db_session, account.id, as_of=second_date) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
+
+
+def test_edit_first_of_two_backfills_leaves_the_second_intact(db_session):
+    opened = datetime.date(2026, 9, 10)
+    first_date = datetime.date(2026, 8, 15)
+    second_date = datetime.date(2026, 7, 1)
+    account, groceries = _account_and_groceries(db_session, opened)
+    first = _grocery_write(db_session, account, groceries, first_date, -80_00)
+    _grocery_write(db_session, account, groceries, second_date, -40_00)
+
+    assert _put(db_session, first.id, first_date, account, groceries, -100_00).status_code == 200
+
+    assert _opening_line_cents(db_session, account) == 1_140_00  # 1,000 + 100 + 40
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
+
+
+def test_plain_line_between_the_current_opening_and_the_stated_date_never_touches_it(db_session):
+    """A line dated after a backfill's boundary but before the originally stated date is
+    ordinary activity (DESIGN.md: a transaction on or after `created_on` never moves the
+    opening) — written, edited and deleted, the opening line stays where the backfill left it.
+    """
+    opened = datetime.date(2026, 9, 10)
+    boundary = datetime.date(2026, 8, 15)
+    between = datetime.date(2026, 8, 20)
+    account, groceries = _account_and_groceries(db_session, opened)
+    _grocery_write(db_session, account, groceries, boundary, -80_00)
+    rent = _grocery_write(db_session, account, groceries, between, -20_00)
+
+    assert _opening_line_cents(db_session, account) == 1_080_00
+    assert account_balance_cents(db_session, account.id, as_of=datetime.date(2026, 8, 18)) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 980_00
+
+    assert _put(db_session, rent.id, between, account, groceries, -35_00).status_code == 200
+    assert _opening_line_cents(db_session, account) == 1_080_00
+
+    assert _delete(db_session, rent.id).status_code == 204
+    assert _opening_line_cents(db_session, account) == 1_080_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
+
+
 def test_put_account_updates_settings_and_leaves_existing_lines_alone(db_session):
     account = create_account_with_opening_valuation(
         db_session, name="Card", created_on=EARLIER, type="Credit card",
