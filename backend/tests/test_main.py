@@ -244,6 +244,30 @@ def test_edit_first_of_two_backfills_leaves_the_second_intact(db_session):
     assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
 
 
+def test_plain_line_between_the_current_opening_and_the_stated_date_never_touches_it(db_session):
+    """A line dated after a backfill's boundary but before the originally stated date is
+    ordinary activity (DESIGN.md: a transaction on or after `created_on` never moves the
+    opening) — written, edited and deleted, the opening line stays where the backfill left it.
+    """
+    opened = datetime.date(2026, 9, 10)
+    boundary = datetime.date(2026, 8, 15)
+    between = datetime.date(2026, 8, 20)
+    account, groceries = _account_and_groceries(db_session, opened)
+    _grocery_write(db_session, account, groceries, boundary, -80_00)
+    rent = _grocery_write(db_session, account, groceries, between, -20_00)
+
+    assert _opening_line_cents(db_session, account) == 1_080_00
+    assert account_balance_cents(db_session, account.id, as_of=datetime.date(2026, 8, 18)) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 980_00
+
+    assert _put(db_session, rent.id, between, account, groceries, -35_00).status_code == 200
+    assert _opening_line_cents(db_session, account) == 1_080_00
+
+    assert _delete(db_session, rent.id).status_code == 204
+    assert _opening_line_cents(db_session, account) == 1_080_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
+
+
 def test_put_account_updates_settings_and_leaves_existing_lines_alone(db_session):
     account = create_account_with_opening_valuation(
         db_session, name="Card", created_on=EARLIER, type="Credit card",

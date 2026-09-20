@@ -67,12 +67,12 @@ def write_transaction(
 
     exclude_id = transaction.id if transaction is not None else None
 
-    old_date: date | None = None
     old_cents_by_account: dict[int, int] = {}
+    old_netted_by_account: dict[int, bool] = {}
     if transaction is not None:
-        old_date = transaction.date
         for line in transaction.account_lines:
             old_cents_by_account[line.account_id] = old_cents_by_account.get(line.account_id, 0) + line.cents
+            old_netted_by_account[line.account_id] = old_netted_by_account.get(line.account_id, False) or line.netted_into_opening
 
     if transaction is None:
         transaction = Transaction(date=txn_date, memo=memo, payee_id=payee_id, valuation_id=valuation_id)
@@ -95,11 +95,13 @@ def write_transaction(
     for line in account_lines:
         cents_by_account[line["account_id"]] = cents_by_account.get(line["account_id"], 0) + line["cents"]
     touched_account_ids = set(cents_by_account) | set(old_cents_by_account)
+    netted_by_account: dict[int, bool] = {}
     for account_id in touched_account_ids:
         account = accounts.get(account_id) or session.get(Account, account_id)
-        backfill_opening_balance(
+        netted_by_account[account_id] = backfill_opening_balance(
             session, account, txn_date, cents_by_account.get(account_id, 0),
-            old_line_date=old_date, old_line_cents=old_cents_by_account.get(account_id, 0),
+            old_line_cents=old_cents_by_account.get(account_id, 0),
+            old_line_netted=old_netted_by_account.get(account_id, False),
             exclude_transaction_id=exclude_id,
         )
     session.flush()
@@ -111,7 +113,10 @@ def write_transaction(
         cents = line["cents"]
         budget_cents = line_budget_cents(account, cents)
         budget_movement += budget_cents
-        new_account_lines.append(AccountLine(account_id=account.id, cents=cents, budget_cents=budget_cents))
+        new_account_lines.append(AccountLine(
+            account_id=account.id, cents=cents, budget_cents=budget_cents,
+            netted_into_opening=netted_by_account[account.id],
+        ))
 
     if category_lines:
         category_ids = [line["category_id"] for line in category_lines]

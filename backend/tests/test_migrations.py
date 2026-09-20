@@ -63,6 +63,15 @@ def _assert_a82c4d9e1b70(session):
     assert session.get(AccountLine, 1).cents == -8000  # existing ledger untouched
 
 
+def _assert_b91f3e7a2c45(session):
+    from app.models import AccountLine
+
+    opening, groceries = session.get(AccountLine, 1), session.get(AccountLine, 2)
+    assert opening.netted_into_opening is False  # the column this revision adds, defaulting false
+    assert groceries.netted_into_opening is False
+    assert (opening.cents, groceries.cents) == (50000, -8000)
+
+
 REVISIONS = [
     {"revision": "749e15077f93", "down_revision": None, "assert_data": _assert_749e15077f93},
     {"revision": "769d6a847874", "down_revision": "749e15077f93", "assert_data": _assert_769d6a847874},
@@ -70,6 +79,7 @@ REVISIONS = [
     {"revision": "ffe95c16a43c", "down_revision": "208c0d25ef38", "assert_data": _assert_ffe95c16a43c},
     {"revision": "cfce036f3c04", "down_revision": "ffe95c16a43c", "assert_data": _assert_cfce036f3c04},
     {"revision": "a82c4d9e1b70", "down_revision": "cfce036f3c04", "assert_data": _assert_a82c4d9e1b70},
+    {"revision": "b91f3e7a2c45", "down_revision": "a82c4d9e1b70", "assert_data": _assert_b91f3e7a2c45},
 ]
 
 

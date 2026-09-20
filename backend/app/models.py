@@ -143,6 +143,11 @@ class AccountLine(Base, Owned):
     account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("account.id"), nullable=False, index=True)
     cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
     budget_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # True when this line's cents were netted into the account's opening adjustment at write
+    # time (DESIGN.md § Opening balance and backfilling history). Fixed then, like
+    # `budget_cents`: edit and delete read it back rather than re-deriving it from a date, which
+    # can't tell a backfill from plain activity once the opening has moved again.
+    netted_into_opening: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=text("false"))
 
     transaction: Mapped["Transaction"] = relationship(back_populates="account_lines")
     account: Mapped["Account"] = relationship()

@@ -462,7 +462,7 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
     for line in transaction.account_lines:
         backfill_opening_balance(
             session, line.account, transaction.date, 0,
-            old_line_date=transaction.date, old_line_cents=line.cents,
+            old_line_cents=line.cents, old_line_netted=line.netted_into_opening,
             exclude_transaction_id=transaction.id,
         )
     session.delete(transaction)
