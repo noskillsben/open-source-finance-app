@@ -53,6 +53,23 @@ def credit_limit_note(balance_cents: int, credit_limit_cents: int | None) -> str
     return None
 
 
+def dollars(cents: int) -> str:
+    """Integer cents → "$1,234.56" for the notes the backend words itself (display layer only)."""
+    sign = "-" if cents < 0 else ""
+    whole, part = divmod(abs(int(cents)), 100)
+    return sign + "$" + format(whole, ",") + "." + format(part, "02d")
+
+
+def floor_note(balance_cents: int, floor_cents: int, on_budget: bool) -> str | None:
+    """DESIGN.md § On-budget floor: the standing "below your floor by $X" note. The one place
+    that decides what "below the floor" means; the account page renders it from `notes`.
+    On-budget accounts only — a tracking account's floor is not budget money.
+    """
+    if on_budget and on_budget_cents(balance_cents, floor_cents) < 0:
+        return f"Below your floor by {dollars(floor_cents - balance_cents)}"
+    return None
+
+
 def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
     """The one line the app maintains for the user (DESIGN.md § Opening balance and
     backfilling history): an unassigned account line for the valuation's stated balance,

@@ -36,6 +36,8 @@ from app.services.accounts import (
     backfill_opening_balance,
     create_account_with_opening_valuation,
     credit_limit_note,
+    dollars,
+    floor_note,
     update_account,
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
@@ -63,6 +65,9 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
     valuation = latest_valuation(session, account.id)
     balance_cents = account_balance_cents(session, account.id, as_of=as_of)
     notes = []
+    floor = floor_note(balance_cents, account.on_budget_floor_cents, account.on_budget)
+    if floor is not None:
+        notes.append(f"{floor}.")
     limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)
     if limit_note is not None:
         notes.append(f"{limit_note}.")
@@ -96,7 +101,7 @@ def _reject_floor_below_credit_limit(floor_cents: int, credit_limit_cents: int |
     if credit_limit_cents is not None and floor_cents < -credit_limit_cents:
         raise HTTPException(
             status_code=400,
-            detail=f"The on-budget floor can't be set below the credit limit of -{credit_limit_cents} cents.",
+            detail=f"The on-budget floor can't be set below the credit limit of -{dollars(credit_limit_cents)}.",
         )
 
 

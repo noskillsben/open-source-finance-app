@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
-import { DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, TRACKING_TYPES } from './account_types.js'
+import { DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, TRACKING_TYPES } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 
 const VALUE_TYPES = ['Asset', 'Investment']
+
+// Blank string is null (unknown); "0.00" is 0 (no credit) — the form never collapses them.
+function creditLimitText(cents) {
+  return cents === null || cents === undefined ? '' : String(cents / 100)
+}
 
 function emptyForm(pickerDate) {
   return {
@@ -11,6 +16,7 @@ function emptyForm(pickerDate) {
     type: ON_BUDGET_TYPES[0],
     on_budget: DEFAULT_ON_BUDGET[ON_BUDGET_TYPES[0]],
     on_budget_floor_cents: '0',
+    credit_limit_cents: creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[ON_BUDGET_TYPES[0]]),
     opening_balance_cents: '',
     created_on: pickerDate,
   }
@@ -46,7 +52,16 @@ export default function Accounts({ pickerDate }) {
   }
 
   function selectType(type) {
-    setForm((f) => ({ ...f, type, on_budget: DEFAULT_ON_BUDGET[type] }))
+    setForm((f) => ({
+      ...f,
+      type,
+      on_budget: DEFAULT_ON_BUDGET[type],
+      // Only when creating; a limit already typed is never overridden, and an edit never re-defaults.
+      credit_limit_cents:
+        editingId || f.credit_limit_cents !== creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[f.type])
+          ? f.credit_limit_cents
+          : creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[type]),
+    }))
   }
 
   function editAccount(a) {
@@ -57,6 +72,7 @@ export default function Accounts({ pickerDate }) {
       type: a.type,
       on_budget: a.on_budget,
       on_budget_floor_cents: String(a.on_budget_floor_cents / 100),
+      credit_limit_cents: creditLimitText(a.terms.credit_limit_cents),
       opening_balance_cents: '',
       created_on: a.created_on,
     })
@@ -127,6 +143,7 @@ export default function Accounts({ pickerDate }) {
 
     const floorCents = parseCents(form.on_budget_floor_cents) ?? 0
     if (!form.name.trim()) return setFormError('Name is required.')
+    const creditLimitCents = parseCents(form.credit_limit_cents) // blank stays null: unknown, not 0
 
     try {
       if (editingId) {
@@ -135,6 +152,8 @@ export default function Accounts({ pickerDate }) {
           type: form.type,
           on_budget: form.on_budget,
           on_budget_floor_cents: floorCents,
+          // Keep the account's other terms as they are; only the limit is editable here.
+          terms: { ...accounts.find((a) => a.id === editingId).terms, credit_limit_cents: creditLimitCents },
         })
       } else {
         const openingBalanceCents = parseCents(form.opening_balance_cents)
@@ -147,6 +166,7 @@ export default function Accounts({ pickerDate }) {
           on_budget: form.on_budget,
           on_budget_floor_cents: floorCents,
           opening_balance_cents: openingBalanceCents,
+          terms: { credit_limit_cents: creditLimitCents },
         })
       }
       resetForm()
@@ -196,11 +216,9 @@ export default function Accounts({ pickerDate }) {
                         </button>
                       </div>
                     )}
-                    {a.on_budget && a.balance_cents < a.on_budget_floor_cents && (
-                      <div className="text-xs text-bad">
-                        below your floor by {formatCents(a.on_budget_floor_cents - a.balance_cents)}
-                      </div>
-                    )}
+                    {a.notes.map((note) => (
+                      <div key={note} className="text-xs text-bad">{note}</div>
+                    ))}
                   </td>
                   <td className="py-1">{a.type}</td>
                   <td className="py-1">{a.on_budget ? 'On-budget' : 'Tracking'}</td>
@@ -344,6 +362,17 @@ export default function Accounts({ pickerDate }) {
               className="w-full rounded bg-ink px-2 py-1"
               value={form.on_budget_floor_cents}
               onChange={(e) => updateField('on_budget_floor_cents', e.target.value)}
+              placeholder="0.00"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm">Credit limit (blank if you don't know it; 0 for none)</span>
+            <input
+              inputMode="decimal"
+              className="w-full rounded bg-ink px-2 py-1"
+              value={form.credit_limit_cents}
+              onChange={(e) => updateField('credit_limit_cents', e.target.value)}
               placeholder="0.00"
             />
           </label>

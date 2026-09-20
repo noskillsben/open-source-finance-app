@@ -13,6 +13,7 @@ from app.services.accounts import (
     account_balance_cents,
     create_account_with_opening_valuation,
     credit_limit_note,
+    floor_note,
     on_budget_cents,
     update_account,
 )
@@ -178,6 +179,12 @@ def test_credit_limit_note_with_zero_limit_warns_below_zero():
     # 0 means no credit, not unknown (DESIGN.md § Credit limit — the floor of reality).
     assert credit_limit_note(-1_00, 0) is not None
     assert credit_limit_note(0, 0) is None
+
+
+def test_floor_note_says_how_far_below_the_floor_an_on_budget_account_is():
+    assert floor_note(-1_500_00, -1_000_00, True) == "Below your floor by $500.00"
+    assert floor_note(-250_00, -1_000_00, True) is None
+    assert floor_note(-1_500_00, -1_000_00, False) is None  # tracking: no budget floor
 
 
 def _client(db_session):
