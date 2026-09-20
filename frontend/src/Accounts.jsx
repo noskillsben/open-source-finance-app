@@ -40,12 +40,20 @@ export default function Accounts({ pickerDate }) {
   const [checkResult, setCheckResult] = useState(null)
   const [undoError, setUndoError] = useState(null)
 
+  const [showArchived, setShowArchived] = useState(false)
+  const [archivingId, setArchivingId] = useState(null)
+  const [archiveDate, setArchiveDate] = useState(pickerDate)
+  const [archiveError, setArchiveError] = useState(null)
+  const [archiveWarnings, setArchiveWarnings] = useState([])
+  const [archiveDone, setArchiveDone] = useState(false)
+  const [rowError, setRowError] = useState(null)
+
   function refresh() {
-    api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
+    api.accounts.list(pickerDate, showArchived).then(setAccounts).catch((e) => setError(e.message))
     api.categories.list().then(setCategories).catch((e) => setError(e.message))
   }
 
-  useEffect(refresh, [pickerDate])
+  useEffect(refresh, [pickerDate, showArchived])
 
   function updateField(field, value) {
     setForm((f) => ({ ...f, [field]: value }))
@@ -98,6 +106,49 @@ export default function Accounts({ pickerDate }) {
     setCheckForm(emptyCheckForm(pickerDate))
     setCheckError(null)
     setCheckResult(null)
+  }
+
+  function startArchive(account) {
+    setEditingId(null)
+    resetCheck()
+    setArchivingId(account.id)
+    setArchiveDate(pickerDate)
+    setArchiveError(null)
+    setArchiveWarnings([])
+    setArchiveDone(false)
+  }
+
+  function resetArchive() {
+    setArchivingId(null)
+    setArchiveError(null)
+    setArchiveWarnings([])
+    setArchiveDone(false)
+  }
+
+  // Warnings never block: the archive has already happened by the time they are shown.
+  async function submitArchive(e) {
+    e.preventDefault()
+    setArchiveError(null)
+    if (!archiveDate) return setArchiveError('Date is required.')
+    try {
+      const result = await api.accounts.archive(archivingId, archiveDate)
+      setArchiveWarnings(result.warnings)
+      setArchiveDone(true)
+      refresh()
+    } catch (err) {
+      setArchiveError(err.message)
+    }
+  }
+
+  async function unarchiveAccount(e, account) {
+    e.stopPropagation()
+    setRowError(null)
+    try {
+      await api.accounts.unarchive(account.id)
+      refresh()
+    } catch (err) {
+      setRowError(err.message)
+    }
   }
 
   function updateCheckField(field, value) {
@@ -183,6 +234,11 @@ export default function Accounts({ pickerDate }) {
       <section className="rounded-lg bg-ink-soft p-4 space-y-2">
         {error && <p className="text-bad">Could not reach the backend: {error}</p>}
         {undoError && <p className="text-bad">{undoError}</p>}
+        {rowError && <p className="text-bad">{rowError}</p>}
+        <label className="flex items-center gap-2 text-sm">
+          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+          Show archived
+        </label>
         {!error && !accounts && <p>Loading…</p>}
         {accounts && accounts.length === 0 && <p className="text-paper-soft">No accounts yet.</p>}
         {accounts && accounts.length > 0 && (
@@ -201,6 +257,9 @@ export default function Accounts({ pickerDate }) {
                 <tr key={a.id} className="cursor-pointer hover:bg-ink" onClick={() => editAccount(a)}>
                   <td className="py-1">
                     {a.name}
+                    {a.archived_on && (
+                      <div className="text-xs text-paper-soft">archived {formatDate(a.archived_on)}</div>
+                    )}
                     {a.checked_on && (
                       <div className="text-xs text-paper-soft">
                         {VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'} {formatDate(a.checked_on)}
@@ -225,7 +284,7 @@ export default function Accounts({ pickerDate }) {
                   <td className={`py-1 text-right ${a.balance_cents < 0 ? 'text-bad' : ''}`}>
                     {formatCents(a.balance_cents)}
                   </td>
-                  <td className="py-1 text-right">
+                  <td className="py-1 text-right space-x-2">
                     <button
                       type="button"
                       className="text-xs text-accent"
@@ -236,6 +295,22 @@ export default function Accounts({ pickerDate }) {
                     >
                       {VALUE_TYPES.includes(a.type) ? 'Update value' : 'Check balance'}
                     </button>
+                    {a.archived_on ? (
+                      <button type="button" className="text-xs text-accent" onClick={(e) => unarchiveAccount(e, a)}>
+                        Unarchive
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-xs text-accent"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          startArchive(a)
+                        }}
+                      >
+                        Archive
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -243,6 +318,45 @@ export default function Accounts({ pickerDate }) {
           </table>
         )}
       </section>
+
+      {archivingId && (
+        <section className="rounded-lg bg-ink-soft p-4 space-y-3">
+          <h2 className="text-sm uppercase tracking-wide text-paper-soft">
+            Archive — {accounts?.find((a) => a.id === archivingId)?.name}
+          </h2>
+          <form className="space-y-3" onSubmit={submitArchive}>
+            <label className="block space-y-1">
+              <span className="text-sm">Archive on</span>
+              <input
+                type="date"
+                className="w-full rounded bg-ink px-2 py-1"
+                value={archiveDate}
+                disabled={archiveDone}
+                onChange={(e) => setArchiveDate(e.target.value)}
+              />
+            </label>
+            {archiveError && <p className="text-bad text-sm">{archiveError}</p>}
+            {archiveDone && (
+              <>
+                <p className="text-sm text-paper-soft">Archived on {formatDate(archiveDate)}.</p>
+                {archiveWarnings.map((w) => (
+                  <p key={w} className="text-sm text-bad">{w}</p>
+                ))}
+              </>
+            )}
+            <div className="flex gap-2">
+              {!archiveDone && (
+                <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
+                  Archive
+                </button>
+              )}
+              <button type="button" className="rounded bg-ink px-3 py-1.5 text-sm" onClick={resetArchive}>
+                Close
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
 
       {checkingId && (
         <section className="rounded-lg bg-ink-soft p-4 space-y-3">

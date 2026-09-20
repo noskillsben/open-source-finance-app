@@ -1,7 +1,7 @@
 from datetime import date
 
 from fastapi import Depends, FastAPI, HTTPException
-from sqlalchemy import select, text
+from sqlalchemy import select, text, true
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -86,10 +86,16 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
 
 
 @app.get("/api/accounts", response_model=list[AccountOut])
-def list_accounts(as_of: date | None = None, session: Session = Depends(get_session)) -> list[AccountOut]:
-    accounts = session.scalars(
-        select(Account).where(visible_as_of(Account, as_of)).order_by(Account.name)
-    ).all()
+def list_accounts(
+    as_of: date | None = None, include_archived: bool = False, session: Session = Depends(get_session)
+) -> list[AccountOut]:
+    # `include_archived` is the "show archived" toggle: every account that existed by `as_of`,
+    # archived or not, so the UI can offer Unarchive. Without it, the effective-date rule applies.
+    visible = (
+        (Account.created_on <= as_of) if include_archived and as_of is not None
+        else (true() if include_archived else visible_as_of(Account, as_of))
+    )
+    accounts = session.scalars(select(Account).where(visible).order_by(Account.name)).all()
     return [_account_out(session, a, as_of=as_of) for a in accounts]
 
 

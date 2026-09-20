@@ -507,3 +507,46 @@ def test_guard_not_me_raises_for_me_and_not_for_an_ordinary_payee(db_session):
         guard_not_me(me)
 
     guard_not_me(ordinary)  # does not raise
+
+
+def test_accounts_list_include_archived_returns_archived_rows(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        client.post(f"/api/accounts/{account.id}/archive", json={"archived_on": LATER.isoformat()})
+        plain = client.get("/api/accounts")
+        with_archived = client.get("/api/accounts?include_archived=true")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert all(a["id"] != account.id for a in plain.json())
+    row = next(a for a in with_archived.json() if a["id"] == account.id)
+    assert row["archived_on"] == LATER.isoformat()
+
+
+def test_post_unarchive_account_into_a_taken_name_is_409(db_session):
+    archived = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        client.post(f"/api/accounts/{archived.id}/archive", json={"archived_on": LATER.isoformat()})
+        create_account_with_opening_valuation(
+            db_session, name="Chequing", created_on=LATER, type="Chequing",
+            on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+        )
+        db_session.flush()
+        resp = client.post(f"/api/accounts/{archived.id}/unarchive")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 409
+    assert "Chequing" in resp.json()["detail"]
