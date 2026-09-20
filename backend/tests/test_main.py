@@ -846,3 +846,75 @@ def test_delete_missing_valuation_is_404(db_session):
         app.dependency_overrides.clear()
 
     assert resp.status_code == 404
+
+
+def _post_archived_entity_transaction(db_session, txn_date, *, archive):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    category = Category(name="Groceries", created_on=EARLIER)
+    payee = Payee(name="Walmart", created_on=EARLIER)
+    db_session.add_all([category, payee])
+    db_session.flush()
+    archive(account, category, payee)
+    db_session.flush()
+    client = _client(db_session)
+    try:
+        resp = client.post(
+            "/api/transactions",
+            json={
+                "date": txn_date.isoformat(),
+                "memo": None,
+                "payee_id": payee.id,
+                "account_lines": [{"account_id": account.id, "cents": -10_00}],
+                "category_lines": [{"category_id": category.id, "cents": -10_00}],
+            },
+        )
+    finally:
+        app.dependency_overrides.clear()
+    return resp
+
+
+def test_transaction_dated_after_an_archived_category_gets_a_note(db_session):
+    def archive(account, category, payee):
+        category.archived_on = EARLIER
+
+    resp = _post_archived_entity_transaction(db_session, LATER, archive=archive)
+    assert resp.status_code == 201
+    assert resp.json()["notes"] == [
+        f"Groceries was archived on {EARLIER}; this transaction is dated after that."
+    ]
+
+
+def test_transaction_dated_after_an_archived_payee_gets_a_note(db_session):
+    def archive(account, category, payee):
+        payee.archived_on = EARLIER
+
+    resp = _post_archived_entity_transaction(db_session, LATER, archive=archive)
+    assert resp.status_code == 201
+    assert resp.json()["notes"] == [
+        f"Walmart was archived on {EARLIER}; this transaction is dated after that."
+    ]
+
+
+def test_transaction_dated_on_an_accounts_archived_on_gets_a_note(db_session):
+    def archive(account, category, payee):
+        account.archived_on = LATER
+
+    resp = _post_archived_entity_transaction(db_session, LATER, archive=archive)
+    assert resp.status_code == 201
+    assert resp.json()["notes"] == [
+        f"Chequing was archived on {LATER}; this transaction is dated after that."
+    ]
+
+
+def test_transaction_dated_before_archived_on_gets_no_archive_note(db_session):
+    def archive(account, category, payee):
+        account.archived_on = LATER + datetime.timedelta(days=1)
+        category.archived_on = LATER + datetime.timedelta(days=1)
+        payee.archived_on = LATER + datetime.timedelta(days=1)
+
+    resp = _post_archived_entity_transaction(db_session, LATER, archive=archive)
+    assert resp.status_code == 201
+    assert resp.json()["notes"] == []

@@ -335,9 +335,27 @@ def _transaction_notes(session: Session, transaction: Transaction) -> list[str]:
     checks) for each account whose latest check is on or after this transaction's date, and a
     credit-limit note (DESIGN.md § Credit limit — the floor of reality) when the balance on
     this transaction's own date, after this save, is past the account's credit limit. The
-    check's own adjustment never notes itself.
+    check's own adjustment never notes itself. Also one note per archived payee, category or
+    account the transaction references when it is dated on or after that entity's
+    `archived_on` (DESIGN.md § General concepts) — advisory only, nothing is refused.
     """
     notes = []
+    archived = []
+    if transaction.payee_id is not None:
+        archived.append(session.get(Payee, transaction.payee_id))
+    archived.extend(line.category for line in transaction.category_lines)
+    archived.extend(line.account for line in transaction.account_lines)
+    seen = set()
+    for entity in archived:
+        key = (type(entity), entity.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        if entity.archived_on is not None and transaction.date >= entity.archived_on:
+            notes.append(
+                f"{entity.name} was archived on {entity.archived_on}; "
+                "this transaction is dated after that."
+            )
     for line in transaction.account_lines:
         valuation = latest_valuation(session, line.account_id)
         if (
