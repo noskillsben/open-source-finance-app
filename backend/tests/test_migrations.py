@@ -11,6 +11,8 @@ import datetime
 from pathlib import Path
 
 import pytest
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
@@ -21,7 +23,10 @@ FIXTURES_DIR = Path(__file__).parent / "fixtures"
 
 
 def _assert_749e15077f93(session):
-    pass  # nothing existed before this revision; nothing to populate or check
+    # Deliberately empty: this is the root revision. Nothing existed before it, so there is no
+    # older schema to populate and no pre-existing data whose survival could be asserted.
+    # Its fixture is a comment-only file, and the harness still runs it so the root is covered.
+    return None
 
 
 def _assert_769d6a847874(session):
@@ -72,15 +77,33 @@ def _assert_b91f3e7a2c45(session):
     assert (opening.cents, groceries.cents) == (50000, -8000)
 
 
-REVISIONS = [
-    {"revision": "749e15077f93", "down_revision": None, "assert_data": _assert_749e15077f93},
-    {"revision": "769d6a847874", "down_revision": "749e15077f93", "assert_data": _assert_769d6a847874},
-    {"revision": "208c0d25ef38", "down_revision": "769d6a847874", "assert_data": _assert_208c0d25ef38},
-    {"revision": "ffe95c16a43c", "down_revision": "208c0d25ef38", "assert_data": _assert_ffe95c16a43c},
-    {"revision": "cfce036f3c04", "down_revision": "ffe95c16a43c", "assert_data": _assert_cfce036f3c04},
-    {"revision": "a82c4d9e1b70", "down_revision": "cfce036f3c04", "assert_data": _assert_a82c4d9e1b70},
-    {"revision": "b91f3e7a2c45", "down_revision": "a82c4d9e1b70", "assert_data": _assert_b91f3e7a2c45},
-]
+ASSERTIONS = {
+    "749e15077f93": _assert_749e15077f93,
+    "769d6a847874": _assert_769d6a847874,
+    "208c0d25ef38": _assert_208c0d25ef38,
+    "ffe95c16a43c": _assert_ffe95c16a43c,
+    "cfce036f3c04": _assert_cfce036f3c04,
+    "a82c4d9e1b70": _assert_a82c4d9e1b70,
+    "b91f3e7a2c45": _assert_b91f3e7a2c45,
+}
+
+
+def _revisions_from_alembic() -> list[dict]:
+    """Every revision Alembic knows about, base first, so a new revision is picked up
+    automatically and cannot be forgotten. Missing fixtures or assertions are reported by the
+    test itself, naming the revision, rather than dropping the case."""
+    script_directory = ScriptDirectory.from_config(Config("alembic.ini"))
+    return [
+        {
+            "revision": script.revision,
+            "down_revision": script.down_revision,
+            "assert_data": ASSERTIONS.get(script.revision),
+        }
+        for script in reversed(list(script_directory.walk_revisions()))
+    ]
+
+
+REVISIONS = _revisions_from_alembic()
 
 
 def _load_fixture(connection, revision: str) -> None:
@@ -91,6 +114,13 @@ def _load_fixture(connection, revision: str) -> None:
 
 @pytest.mark.parametrize("case", REVISIONS, ids=lambda c: c["revision"])
 def test_revision_survives_a_populated_database(throwaway_database, case):
+    revision = case["revision"]
+    fixture = FIXTURES_DIR / f"{revision}.sql"
+    if not fixture.is_file():
+        pytest.fail(f"missing fixture for revision {revision}: expected {fixture}")
+    if case["assert_data"] is None:
+        pytest.fail(f"missing assertion function for revision {revision}: add it to ASSERTIONS")
+
     url = throwaway_database
     migrate(url, case["down_revision"] or "base")
 
