@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.db import get_session
-from app.models import Account, Category, Domain, EarmarkLine, Payee, Transaction, Valuation
+from app.models import Account, Category, Domain, EarmarkLine, Goal, Payee, Transaction, Valuation
 from app.schemas import (
     AccountCreate,
     AccountLineOut,
@@ -28,6 +28,9 @@ from app.schemas import (
     DomainUpdate,
     EarmarkLineOut,
     EarmarkMoveIn,
+    GoalIn,
+    GoalOut,
+    GoalProgressOut,
     Health,
     IntegrityFindingOut,
     PayeeCreate,
@@ -48,6 +51,7 @@ from app.services.accounts import (
     floor_note,
     update_account,
 )
+from app.services.goals import GoalError, apply_goal, goal_progress, live_goal
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import (
     CategoryError,
@@ -309,6 +313,46 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
             for category_id in session.scalars(select(Category.id).order_by(Category.id))
         ],
     )
+
+
+@app.get("/api/goals", response_model=list[GoalProgressOut])
+def list_goals(as_of: date, session: Session = Depends(get_session)) -> list[GoalProgressOut]:
+    """Every goal shown on `as_of`, each with its progress — the picker date is the only "today"."""
+    goals = session.scalars(select(Goal).where(visible_as_of(Goal, as_of)).order_by(Goal.category_id)).all()
+    return [
+        GoalProgressOut(goal=GoalOut.model_validate(g), **vars(goal_progress(session, g, as_of=as_of)))
+        for g in goals
+    ]
+
+
+@app.put("/api/categories/{category_id}/goal", response_model=GoalOut)
+def set_category_goal(category_id: int, payload: GoalIn, session: Session = Depends(get_session)) -> GoalOut:
+    """Create the category's goal, or replace its live one — one goal per category."""
+    category = session.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail=f"No category with id {category_id}.")
+    try:
+        goal = apply_goal(
+            session, category, live_goal(session, category_id), on=payload.on, name=payload.name,
+            kind=payload.kind, amount_cents=payload.amount_cents, cadence=payload.cadence,
+            cadence_weeks=payload.cadence_weeks, target_date=payload.target_date, level_cents=payload.level_cents,
+        )
+    except GoalError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    session.flush()
+    return GoalOut.model_validate(goal)
+
+
+@app.post("/api/categories/{category_id}/goal/archive", response_model=ArchiveOut)
+def archive_category_goal(
+    category_id: int, payload: ArchiveIn, session: Session = Depends(get_session)
+) -> ArchiveOut:
+    goal = live_goal(session, category_id)
+    if goal is None:
+        raise HTTPException(status_code=404, detail=f"Category {category_id} has no goal.")
+    warnings = archive(Archivable(entity=goal, latest_ledger_date=None), payload.archived_on)
+    session.flush()
+    return ArchiveOut(id=goal.id, archived_on=goal.archived_on, warnings=warnings)
 
 
 @app.post("/api/earmark-moves", response_model=list[EarmarkLineOut], status_code=201)

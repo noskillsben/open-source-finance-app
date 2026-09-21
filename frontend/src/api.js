@@ -51,6 +51,11 @@ export const api = {
     archive: (id, archivedOn) => request(`/api/categories/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/categories/${id}/unarchive`, { method: 'POST' }),
   },
+  goals: {
+    list: (asOf) => request(`/api/goals?as_of=${asOf}`),
+    set: (categoryId, goal) => request(`/api/categories/${categoryId}/goal`, { method: 'PUT', body: goal }),
+    archive: (categoryId, archivedOn) => request(`/api/categories/${categoryId}/goal/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
+  },
   readyToAssign: (asOf) => request(`/api/ready-to-assign?as_of=${asOf}`),
   earmarkMoves: {
     create: (move) => request('/api/earmark-moves', { method: 'POST', body: move }),
