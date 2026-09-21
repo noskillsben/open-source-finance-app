@@ -61,18 +61,6 @@ def _write_move_line(session: Session, category: Category, move_date: date, cent
     return line
 
 
-def assign_to_category(session: Session, *, move_date: date, category_id: int, cents: int) -> EarmarkLine:
-    """One earmark move line, ready to assign → category (a negative amount goes the other
-    way). Validates everything, then writes.
-    """
-    if cents == 0:
-        raise EarmarkError("Enter an amount to assign.")
-    category = _movable_category(session, category_id, move_date)
-    line = _write_move_line(session, category, move_date, cents)
-    session.flush()
-    return line
-
-
 def move_money(
     session: Session, *, move_date: date, from_category_id: int | None, to_category_id: int | None, cents: int
 ) -> list[EarmarkLine]:
