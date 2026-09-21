@@ -5,6 +5,7 @@ import PayeePicker from './PayeePicker.jsx'
 
 const emptyLine = { account_id: '', cents: '' }
 const emptyCategoryLine = { category_id: '', cents: '' }
+const emptyDeposit = { category_id: '', cents: '', other_category_id: '' }
 
 export default function Transactions({ pickerDate }) {
   const [accounts, setAccounts] = useState(null)
@@ -18,6 +19,7 @@ export default function Transactions({ pickerDate }) {
   const [payeeId, setPayeeId] = useState(null)
   const [accountLines, setAccountLines] = useState([{ ...emptyLine }])
   const [categoryLines, setCategoryLines] = useState([])
+  const [deposits, setDeposits] = useState([])
   const [newCategoryName, setNewCategoryName] = useState('')
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -45,6 +47,10 @@ export default function Transactions({ pickerDate }) {
     setCategoryLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
   }
 
+  function updateDeposit(i, field, value) {
+    setDeposits((rows) => rows.map((d, idx) => (idx === i ? { ...d, [field]: value } : d)))
+  }
+
   function resetForm() {
     setEditingId(null)
     setDate(pickerDate)
@@ -52,6 +58,7 @@ export default function Transactions({ pickerDate }) {
     setPayeeId(null)
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])
+    setDeposits([])
     setFormError(null)
   }
 
@@ -66,6 +73,13 @@ export default function Transactions({ pickerDate }) {
     )
     setCategoryLines(
       t.category_lines.map((l) => ({ category_id: String(l.category_id), cents: String(l.cents / 100) }))
+    )
+    setDeposits(
+      (t.deposits ?? []).map((d) => ({
+        category_id: String(d.category_id),
+        cents: String(d.cents / 100),
+        other_category_id: d.other_category_id ? String(d.other_category_id) : '',
+      }))
     )
     setFormError(null)
   }
@@ -94,6 +108,20 @@ export default function Transactions({ pickerDate }) {
     }
   }
 
+  // DESIGN.md § Linked categories: money moved into (or out of) an account with linked
+  // categories asks which of those envelopes it funds (or leaves).
+  const linkedCategoryIds = new Set()
+  let linkedNet = 0
+  for (const line of accountLines) {
+    const account = accounts?.find((a) => String(a.id) === line.account_id)
+    const cents = parseCents(line.cents)
+    if (!account || account.linked_category_ids.length === 0 || cents === null) continue
+    linkedNet += cents
+    account.linked_category_ids.forEach((id) => linkedCategoryIds.add(id))
+  }
+  const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
+  const depositTotal = deposits.reduce((sum, d) => sum + (parseCents(d.cents) ?? 0), 0)
+
   async function submit(e) {
     e.preventDefault()
     setFormError(null)
@@ -117,12 +145,27 @@ export default function Transactions({ pickerDate }) {
       parsedCategoryLines.push({ category_id: Number(line.category_id), cents })
     }
 
+    const parsedDeposits = []
+    if (linkedNet !== 0) {
+      for (const row of deposits) {
+        if (!row.category_id) continue
+        const cents = parseCents(row.cents)
+        if (cents === null || cents <= 0) return setFormError('Every envelope needs an amount.')
+        parsedDeposits.push({
+          category_id: Number(row.category_id),
+          cents,
+          other_category_id: row.other_category_id ? Number(row.other_category_id) : null,
+        })
+      }
+    }
+
     const body = {
       date,
       memo: memo.trim() || null,
       payee_id: payeeId,
       account_lines: parsedAccountLines,
       category_lines: parsedCategoryLines,
+      deposits: parsedDeposits,
     }
 
     try {
@@ -297,6 +340,68 @@ export default function Transactions({ pickerDate }) {
               + add category line
             </button>
           </div>
+
+          {linkedNet !== 0 && (
+            <div className="space-y-2">
+              <span className="text-sm">
+                {linkedNet > 0 ? 'Which envelope does this fund?' : 'Which envelope does this money leave?'}{' '}
+                <span className="text-paper-soft">Leave empty if it is already earmarked.</span>
+              </span>
+              {deposits.map((row, i) => (
+                <div key={i} className="flex flex-wrap gap-2">
+                  <select
+                    className="flex-1 min-w-32 rounded bg-ink px-2 py-1"
+                    aria-label="Envelope"
+                    value={row.category_id}
+                    onChange={(e) => updateDeposit(i, 'category_id', e.target.value)}
+                  >
+                    <option value="">Select envelope…</option>
+                    {envelopes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    aria-label="Amount"
+                    className="w-28 rounded bg-ink px-2 py-1"
+                    value={row.cents}
+                    onChange={(e) => updateDeposit(i, 'cents', e.target.value)}
+                  />
+                  <select
+                    className="flex-1 min-w-32 rounded bg-ink px-2 py-1"
+                    aria-label={linkedNet > 0 ? 'Taken from' : 'Goes to'}
+                    value={row.other_category_id}
+                    onChange={(e) => updateDeposit(i, 'other_category_id', e.target.value)}
+                  >
+                    <option value="">{linkedNet > 0 ? 'From ready to assign' : 'To ready to assign'}</option>
+                    {categories?.filter((c) => String(c.id) !== row.category_id).map((c) => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    className="text-sm text-accent"
+                    onClick={() => setDeposits((rows) => rows.filter((_, idx) => idx !== i))}
+                  >
+                    remove
+                  </button>
+                </div>
+              ))}
+              <button
+                type="button"
+                className="text-sm text-accent"
+                onClick={() => setDeposits((rows) => [...rows, { ...emptyDeposit }])}
+              >
+                + add envelope
+              </button>
+              {deposits.length > 0 && (
+                <p className="text-sm text-paper-soft">
+                  {formatCents(depositTotal)} of {formatCents(Math.abs(linkedNet))} directed.
+                </p>
+              )}
+            </div>
+          )}
 
           {formError && <p className="text-bad text-sm">{formError}</p>}
 

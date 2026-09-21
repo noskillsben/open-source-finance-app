@@ -38,6 +38,10 @@ export default function Accounts({ pickerDate }) {
   const [checkForm, setCheckForm] = useState(() => emptyCheckForm(pickerDate))
   const [checkError, setCheckError] = useState(null)
   const [checkResult, setCheckResult] = useState(null)
+  // The linked-category split of a gain or loss (DESIGN.md § Linked categories): suggested by the
+  // backend, edited here, sent as the adjustment's category lines.
+  const [splitLines, setSplitLines] = useState([])
+  const [splitDiff, setSplitDiff] = useState(0)
   const [undoError, setUndoError] = useState(null)
 
   const [showArchived, setShowArchived] = useState(false)
@@ -99,9 +103,11 @@ export default function Accounts({ pickerDate }) {
     setCheckForm(emptyCheckForm(pickerDate))
     setCheckError(null)
     setCheckResult(null)
+    setSplitLines([])
   }
 
   function resetCheck() {
+    setSplitLines([])
     setCheckingId(null)
     setCheckForm(emptyCheckForm(pickerDate))
     setCheckError(null)
@@ -151,6 +157,30 @@ export default function Accounts({ pickerDate }) {
     }
   }
 
+  const checkingAccount = accounts?.find((a) => a.id === checkingId)
+  const checkingHasLinks = (checkingAccount?.linked_category_ids.length ?? 0) > 0
+
+  useEffect(() => {
+    const statedCents = parseCents(checkForm.stated_balance_cents)
+    if (!checkingHasLinks || !checkForm.date || statedCents === null) {
+      setSplitLines([])
+      return
+    }
+    let stale = false
+    api.accounts
+      .checkBalancePreview(checkingId, checkForm.date, statedCents)
+      .then((preview) => {
+        if (!stale) setSplitDiff(preview.diff_cents)
+        if (!stale) setSplitLines(preview.category_lines.map((l) => ({ category_id: l.category_id, cents: String(l.cents / 100) })))
+      })
+      .catch(() => { if (!stale) setSplitLines([]) })
+    return () => { stale = true }
+  }, [checkingId, checkingHasLinks, checkForm.date, checkForm.stated_balance_cents])
+
+  function updateSplitLine(i, cents) {
+    setSplitLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, cents } : l)))
+  }
+
   function updateCheckField(field, value) {
     setCheckForm((f) => ({ ...f, [field]: value }))
   }
@@ -164,11 +194,20 @@ export default function Accounts({ pickerDate }) {
     const statedCents = parseCents(checkForm.stated_balance_cents)
     if (statedCents === null) return setCheckError('Stated balance must be a number.')
 
+    const split = []
+    for (const line of splitLines) {
+      if (line.cents.trim() === '') continue
+      const cents = parseCents(line.cents)
+      if (cents === null) return setCheckError('Every split amount must be a number.')
+      split.push({ category_id: line.category_id, cents })
+    }
+
     try {
       const result = await api.accounts.checkBalance(checkingId, {
         date: checkForm.date,
         stated_balance_cents: statedCents,
         category_id: checkForm.category_id ? Number(checkForm.category_id) : null,
+        category_lines: split.length > 0 ? split : null,
       })
       setCheckResult(result)
       refresh()
@@ -387,6 +426,32 @@ export default function Accounts({ pickerDate }) {
               />
             </label>
 
+            {splitLines.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-sm">
+                  Split of the difference across the linked categories, by their balances — edit before saving.
+                </span>
+                {splitLines.map((line, i) => (
+                  <div key={line.category_id} className="flex gap-2">
+                    <span className="flex-1 px-2 py-1">
+                      {categories?.find((c) => c.id === line.category_id)?.name ?? `#${line.category_id}`}
+                    </span>
+                    <input
+                      inputMode="decimal"
+                      aria-label="Amount"
+                      className="w-28 rounded bg-ink px-2 py-1"
+                      value={line.cents}
+                      onChange={(e) => updateSplitLine(i, e.target.value)}
+                    />
+                  </div>
+                ))}
+                <p className="text-sm text-paper-soft">
+                  {formatCents(splitLines.reduce((sum, l) => sum + (parseCents(l.cents) ?? 0), 0))} split of a{' '}
+                  {formatCents(splitDiff)} difference. Clear every amount to pick one category instead.
+                </p>
+              </div>
+            )}
+
             <label className="block space-y-1">
               <span className="text-sm">Category for the difference (optional — otherwise ready to assign)</span>
               <select
@@ -408,9 +473,11 @@ export default function Accounts({ pickerDate }) {
             {checkResult && checkResult.diff_cents !== 0 && (
               <p className="text-sm text-paper-soft">
                 Adjustment of {formatCents(checkResult.diff_cents)} recorded
-                {checkForm.category_id
-                  ? ` to ${categories?.find((c) => c.id === Number(checkForm.category_id))?.name}.`
-                  : ' to ready to assign.'}
+                {checkResult.transaction.category_lines.length === 0
+                  ? ' to ready to assign.'
+                  : ` to ${checkResult.transaction.category_lines
+                      .map((l) => `${categories?.find((c) => c.id === l.category_id)?.name} ${formatCents(l.cents)}`)
+                      .join(', ')}.`}
               </p>
             )}
 

@@ -6,7 +6,7 @@ Import this module wherever Base.metadata must know every table (alembic/env.py 
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Date, ForeignKey, Index, Integer, Numeric, String, func, text
+from sqlalchemy import BigInteger, Date, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, NonLedger, Owned
@@ -122,6 +122,21 @@ class Category(Base, Owned, NonLedger):
     )
 
 
+class CategoryAccountLink(Base, Owned):
+    """Where a category's money physically lives (DESIGN.md § Accounts → Linked categories).
+    A pure join, so no `NonLedger` mixin: archiving either side just removes its rows. The
+    linked account is on-budget (the service enforces it).
+    """
+
+    __tablename__ = "category_account_link"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("account.id"), nullable=False, index=True)
+
+    __table_args__ = (UniqueConstraint("category_id", "account_id", name="uq_category_account_link"),)
+
+
 class Goal(Base, Owned, NonLedger):
     """A rule about a category, not a place money goes (DESIGN.md § Goals). One live goal per
     category. Every amount and term is nullable — null means the kind doesn't use it, never
@@ -234,8 +249,9 @@ class CategoryLine(Base, Owned):
 class EarmarkLine(Base, Owned):
     """One signed move of on-budget money into or out of a category (DESIGN.md § Earmarks). A
     category's balance is its earmark lines plus its transaction category lines. `source` says
-    what wrote the line: "move", or "pool_draw" (written by the transaction that overspent, and
-    carrying its id in `transaction_id`; deposits will carry theirs with #22).
+    what wrote the line: "move", "pool_draw" (written by the transaction that overspent) or
+    "deposit" (the move a transfer into or out of a linked account directed); the last two carry
+    the generating transaction's id in `transaction_id`.
     """
 
     __tablename__ = "earmark_line"

@@ -199,6 +199,52 @@ function GoalFields({ goal, onChange }) {
   )
 }
 
+// A goal date within this many years of the picker date counts as "due within a few years" for
+// the Investment note on the link form (DESIGN.md § Linked categories).
+const SHORT_HORIZON_YEARS = 5
+
+function shortHorizonDate(goal, pickerDate) {
+  if (!goal.kind || !goal.date) return null
+  const limit = `${Number(pickerDate.slice(0, 4)) + SHORT_HORIZON_YEARS}${pickerDate.slice(4)}`
+  return goal.date <= limit ? goal.date : null
+}
+
+// The link section of the category's settings form: the on-budget accounts this category's
+// money lives in (many-to-many). Searchable once there are more than five to choose from.
+function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizonGoalDate }) {
+  const eligible = accounts.filter((a) => a.on_budget || linkIds.includes(a.id))
+  const shown = eligible.filter((a) => a.name.toLowerCase().includes(filter.trim().toLowerCase()))
+  const toggle = (id) => onChange(linkIds.includes(id) ? linkIds.filter((x) => x !== id) : [...linkIds, id])
+  const investment = eligible.some((a) => linkIds.includes(a.id) && a.type === 'Investment')
+  return (
+    <fieldset className="space-y-1 text-sm">
+      <legend className="text-paper-soft">Money lives in (on-budget accounts)</legend>
+      {eligible.length === 0 && <p className="text-paper-soft">No on-budget accounts yet.</p>}
+      {eligible.length > 5 && (
+        <input
+          className="w-full rounded bg-ink px-2 py-1"
+          placeholder="Search accounts"
+          aria-label="Search accounts"
+          value={filter}
+          onChange={(e) => onFilter(e.target.value)}
+        />
+      )}
+      {shown.map((a) => (
+        <label key={a.id} className="flex items-center gap-2">
+          <input type="checkbox" checked={linkIds.includes(a.id)} onChange={() => toggle(a.id)} />
+          {a.name}
+        </label>
+      ))}
+      {investment && shortHorizonGoalDate && (
+        <p className="text-paper-soft">
+          This goal is due {formatDate(shortHorizonGoalDate)}, and money in an investment account may not
+          be there when the date comes.
+        </p>
+      )}
+    </fieldset>
+  )
+}
+
 // The goal row under a category: name, "$X of $Y", due date, per-period amount, and its own
 // Add / Withdraw box — the same earmark move as the row above, so progress and available stay one number.
 function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
@@ -247,6 +293,13 @@ const EMPTY_FORM = { name: '', needLevel: '', parent: {}, pool: {}, domain: {} }
 
 // A picker's state is { id, text }: `text` is what was typed, so a name that matches nothing can be
 // refused rather than silently saved as "none".
+// DESIGN.md § Linked categories: money taken out of a linked category is money sitting in an
+// account you can't spend from directly. A warning after the fact, never a refusal.
+function linkedNote(category) {
+  if (category.linked_accounts.length === 0) return null
+  return `${category.name}'s money is in ${category.linked_accounts.map((a) => a.name).join(' and ')}.`
+}
+
 function unmatched(pick) {
   return pick.text && pick.id == null
 }
@@ -267,6 +320,10 @@ export default function Categories({ pickerDate }) {
   const [assignError, setAssignError] = useState(null)
   const [goals, setGoals] = useState([]) // every goal shown at the picker date, with its progress
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL)
+  const [accounts, setAccounts] = useState([]) // for the link picker
+  const [linkIds, setLinkIds] = useState([]) // account ids the category being edited is linked to
+  const [linkFilter, setLinkFilter] = useState('')
+  const [linkedWarning, setLinkedWarning] = useState(null) // shown after money leaves a linked category
   const [moving, setMoving] = useState(null) // { category, to: { id, text }, amount } while moving out of a category
 
   function refresh() {
@@ -274,6 +331,7 @@ export default function Categories({ pickerDate }) {
     api.domains.list(pickerDate).then(setDomains).catch((e) => setError(e.message))
     api.readyToAssign(pickerDate).then(setSummary).catch((e) => setError(e.message))
     api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
+    api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
   }
 
   useEffect(refresh, [pickerDate, showArchived])
@@ -289,6 +347,8 @@ export default function Categories({ pickerDate }) {
       domain: { id: category.domain_id },
     })
     setGoalForm(goalToForm(goals.find((g) => g.goal.category_id === category.id)?.goal))
+    setLinkIds(category.linked_accounts.map((a) => a.id))
+    setLinkFilter('')
     setFormError(null)
   }
 
@@ -297,6 +357,7 @@ export default function Categories({ pickerDate }) {
     setEditing(null)
     setForm(EMPTY_FORM)
     setGoalForm(EMPTY_GOAL)
+    setLinkIds([])
     setFormError(null)
   }
 
@@ -321,6 +382,8 @@ export default function Categories({ pickerDate }) {
         const hadGoal = goals.some((g) => g.goal.category_id === editing.id)
         if (goalForm.kind) await api.goals.set(editing.id, goalBody(goalForm, pickerDate))
         else if (hadGoal) await api.goals.archive(editing.id, pickerDate)
+        const before = editing.linked_accounts.map((a) => a.id).sort().join()
+        if (before !== [...linkIds].sort().join()) await api.categories.setLinkedAccounts(editing.id, pickerDate, linkIds)
       } else await api.categories.create({ ...settings, created_on: pickerDate })
       resetForm()
       refresh()
@@ -333,11 +396,13 @@ export default function Categories({ pickerDate }) {
   // Add moves money into the category, Withdraw moves it back out.
   async function addOrWithdraw(category, direction, boxKey = category.id) {
     setAssignError(null)
+    setLinkedWarning(null)
     const cents = parseCents(amounts[boxKey])
     if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move for ${category.name}.`)
     const side = direction === 'add' ? { to_category_id: category.id } : { from_category_id: category.id }
     try {
       await api.earmarkMoves.create({ date: pickerDate, cents, ...side })
+      setLinkedWarning(direction === 'withdraw' ? linkedNote(category) : null)
       setAmounts({ ...amounts, [boxKey]: '' })
       refresh()
     } catch (err) {
@@ -349,6 +414,7 @@ export default function Categories({ pickerDate }) {
   async function moveToCategory(e) {
     e.preventDefault()
     setAssignError(null)
+    setLinkedWarning(null)
     const cents = parseCents(moving.amount)
     if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move out of ${moving.category.name}.`)
     if (unmatched(moving.to) || moving.to.id == null) return setAssignError('Pick the category to move the money to.')
@@ -359,6 +425,7 @@ export default function Categories({ pickerDate }) {
         from_category_id: moving.category.id,
         to_category_id: moving.to.id,
       })
+      setLinkedWarning(linkedNote(moving.category))
       setMoving(null)
       refresh()
     } catch (err) {
@@ -459,6 +526,16 @@ export default function Categories({ pickerDate }) {
           onChange={(id, text) => setForm({ ...form, pool: { id, text } })}
         />
         {editing && <GoalFields goal={goalForm} onChange={setGoalForm} />}
+        {editing && (
+          <LinkFields
+            accounts={accounts}
+            linkIds={linkIds}
+            onChange={setLinkIds}
+            filter={linkFilter}
+            onFilter={setLinkFilter}
+            shortHorizonGoalDate={shortHorizonDate(goalForm, pickerDate)}
+          />
+        )}
         <div className="flex gap-3">
           <button type="submit" className="rounded bg-accent px-3 py-1 text-ink">
             {editing ? 'Save' : 'Add category'}
@@ -473,6 +550,7 @@ export default function Categories({ pickerDate }) {
         {error && <p className="text-bad">Could not reach the backend: {error}</p>}
         {rowError && <p className="text-bad">{rowError}</p>}
         {assignError && <p className="text-bad">{assignError}</p>}
+        {linkedWarning && <p className="text-paper-soft">{linkedWarning}</p>}
         {warnings.map((w) => (
           <p key={w} className="text-sm text-bad">{w}</p>
         ))}
@@ -524,6 +602,11 @@ export default function Categories({ pickerDate }) {
                 <tr>
                   <td className="py-1" style={{ paddingLeft: `${depth * 1.25}rem` }}>
                     {c.name}
+                    {c.linked_accounts.length > 0 && (
+                      <div className="text-xs text-paper-soft">
+                        money is in {c.linked_accounts.map((a) => a.name).join(' and ')}
+                      </div>
+                    )}
                     {c.archived_on && (
                       <div className="text-xs text-paper-soft">archived {formatDate(c.archived_on)}</div>
                     )}
