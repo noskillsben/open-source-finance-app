@@ -165,10 +165,13 @@ class ArchiveIn(BaseModel):
 
 
 class EarmarkMoveIn(BaseModel):
-    """One earmark move: ready to assign to a category. Signed; a negative amount withdraws."""
+    """One move of `cents` (positive) from one category to another; a null side is ready to
+    assign. The caller states the date (the picker date) — the backend never reads the clock.
+    """
 
     date: date
-    category_id: int
+    from_category_id: int | None = None
+    to_category_id: int | None = None
     cents: int
 
 

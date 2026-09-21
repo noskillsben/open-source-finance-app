@@ -56,6 +56,7 @@ export default function Categories({ pickerDate }) {
   const [summary, setSummary] = useState(null) // ready to assign, overspent and each category's available
   const [amounts, setAmounts] = useState({}) // the assign box's text per category id
   const [assignError, setAssignError] = useState(null)
+  const [moving, setMoving] = useState(null) // { category, to: { id, text }, amount } while moving out of a category
 
   function refresh() {
     api.categories.list(pickerDate, showArchived).then(setCategories).catch((e) => setError(e.message))
@@ -110,14 +111,37 @@ export default function Categories({ pickerDate }) {
     }
   }
 
-  // One earmark move line, dated the "Show as of" date, from ready to assign into the category.
-  async function assign(category) {
+  // One earmark move line, dated the "Show as of" date, between ready to assign and the category:
+  // Add moves money into the category, Withdraw moves it back out.
+  async function addOrWithdraw(category, direction) {
     setAssignError(null)
     const cents = parseCents(amounts[category.id])
-    if (cents === null || cents === 0) return setAssignError(`Enter an amount to assign to ${category.name}.`)
+    if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move for ${category.name}.`)
+    const side = direction === 'add' ? { to_category_id: category.id } : { from_category_id: category.id }
     try {
-      await api.earmarkLines.create({ date: pickerDate, category_id: category.id, cents })
+      await api.earmarkMoves.create({ date: pickerDate, cents, ...side })
       setAmounts({ ...amounts, [category.id]: '' })
+      refresh()
+    } catch (err) {
+      setAssignError(err.message)
+    }
+  }
+
+  // Two earmark lines, out of `moving.category` and into the picked category.
+  async function moveToCategory(e) {
+    e.preventDefault()
+    setAssignError(null)
+    const cents = parseCents(moving.amount)
+    if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move out of ${moving.category.name}.`)
+    if (unmatched(moving.to) || moving.to.id == null) return setAssignError('Pick the category to move the money to.')
+    try {
+      await api.earmarkMoves.create({
+        date: pickerDate,
+        cents,
+        from_category_id: moving.category.id,
+        to_category_id: moving.to.id,
+      })
+      setMoving(null)
       refresh()
     } catch (err) {
       setAssignError(err.message)
@@ -231,6 +255,30 @@ export default function Categories({ pickerDate }) {
         {warnings.map((w) => (
           <p key={w} className="text-sm text-bad">{w}</p>
         ))}
+        {moving && (
+          <form key={moving.category.id} onSubmit={moveToCategory} className="rounded bg-ink p-3 space-y-2">
+            <h3 className="font-medium">Move money out of {moving.category.name}</h3>
+            <NamePicker
+              label="Move to"
+              items={active.filter((c) => c.id !== moving.category.id)}
+              onChange={(id, text) => setMoving({ ...moving, to: { id, text } })}
+            />
+            <label className="block text-sm">
+              <span className="text-paper-soft">Amount</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+                value={moving.amount}
+                onChange={(e) => setMoving({ ...moving, amount: e.target.value })}
+              />
+            </label>
+            <div className="flex gap-3">
+              <button type="submit" className="rounded bg-accent px-3 py-1 text-ink">Move</button>
+              <button type="button" className="text-sm text-accent" onClick={() => setMoving(null)}>Cancel</button>
+            </div>
+          </form>
+        )}
         <label className="flex items-center gap-2 text-sm">
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
           Show archived
@@ -245,7 +293,7 @@ export default function Categories({ pickerDate }) {
                 <th className="pb-1">Domain</th>
                 <th className="pb-1">Need level</th>
                 <th className="pb-1 text-right">Available</th>
-                <th className="pb-1">Assign</th>
+                <th className="pb-1">Move money</th>
                 <th className="pb-1"></th>
               </tr>
             </thead>
@@ -266,21 +314,31 @@ export default function Categories({ pickerDate }) {
                   <td className="py-1 whitespace-nowrap">
                     {!c.archived_on && (
                       <form
-                        className="flex gap-1"
+                        className="flex gap-2 items-center"
                         onSubmit={(e) => {
                           e.preventDefault()
-                          assign(c)
+                          addOrWithdraw(c, 'add')
                         }}
                       >
                         <input
                           type="text"
                           inputMode="decimal"
-                          aria-label={`Amount to assign to ${c.name}`}
+                          aria-label={`Amount to add to or withdraw from ${c.name}`}
                           className="w-24 rounded bg-ink px-2 py-1"
                           value={amounts[c.id] ?? ''}
                           onChange={(e) => setAmounts({ ...amounts, [c.id]: e.target.value })}
                         />
-                        <button type="submit" className="text-xs text-accent">Assign</button>
+                        <button type="submit" className="text-xs text-accent">Add</button>
+                        <button type="button" className="text-xs text-accent" onClick={() => addOrWithdraw(c, 'withdraw')}>
+                          Withdraw
+                        </button>
+                        <button
+                          type="button"
+                          className="text-xs text-accent"
+                          onClick={() => setMoving({ category: c, to: {}, amount: '' })}
+                        >
+                          Move to another category
+                        </button>
                       </form>
                     )}
                   </td>
