@@ -47,8 +47,16 @@ export const api = {
   categories: {
     list: (asOf, includeArchived = false) => request(listPath('/api/categories', asOf, includeArchived)),
     create: (category) => request('/api/categories', { method: 'POST', body: category }),
+    update: (id, category) => request(`/api/categories/${id}`, { method: 'PUT', body: category }),
     archive: (id, archivedOn) => request(`/api/categories/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/categories/${id}/unarchive`, { method: 'POST' }),
+  },
+  domains: {
+    list: (asOf, includeArchived = false) => request(listPath('/api/domains', asOf, includeArchived)),
+    create: (domain) => request('/api/domains', { method: 'POST', body: domain }),
+    update: (id, domain) => request(`/api/domains/${id}`, { method: 'PUT', body: domain }),
+    archive: (id, archivedOn) => request(`/api/domains/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
+    unarchive: (id) => request(`/api/domains/${id}/unarchive`, { method: 'POST' }),
   },
   payees: {
     list: (asOf, includeArchived = false) => request(listPath('/api/payees', asOf, includeArchived)),

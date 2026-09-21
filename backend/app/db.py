@@ -6,7 +6,7 @@ Business dates are separate columns on the tables that need them; these three ar
 from collections.abc import Generator
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, create_engine, func
+from sqlalchemy import BigInteger, Date, DateTime, String, create_engine, func
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
 from app.config import settings
@@ -36,6 +36,11 @@ class NonLedger:
 
     created_on: Mapped[date] = mapped_column(Date, nullable=False)
     archived_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Provenance of a seeded default (DESIGN.md § General concepts → "First-run defaults come
+    # from one seed step"): set by app/seed.py on the rows it inserts, unique per owner, and
+    # never read for anything else. It is how the seed step tells "this default already exists"
+    # from a name lookup, which a user's rename would defeat. Null on every user-made row.
+    seeded_key: Mapped[str | None] = mapped_column(String, nullable=True)
 
 
 def get_session() -> Generator[Session, None, None]:

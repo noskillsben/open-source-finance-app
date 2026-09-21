@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 from app.db import get_session
 from app.main import app
 from app.models import Account, Category, Payee
-from app.seed import guard_not_me
+from app.seed import ME_KEY, guard_not_me
 from app.services.accounts import (
     account_balance_cents,
     account_latest_ledger_date,
@@ -429,8 +429,8 @@ def test_categories_with_no_as_of_only_excludes_archived_rows(db_session):
     assert any(c["id"] == future_category.id for c in resp.json())
 
 
-def make_payee(db_session, name, *, created_on=EARLIER):
-    payee = Payee(name=name, created_on=created_on)
+def make_payee(db_session, name, *, created_on=EARLIER, seeded_key=None):
+    payee = Payee(name=name, created_on=created_on, seeded_key=seeded_key)
     db_session.add(payee)
     db_session.flush()
     return payee
@@ -488,7 +488,7 @@ def test_archive_refused_on_or_before_a_ledger_row_referencing_the_payee(db_sess
 
 
 def test_post_archive_me_is_400(db_session):
-    me = make_payee(db_session, "Me", created_on=datetime.date.min)
+    me = make_payee(db_session, "Me", seeded_key=ME_KEY)
 
     client = _client(db_session)
     try:
@@ -500,7 +500,7 @@ def test_post_archive_me_is_400(db_session):
 
 
 def test_guard_not_me_raises_for_me_and_not_for_an_ordinary_payee(db_session):
-    me = make_payee(db_session, "Me", created_on=datetime.date.min)
+    me = make_payee(db_session, "Me", seeded_key=ME_KEY)
     ordinary = make_payee(db_session, "Walmart")
 
     with pytest.raises(ArchiveError):

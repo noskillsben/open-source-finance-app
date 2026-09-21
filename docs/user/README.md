@@ -7,6 +7,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 - Run `docker compose up --build` and open http://localhost:5173.
 - Pick a date with the "Show as of" control in the header to see every balance as it stood that day — it also becomes the default date on every form (accounts and transactions), and the category and payee lists only show what existed that day, until you change it again.
 - The payee "Me" already exists the first time you open the app — no need to add it before recording a transfer between your own accounts.
+- A starter set of categories (Groceries, Dining out, Rent, Utilities, Transit, Health care, Clothing, Entertainment, Debt payments) and domains (Food, Housing, Transportation, Health, Lifestyle, Financial) is there the first time you open the app. Rename or archive any of them; they won't come back. If you already made a category or domain with one of those names, yours is kept and the starter one is skipped.
 
 ## Accounts
 
@@ -17,7 +18,9 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Categories and goals
 
-- See your categories in the Categories list, with sub-categories indented under their parent. Click "Archive" on a row to archive it as of the "Show as of" date; any warning is shown, but the category is archived regardless. Tick "Show archived" to see archived categories and "Unarchive" one; that's refused if another category now has the same name. There's no rename here yet.
+- Add a category: give it a name and, if you like, the category it sits under, a domain, a default need level (need, should, nice to have or want) and a pool — the category it draws on when it overspends. Every category can be posted to, whether or not it has sub-categories underneath. Click "Edit" on a row to change any of these, including its name. A category can't be its own pool, directly or through a chain of pools, and can't sit under itself or one of its own sub-categories. A name already in use is refused, ignoring capital letters.
+- Domains are a label for grouping categories in reports (Food might hold Groceries and Dining out). Add, rename or archive them in the Domains list under the categories; archived domains free up their name, and "Show archived" brings them back to unarchive.
+- See your categories in the Categories list, with sub-categories indented under their parent, and each one's domain and need level beside it. Click "Archive" on a row to archive it as of the "Show as of" date; any warning is shown, but the category is archived regardless. Tick "Show archived" to see archived categories and "Unarchive" one; that's refused if another category now has the same name.
 
 ## Payees
 
