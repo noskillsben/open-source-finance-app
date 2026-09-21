@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.db import get_session
-from app.models import Account, Category, Payee, Transaction, Valuation
+from app.models import Account, Category, Domain, Payee, Transaction, Valuation
 from app.schemas import (
     AccountCreate,
     AccountLineOut,
@@ -20,7 +20,11 @@ from app.schemas import (
     CategoryCreate,
     CategoryLineOut,
     CategoryOut,
+    CategoryUpdate,
     DebtTerms,
+    DomainCreate,
+    DomainOut,
+    DomainUpdate,
     Health,
     IntegrityFindingOut,
     PayeeCreate,
@@ -41,7 +45,7 @@ from app.services.accounts import (
     update_account,
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
-from app.services.categories import build_category_archivable
+from app.services.categories import CategoryError, apply_category_settings, build_category_archivable
 from app.services.integrity import find_integrity_issues
 from app.services.payees import payee_latest_ledger_date
 from app.services.transactions import TransactionError, write_transaction
@@ -235,24 +239,112 @@ def list_categories(
     categories = session.scalars(
         select(Category).where(_visible(Category, as_of, include_archived)).order_by(Category.name)
     ).all()
-    return [
-        CategoryOut(id=c.id, name=c.name, parent_id=c.parent_id, created_on=c.created_on, archived_on=c.archived_on)
-        for c in categories
-    ]
+    return [CategoryOut.model_validate(c) for c in categories]
 
 
 @app.post("/api/categories", response_model=CategoryOut, status_code=201)
 def create_category(payload: CategoryCreate, session: Session = Depends(get_session)) -> CategoryOut:
-    category = Category(name=payload.name, created_on=payload.created_on, parent_id=payload.parent_id)
+    category = Category(created_on=payload.created_on)
+    try:
+        apply_category_settings(
+            session, category, name=payload.name, parent_id=payload.parent_id,
+            pool_id=payload.pool_id, domain_id=payload.domain_id, need_level=payload.need_level,
+        )
+    except CategoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     session.add(category)
     try:
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
-    return CategoryOut(
-        id=category.id, name=category.name, parent_id=category.parent_id,
-        created_on=category.created_on, archived_on=category.archived_on,
-    )
+    return CategoryOut.model_validate(category)
+
+
+@app.put("/api/categories/{category_id}", response_model=CategoryOut)
+def update_category(
+    category_id: int, payload: CategoryUpdate, session: Session = Depends(get_session)
+) -> CategoryOut:
+    category = session.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail=f"No category with id {category_id}.")
+    try:
+        apply_category_settings(
+            session, category, name=payload.name, parent_id=payload.parent_id,
+            pool_id=payload.pool_id, domain_id=payload.domain_id, need_level=payload.need_level,
+        )
+    except CategoryError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
+    return CategoryOut.model_validate(category)
+
+
+@app.get("/api/domains", response_model=list[DomainOut])
+def list_domains(
+    as_of: date | None = None, include_archived: bool = False, session: Session = Depends(get_session)
+) -> list[DomainOut]:
+    domains = session.scalars(
+        select(Domain).where(_visible(Domain, as_of, include_archived)).order_by(Domain.name)
+    ).all()
+    return [DomainOut.model_validate(d) for d in domains]
+
+
+@app.post("/api/domains", response_model=DomainOut, status_code=201)
+def create_domain(payload: DomainCreate, session: Session = Depends(get_session)) -> DomainOut:
+    domain = Domain(name=payload.name, description=payload.description, created_on=payload.created_on)
+    session.add(domain)
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=f"A domain named {payload.name!r} already exists.")
+    return DomainOut.model_validate(domain)
+
+
+@app.put("/api/domains/{domain_id}", response_model=DomainOut)
+def update_domain(domain_id: int, payload: DomainUpdate, session: Session = Depends(get_session)) -> DomainOut:
+    domain = session.get(Domain, domain_id)
+    if domain is None:
+        raise HTTPException(status_code=404, detail=f"No domain with id {domain_id}.")
+    domain.name = payload.name
+    domain.description = payload.description
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=f"A domain named {payload.name!r} already exists.")
+    return DomainOut.model_validate(domain)
+
+
+@app.post("/api/domains/{domain_id}/archive", response_model=ArchiveOut)
+def archive_domain(
+    domain_id: int, payload: ArchiveIn, session: Session = Depends(get_session)
+) -> ArchiveOut:
+    domain = session.get(Domain, domain_id)
+    if domain is None:
+        raise HTTPException(status_code=404, detail=f"No domain with id {domain_id}.")
+    # No ledger row points at a domain (it is a reporting label on categories), so there is no
+    # date bound and no balance to warn about.
+    try:
+        warnings = archive(Archivable(entity=domain, latest_ledger_date=None), payload.archived_on)
+    except ArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    session.flush()
+    return ArchiveOut(id=domain.id, archived_on=domain.archived_on, warnings=warnings)
+
+
+@app.post("/api/domains/{domain_id}/unarchive", response_model=ArchiveOut)
+def unarchive_domain(domain_id: int, session: Session = Depends(get_session)) -> ArchiveOut:
+    domain = session.get(Domain, domain_id)
+    if domain is None:
+        raise HTTPException(status_code=404, detail=f"No domain with id {domain_id}.")
+    name = domain.name  # read before the flush: a failed flush rolls the session back and expires the row
+    unarchive(domain)
+    try:
+        session.flush()
+    except IntegrityError:
+        raise HTTPException(status_code=409, detail=f"A domain named {name!r} already exists.")
+    return ArchiveOut(id=domain.id, archived_on=domain.archived_on, warnings=[])
 
 
 @app.post("/api/categories/{category_id}/archive", response_model=ArchiveOut)

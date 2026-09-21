@@ -6,7 +6,8 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Category, CategoryLine, Transaction
+from app.models import Category, CategoryLine, Domain, Transaction
+from app.need_levels import NEED_LEVELS
 from app.services.archiving import Archivable
 
 
@@ -59,3 +60,51 @@ def build_category_archivable(session: Session, category: Category, *, as_of: da
             for child in category_children(session, category.id)
         ],
     )
+
+
+class CategoryError(Exception):
+    """A category setting the service refuses — a planning surface, so a block is allowed
+    (DESIGN.md § General concepts → blocks are allowed on planning and settings surfaces).
+    """
+
+
+def _reaches(session: Session, start_id: int | None, target_id: int, link: str) -> bool:
+    """Follow `link` ("parent_id" or "pool_id") from `start_id` up its chain; True if the chain
+    passes through `target_id`. Bounded by the seen-set, so a cycle already in the data can't hang it.
+    """
+    seen: set[int] = set()
+    current = start_id
+    while current is not None and current not in seen:
+        if current == target_id:
+            return True
+        seen.add(current)
+        current = session.scalar(select(getattr(Category, link)).where(Category.id == current))
+    return False
+
+
+def apply_category_settings(
+    session: Session, category: Category, *, name: str, parent_id: int | None,
+    pool_id: int | None, domain_id: int | None, need_level: str | None,
+) -> None:
+    """The one write path for a category's settings, shared by create and edit. Validates
+    everything before touching the row. A category may not be its own pool, directly or through
+    a chain (DESIGN.md § Pools), nor its own ancestor in the tree. Enforced here, not in the DB.
+    """
+    if need_level is not None and need_level not in NEED_LEVELS:
+        raise CategoryError(f"Unknown need level {need_level!r}.")
+    for label, related_id in (("parent", parent_id), ("pool", pool_id)):
+        if related_id is not None and session.get(Category, related_id) is None:
+            raise CategoryError(f"Unknown {label} category id: {related_id}")
+    if domain_id is not None and session.get(Domain, domain_id) is None:
+        raise CategoryError(f"Unknown domain id: {domain_id}")
+    if category.id is not None:
+        if _reaches(session, pool_id, category.id, "pool_id"):
+            raise CategoryError("A category cannot be its own pool, directly or through a chain of pools.")
+        if _reaches(session, parent_id, category.id, "parent_id"):
+            raise CategoryError("A category cannot be placed under itself or one of its own sub-categories.")
+
+    category.name = name
+    category.parent_id = parent_id
+    category.pool_id = pool_id
+    category.domain_id = domain_id
+    category.need_level = need_level

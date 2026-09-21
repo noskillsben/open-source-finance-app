@@ -8,32 +8,32 @@ An issue that introduces a new default adds a line to SEED_DEFAULTS, not a new m
 from collections.abc import Callable
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Payee
+from app.db import NonLedger
+from app.models import Category, Domain, Payee
 from app.services.archiving import ArchiveError
 
-# Me must be valid on every picker date, including transactions backdated before the
+# Every default is valid on every picker date, including transactions backdated before the
 # container's first boot — created_on cannot be date.today() (CLAUDE.md: never date.today()
 # for a business date) or later than the earliest ledger row that will reference it.
-#
-# _SINCE_ALWAYS also doubles as the marker that identifies the seeded row itself: a rename
-# must not cause a second Me to be seeded, so "does Me exist" cannot be a name lookup — it
-# has to find the row this step already inserted, however it has since been renamed.
+# This is only the valid-from date. What a default *is* is its `seeded_key`: a rename or an
+# archive must not cause a second copy to be seeded, so "does it exist" is never a name lookup.
 _SINCE_ALWAYS = date.min
 
+ME_KEY = "payee:me"
 
-def _me_exists(session: Session) -> bool:
-    return session.scalar(select(Payee.id).where(Payee.created_on == _SINCE_ALWAYS)) is not None
+
+def _key_exists(session: Session, model: type[NonLedger], key: str) -> bool:
+    return session.scalar(select(model.id).where(model.seeded_key == key)) is not None
 
 
 def is_me(payee: Payee) -> bool:
-    """Identify the seeded Me the way this module does — by the sentinel `created_on`, not
-    by name, since Me can be renamed (DESIGN.md § Founding decisions → Minimal protected
-    data).
+    """Identify the seeded Me by its `seeded_key`, not by name, since Me can be renamed
+    (DESIGN.md § Founding decisions → Minimal protected data).
     """
-    return payee.created_on == _SINCE_ALWAYS
+    return payee.seeded_key == ME_KEY
 
 
 def guard_not_me(payee: Payee) -> None:
@@ -43,12 +43,65 @@ def guard_not_me(payee: Payee) -> None:
         raise ArchiveError("Me cannot be archived or renamed.")
 
 
-def _insert_me(session: Session) -> None:
-    session.add(Payee(name="Me", created_on=_SINCE_ALWAYS))
+def _default(
+    model: type[NonLedger], key: str, *, name: str, **fields
+) -> tuple[Callable[[Session], bool], Callable[[Session], None]]:
+    """One SEED_DEFAULTS entry: insert a `model` row tagged `key` unless one carrying that key
+    already exists. Also skipped when the user already has an active row of that name — the
+    unique-name rule would refuse the insert, and their own row is what they meant. A field
+    that is a callable is resolved against the session at insert time (for foreign keys to
+    other defaults).
+    """
 
+    def exists(session: Session) -> bool:
+        if _key_exists(session, model, key):
+            return True
+        taken = select(model.id).where(func.lower(model.name) == name.lower(), model.archived_on.is_(None))
+        return session.scalar(taken) is not None
+
+    def insert(session: Session) -> None:
+        resolved = {k: v(session) if callable(v) else v for k, v in fields.items()}
+        session.add(model(name=name, created_on=_SINCE_ALWAYS, seeded_key=key, **resolved))
+        session.flush()
+
+    return exists, insert
+
+
+def _domain_id(key: str) -> Callable[[Session], int | None]:
+    return lambda session: session.scalar(select(Domain.id).where(Domain.seeded_key == key))
+
+
+# Domains and categories from DESIGN.md § Categories / § Domains. Domains come first so a
+# category's domain exists when it is inserted. A new default is one line here.
+DEFAULT_DOMAINS = [
+    ("food", "Food", "Groceries and eating out"),
+    ("housing", "Housing", "Where you live and what keeps it running"),
+    ("transportation", "Transportation", "Getting around"),
+    ("health", "Health", "Care for your body"),
+    ("lifestyle", "Lifestyle", "Clothes, fun and everything discretionary"),
+    ("financial", "Financial", "Debt and money set aside"),
+]
+
+# (key, name, domain key, default need level)
+DEFAULT_CATEGORIES = [
+    ("groceries", "Groceries", "food", "need"),
+    ("dining-out", "Dining out", "food", "want"),
+    ("rent", "Rent", "housing", "need"),
+    ("utilities", "Utilities", "housing", "need"),
+    ("transit", "Transit", "transportation", "need"),
+    ("health-care", "Health care", "health", "need"),
+    ("clothing", "Clothing", "lifestyle", "should"),
+    ("entertainment", "Entertainment", "lifestyle", "want"),
+    ("debt-payments", "Debt payments", "financial", "need"),
+]
 
 SEED_DEFAULTS: list[tuple[Callable[[Session], bool], Callable[[Session], None]]] = [
-    (_me_exists, _insert_me),
+    _default(Payee, ME_KEY, name="Me"),
+    *(_default(Domain, f"domain:{key}", name=name, description=description)
+      for key, name, description in DEFAULT_DOMAINS),
+    *(_default(Category, f"category:{key}", name=name,
+               domain_id=_domain_id(f"domain:{domain}"), need_level=need_level)
+      for key, name, domain, need_level in DEFAULT_CATEGORIES),
 ]
 
 

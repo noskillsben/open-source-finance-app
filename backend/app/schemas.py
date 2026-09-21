@@ -5,6 +5,7 @@ from decimal import Decimal
 from pydantic import BaseModel, Field, field_serializer, field_validator
 
 from app.account_types import ACCOUNT_TYPES
+from app.need_levels import NEED_LEVELS
 
 
 class Health(BaseModel):
@@ -92,16 +93,63 @@ class AccountOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def _need_level_is_known(value: str | None) -> str | None:
+    if value is not None and value not in NEED_LEVELS:
+        raise ValueError(f"unknown need level {value!r}")
+    return value
+
+
 class CategoryCreate(BaseModel):
     name: str = Field(min_length=1)
     created_on: date
     parent_id: int | None = None
+    pool_id: int | None = None
+    domain_id: int | None = None
+    need_level: str | None = None
+
+    _need_level = field_validator("need_level")(_need_level_is_known)
+
+
+class CategoryUpdate(BaseModel):
+    """Editable category settings — no `created_on`, which archiving's ledger bound reads."""
+
+    name: str = Field(min_length=1)
+    parent_id: int | None = None
+    pool_id: int | None = None
+    domain_id: int | None = None
+    need_level: str | None = None
+
+    _need_level = field_validator("need_level")(_need_level_is_known)
 
 
 class CategoryOut(BaseModel):
     id: int
     name: str
     parent_id: int | None
+    pool_id: int | None
+    domain_id: int | None
+    need_level: str | None
+    created_on: date
+    archived_on: date | None
+
+    model_config = {"from_attributes": True}
+
+
+class DomainCreate(BaseModel):
+    name: str = Field(min_length=1)
+    description: str | None = None
+    created_on: date
+
+
+class DomainUpdate(BaseModel):
+    name: str = Field(min_length=1)
+    description: str | None = None
+
+
+class DomainOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
     created_on: date
     archived_on: date | None
 

@@ -77,6 +77,23 @@ def _assert_b91f3e7a2c45(session):
     assert (opening.cents, groceries.cents) == (50000, -8000)
 
 
+def _assert_c4d8a1f65e92(session):
+    from app.models import CategoryLine, Payee
+
+    car, insurance = session.get(Category, 1), session.get(Category, 2)
+    assert (car.name, car.parent_id) == ("Car", None)
+    assert (insurance.name, insurance.parent_id) == ("Car insurance", 1)  # the tree survived in place
+    for category in (car, insurance):  # the columns this revision adds, all left unset
+        assert (category.pool_id, category.domain_id, category.need_level) == (None, None, None)
+        assert category.seeded_key is None
+    assert session.get(CategoryLine, 1).category_id == 2  # the line still points at its category
+    assert session.get(CategoryLine, 1).cents == -8000
+
+    me, walmart = session.get(Payee, 1), session.get(Payee, 2)
+    assert me.seeded_key == "payee:me"  # backfilled from the created_on == date.min sentinel
+    assert walmart.seeded_key is None
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -85,6 +102,7 @@ ASSERTIONS = {
     "cfce036f3c04": _assert_cfce036f3c04,
     "a82c4d9e1b70": _assert_a82c4d9e1b70,
     "b91f3e7a2c45": _assert_b91f3e7a2c45,
+    "c4d8a1f65e92": _assert_c4d8a1f65e92,
 }
 
 

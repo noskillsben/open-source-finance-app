@@ -12,6 +12,14 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db import Base, NonLedger, Owned
 
 
+def _seeded_key_index(table: str) -> Index:
+    """One seeded default per key per owner; user-made rows (null key) are unconstrained."""
+    return Index(
+        f"ix_{table}_owner_seeded_key", "owner_id", "seeded_key",
+        unique=True, postgresql_where=text("seeded_key IS NOT NULL"),
+    )
+
+
 class Account(Base, Owned, NonLedger):
     """Where money, debt or value is held (DESIGN.md § Accounts)."""
 
@@ -50,6 +58,7 @@ class Account(Base, Owned, NonLedger):
             "ix_account_owner_lower_name", "owner_id", func.lower(name),
             unique=True, postgresql_where=text("archived_on IS NULL"),
         ),
+        _seeded_key_index("account"),
     )
 
 
@@ -66,9 +75,29 @@ class Valuation(Base, Owned):
     account: Mapped["Account"] = relationship(back_populates="valuations")
 
 
+class Domain(Base, Owned, NonLedger):
+    """A reporting label bigger than a category — Food holds Groceries, Fast food, Snacks
+    (DESIGN.md § Domains). No rules hang off it beyond group-by.
+    """
+
+    __tablename__ = "domain"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    __table_args__ = (
+        Index(
+            "ix_domain_owner_lower_name", "owner_id", func.lower(name),
+            unique=True, postgresql_where=text("archived_on IS NULL"),
+        ),
+        _seeded_key_index("domain"),
+    )
+
+
 class Category(Base, Owned, NonLedger):
-    """Minimal category — just enough to file a transaction line under (DESIGN.md § Categories).
-    Domains, need levels, pools and goals are #2's job.
+    """What money is spent on and saved for (DESIGN.md § Categories). Goals and linked
+    accounts are later issues; a pool is recorded here but draws from it are #19.
     """
 
     __tablename__ = "category"
@@ -78,12 +107,18 @@ class Category(Base, Owned, NonLedger):
     # Grouping for the tree view only — a parent is still postable like any other category
     # (DESIGN.md § Categories). Self-referential, so archiving cascades to children in one pass.
     parent_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=True, index=True)
+    # The category this one draws on when it overspends; never itself, directly or by chain.
+    pool_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=True, index=True)
+    domain_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("domain.id"), nullable=True, index=True)
+    # need / should / nice_to_have / want — a fixed ordinal (app/need_levels.py), not a table.
+    need_level: Mapped[str | None] = mapped_column(String, nullable=True)
 
     __table_args__ = (
         Index(
             "ix_category_owner_lower_name", "owner_id", func.lower(name),
             unique=True, postgresql_where=text("archived_on IS NULL"),
         ),
+        _seeded_key_index("category"),
     )
 
 
@@ -102,6 +137,7 @@ class Payee(Base, Owned, NonLedger):
             "ix_payee_owner_lower_name", "owner_id", func.lower(name),
             unique=True, postgresql_where=text("archived_on IS NULL"),
         ),
+        _seeded_key_index("payee"),
     )
 
 
