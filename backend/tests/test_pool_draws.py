@@ -200,3 +200,21 @@ def test_the_available_endpoint_reports_what_the_chain_could_cover(db_session, c
     by_id = {c["category_id"]: c for c in body["categories"]}
     assert by_id[snacks.id]["pool_available_cents"] == 70_00
     assert by_id[household.id]["pool_available_cents"] == 0
+
+
+def test_an_archived_pool_mid_chain_counts_for_neither_the_pill_nor_the_draw(db_session, chequing):
+    household = _category(db_session, "Household")
+    food = _category(db_session, "Food", pool=household)
+    snacks = _category(db_session, "Snacks", pool=food)
+    _fund(db_session, food, 70_00)
+    _fund(db_session, household, 100_00)
+    food.archived_on = DAY  # archived on the day: a draw dated DAY skips it
+    db_session.flush()
+
+    assert pool_available_cents(db_session, snacks.id, as_of=DAY) == 100_00
+
+    _spend(db_session, chequing, snacks, 150_00)
+
+    assert _balance(db_session, food) == 70_00  # untouched
+    assert _balance(db_session, household) == 0
+    assert _balance(db_session, snacks) == -50_00  # the pill promised 100.00 and delivered 100.00

@@ -109,11 +109,13 @@ def pool_chain(session: Session, category_id: int) -> list[Category]:
 def pool_available_cents(session: Session, category_id: int, *, as_of: date) -> int:
     """What the pool chain could cover if `category_id` overspent on `as_of`: each pool's
     balance, a negative one counting as nothing because a draw never takes from a pool below
-    zero (DESIGN.md § Pools — the "+$170 available if overspent" pill).
+    zero, and a pool archived on or before `as_of` counting as nothing because a draw skips it
+    (DESIGN.md § Pools — the "+$170 available if overspent" pill). Same rules as the draw.
     """
     return sum(
         max(category_balance_cents(session, pool.id, as_of=as_of), 0)
         for pool in pool_chain(session, category_id)
+        if pool.archived_on is None or pool.archived_on > as_of
     )
 
 
