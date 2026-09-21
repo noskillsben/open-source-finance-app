@@ -366,11 +366,34 @@ Whether a split member who is also a user of the app (multi-user mode, later) se
 
 Visual design is a separate pass. These are the rules it has to respect, collected as they come up:
 
-- **Page names are provisional.** Every page and nav label in this document ("pay screen", "category page", "account outlook") gets a naming pass before any of them is committed to a route or a menu — one pass over all of them, not one page at a time, which is why it sits ahead of the first build issue that writes a route.
+- **The nav is four groups, named for what you are doing**, with the group names rendered as section headers in the menu, and Settings below them. The groups are the three tempos of the Philosophy section plus the recording surfaces, which are not one of the three: **Record**, **Assign**, **Plan**, **Review**. No screen answers more than one of the three questions; the groups are what keeps them apart. Page names are settled here and are not provisional any more — a new surface is named when its issue is filed, against this table.
+
+| Group | Page | Called in this document before |
+| --- | --- | --- |
+| Record | **Pay** | the pay screen — the term "pay screen" is unchanged in prose and in `CLAUDE.md`; *Pay* is only the label |
+| Record | **Quick add** | quick mode — a phone-first page for adding a transaction in a few taps, not a mode the app is switched into |
+| Record | **Ledger** | ledger |
+| Record | **Balance checks** | balance checks |
+| Assign | **Categories** | the category page — the label is the list; one category's own view is still "the category page" |
+| Assign | **Accounts** | the account list and the account page, one label for both |
+| Plan | **Outlook** | account outlook |
+| Plan | **Pay history** | planned vs. actual by named pay |
+| Review | **Spending** | spending by domain *and* spending by need level — one page with a grouping control, not two reports |
+| Review | **Emergency fund** | emergency fund |
+| Review | **Goals** | goal progress |
+| Review | **Growth** | contributed vs. grew |
+| Review | **Net worth** | net worth over time |
+| Review | **Debt** | debt payoff and interest |
+| Review | **Unusual spending** | anomalies |
+| Settings | **Settings** | settings |
+| Settings | **Data check** | the integrity page |
+
+  *Accounts* sits under *Assign* knowingly: you do not assign an account, but assigning is what the group is mostly for and accounts belong beside categories, not in a group of their own.
+- **"Home" is a reserved name and nothing else.** There is no home page. The name is held so that a landing surface, if one is ever wanted, arrives as *Home* rather than as a second "dashboard". If it is built it may show summaries that **link into** the four groups and may never become a fifth place to do the work — a widget wall that answers all three questions at once is the collapse the Philosophy section refuses. It is parked as the last item of EPIC 6 (#98), to be answered only once the four groups are in daily use, and closing it unbuilt is the expected outcome.
 - **Drop-downs are alphabetical**, unless the values have a real order — need → should → nice to have → want, account types grouped by budget side.
 - **Any picker that could ever hold more than five items is searchable** (type-ahead). Categories, payees, accounts, domains, named pays all qualify from day one.
 - **Every list page has filters** — accounts, categories, ledger, goals, scheduled items. Filtering was one of the things that worked in the old app. Filter state is a per-viewer convenience, not stored data.
-- **Quick mode stays**, as a phone-first capture surface inside the same app calling the same record path — pick payee, confirm amount, done. Its exact shape is not the old one and is designed in the visual pass.
+- **Quick add stays**, as a phone-first capture surface inside the same app calling the same record path — pick payee, confirm amount, done. Its exact shape is not the old one and is designed in the visual pass.
 - Contrast: the dark theme is liked, but every control — pickers, placeholders, secondary labels — has to be readable on a phone in daylight, not just body text.
 - Nothing hover-only; no `type="number"` money inputs (phone keypads have no minus key); one currency formatter, one date formatter (`en-CA`).
 
@@ -381,21 +404,21 @@ Mechanics first; this section is a list of questions the app should be able to a
 **The one headline number is ready to assign.** "Safe to spend" is not a separate number: cash above floors minus everything earmarked *is* ready to assign, and the old app's attempt to make it something else produced "$1,895 safe to spend" above "$1,466 in the bank" and cost every other number its credibility. What envelopes cannot tell you is *timing* — whether the cash to honour the envelopes is in the right account on the right day — and that is the second pillar, below.
 
 *Where does my money sit* (envelope budgeting, daily):
-- The category page and the account list — balances, available, the pool pill, the goal row. These are views, not reports.
+- **Categories** and **Accounts** — balances, available, the pool pill, the goal row. These are views, not reports.
 - The ledger: grouped by month, filterable by account, category, payee, domain, need level; positive category lines labelled return or income by sign.
 
 *Can I afford what's coming* (cash-flow forecasting, per pay):
-- **Account outlook**: for one account, the balance at the picker date, every future-dated row and every bill bound to a named pay that falls before its next payday, and the lowest point the balance reaches. Never adds income that hasn't been recorded. This is the number "safe to spend" was trying to be.
-- **Planned vs. actual by named pay**: what the pay was expected to bring (low–high) against what its linked transactions delivered, per period, and paydays that came with no transaction. Trivial for a salary; the point of it is lumpy income. The named-pay link on the transaction exists for the pay screen regardless, so this report is optional.
+- **Outlook**: for one account, the balance at the picker date, every future-dated row and every bill bound to a named pay that falls before its next payday, and the lowest point the balance reaches. Never adds income that hasn't been recorded. This is the number "safe to spend" was trying to be.
+- **Pay history** (planned vs. actual by named pay): what the pay was expected to bring (low–high) against what its linked transactions delivered, per period, and paydays that came with no transaction. Trivial for a salary; the point of it is lumpy income. The named-pay link on the transaction exists for the pay screen regardless, so this report is optional.
 
 *Am I making the trade-offs I want* (spending awareness, monthly / quarterly):
-- **Spending by domain and by need level** for a period. These two breakdowns are spending reports and read outflow lines net of returns, **excluding lines on any account's boundary category** — loan principal, and money moved out to an account you only track, is not spending; the interest line beside it is. A category whose lines net to an inflow for the period (Salary income, or Groceries in a month with one big refund) appears on the income side, not here — decided by the sign of its net, never by name. Income has a domain and a need level like any category; nothing reports on them.
+- **Spending** for a period, grouped by domain or by need level — one page with a grouping control, not two reports. It reads outflow lines net of returns, **excluding lines on any account's boundary category** — loan principal, and money moved out to an account you only track, is not spending; the interest line beside it is. A category whose lines net to an inflow for the period (Salary income, or Groceries in a month with one big refund) appears on the income side, not here — decided by the sign of its net, never by name. Income has a domain and a need level like any category; nothing reports on them.
 - **Emergency fund**: needs-only spend per month × N months, N chosen by the user; "comfortable" = need + should. Derived from the need-level report; no peer app does this from real spending.
-- **Goal progress**: per category with a goal, "at this rate you'll reach it by [date]".
-- **Contributed vs. grew** per linked category, from the balance-check adjustments (`valuation_id`) — the thing no other budgeting app shows.
-- **Net worth over time**: every account, on-budget and tracking, with valuations giving assets their line.
-- **Debt payoff and interest**: reads the terms block and the account lines, with the compounding rules from the Canadian loan research. The terms block's only consumer.
-- **Anomalies**: "3× your usual on eating out this period", computed at read time from the months before the picker date, never stored, acknowledged with a context note ("I know, thanks") — a small non-ledger `note` table (scope, date range, text) added when this report is built, not before.
+- **Goals**: per category with a goal, "at this rate you'll reach it by [date]".
+- **Growth** (contributed vs. grew) per linked category, from the balance-check adjustments (`valuation_id`) — the thing no other budgeting app shows.
+- **Net worth**, over time: every account, on-budget and tracking, with valuations giving assets their line.
+- **Debt** (payoff and interest): reads the terms block and the account lines, with the compounding rules from the Canadian loan research. The terms block's only consumer.
+- **Unusual spending**: "3× your usual on eating out this period", computed at read time from the months before the picker date, never stored, acknowledged with a context note ("I know, thanks") — a small non-ledger `note` table (scope, date range, text) added when this report is built, not before.
 
 ## Repository and documentation layout
 
@@ -459,6 +482,7 @@ Fable-class models are not needed: the deciding is in this document, and the res
 - 2026-09-21 — Ready to assign still counts overspent categories, and now admits it: the headline reads "Ready to assign $1,000.00 (includes −$500.00 in overspent categories)" instead of leaving the user to wonder why the number went *up* when they overspent. Mechanism: the one ready-to-assign helper is untouched — still the plain difference, still no second `max()` — and a second read-only helper sums the negative category balances at the picker date, for display only. **Deletes:** the open question in *Still to figure out*, and with it the YNAB-style exclusion, which would have put a `max()` back into the formula the 2026-09-17 decision took one out of. Schema: nothing. User guide: a bullet explaining the parenthetical.
 - 2026-09-21 — A column ships in the revision of the issue that gives it a surface, so nobody inherits a table of fields that do nothing. A field earns its place by being written or read back through a surface a person uses — a form control and its display count; an API field with no client and no rule behind it does not. **Deletes:** `goal.income_stream_id` from #20 (it arrives with #21, where `income_stream` exists for the FK to point at, instead of shipping as a bare nullable integer). Exceptions, both narrow: the shared `NonLedger` mixin is born with every non-ledger table (2026-09-14), and the debt terms block — `annual_rate`, `compounding_rule`, `statement_close_day`, `grace_days`, `term_end`, `amortization_end` — is grandfathered under a `watch` issue (#96): it is API-only today, and if #31 does not give it a form in EPIC 5 it is deleted rather than kept for later. `credit_limit_cents` is already wired. Schema: nothing built changes. Convention lands in `CLAUDE.md`. User guide: no user-facing change.
 - 2026-09-21 — EPIC 2 contains only what EPIC 2 can build. Binding a goal to a named pay (#21) needs `income_stream`, so it moves to EPIC 3 behind #23; the page-and-nav naming pass (#34) comes *before* the category page it names, so it moves to EPIC 2 as its first item. **Deletes:** nothing; no issue is closed or rescoped beyond #20's schema line. Schema: nothing. User guide: no user-facing change.
+- 2026-09-21 — Every page gets the name it will keep, and the menu groups them by what you are doing rather than by what the data is: **Record** (Pay, Quick add, Ledger, Balance checks), **Assign** (Categories, Accounts), **Plan** (Outlook, Pay history), **Review** (Spending, Emergency fund, Goals, Growth, Net worth, Debt, Unusual spending), with Settings and Data check below. Group names render as section headers, so the menu teaches the three tempos. Mechanism: a name table in *UI conventions*; a new surface is named against it when its issue is filed, and page names stop being provisional. "Home" is reserved as a name only — no page, a decision parked last in EPIC 6 (#98) rather than a build, and a written limit that it may link into the groups and never become a fifth place to do the work. **Deletes:** "dashboard", named once and never defined; "quick mode", renamed *Quick add* because it is a page and not a mode; and one of the two spending reports — *spending by domain* and *spending by need level* read the same outflow lines and become one **Spending** page with a grouping control. Schema: nothing. User guide: no user-facing change yet; the names land in the guide as each page is built.
 
 ## Still to figure out
 

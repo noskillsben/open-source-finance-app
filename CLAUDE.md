@@ -54,6 +54,7 @@ Work on a branch named `issue-N-<short-slug>`, push it, and open the pull reques
 - No new Python dependency without `requirements.txt`; no new npm package without a stated reason in the PR.
 - This file records conventions, never build state. Build state lives in issues and the Projects board.
 - Terminology: "ready to assign", "balance check", "pay screen", "named pay". Never "reconcile", "waterfall", "run", "commit" in user-facing copy.
+- **Page and nav names come from the table in DESIGN.md § UI conventions**, which is settled — never invent a route or a menu label. The nav is four groups rendered as section headers (Record / Assign / Plan / Review) with Settings below. "Home" is a reserved name with no page behind it; do not build one. Never "dashboard", "quick mode", or "anomalies" in user-facing copy.
 
 ## Running things
 
