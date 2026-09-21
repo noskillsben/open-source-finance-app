@@ -164,6 +164,37 @@ class ArchiveIn(BaseModel):
     archived_on: date
 
 
+class EarmarkMoveIn(BaseModel):
+    """One earmark move: ready to assign to a category. Signed; a negative amount withdraws."""
+
+    date: date
+    category_id: int
+    cents: int
+
+
+class EarmarkLineOut(BaseModel):
+    id: int
+    date: date
+    category_id: int
+    cents: int
+    source: str
+
+    model_config = {"from_attributes": True}
+
+
+class CategoryAvailableOut(BaseModel):
+    category_id: int
+    available_cents: int
+
+
+class ReadyToAssignOut(BaseModel):
+    """Both headline numbers at `as_of`, plus each category's available amount."""
+
+    ready_to_assign_cents: int
+    overspent_cents: int
+    categories: list[CategoryAvailableOut]
+
+
 class ArchiveOut(BaseModel):
     id: int
     archived_on: date | None
