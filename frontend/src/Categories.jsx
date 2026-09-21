@@ -214,7 +214,7 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
           {perPeriod != null && (
             <span>
               {formatCents(perPeriod)}
-              {goal.cadence ? ` ${goal.kind === 'target' && goal.cadence !== 'weeks' ? 'per ' : ''}${cadenceText(goal)}` : ''}
+              {goal.cadence ? ` ${cadenceText(goal)}` : ''}
             </span>
           )}
           {!archived && (
