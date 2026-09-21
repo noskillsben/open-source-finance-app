@@ -19,16 +19,20 @@ from app.schemas import (
     BalanceCheckOut,
     CategoryCreate,
     CategoryLineOut,
+    CategoryAvailableOut,
     CategoryOut,
     CategoryUpdate,
     DebtTerms,
     DomainCreate,
     DomainOut,
     DomainUpdate,
+    EarmarkLineOut,
+    EarmarkMoveIn,
     Health,
     IntegrityFindingOut,
     PayeeCreate,
     PayeeOut,
+    ReadyToAssignOut,
     TransactionCreate,
     TransactionOut,
 )
@@ -45,7 +49,13 @@ from app.services.accounts import (
     update_account,
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
-from app.services.categories import CategoryError, apply_category_settings, build_category_archivable
+from app.services.categories import (
+    CategoryError,
+    apply_category_settings,
+    build_category_archivable,
+    category_balance_cents,
+)
+from app.services.earmarks import EarmarkError, assign_to_category, overspent_cents, ready_to_assign_cents
 from app.services.integrity import find_integrity_issues
 from app.services.payees import payee_latest_ledger_date
 from app.services.transactions import TransactionError, write_transaction
@@ -279,6 +289,34 @@ def update_category(
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
     return CategoryOut.model_validate(category)
+
+
+@app.get("/api/ready-to-assign", response_model=ReadyToAssignOut)
+def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> ReadyToAssignOut:
+    """Both headline numbers on `as_of` and each category's available amount. The picker date
+    is the only "today", so the caller always says which day.
+    """
+    return ReadyToAssignOut(
+        ready_to_assign_cents=ready_to_assign_cents(session, as_of=as_of),
+        overspent_cents=overspent_cents(session, as_of=as_of),
+        categories=[
+            CategoryAvailableOut(
+                category_id=category_id, available_cents=category_balance_cents(session, category_id, as_of=as_of)
+            )
+            for category_id in session.scalars(select(Category.id).order_by(Category.id))
+        ],
+    )
+
+
+@app.post("/api/earmark-lines", response_model=EarmarkLineOut, status_code=201)
+def create_earmark_move(payload: EarmarkMoveIn, session: Session = Depends(get_session)) -> EarmarkLineOut:
+    try:
+        line = assign_to_category(
+            session, move_date=payload.date, category_id=payload.category_id, cents=payload.cents
+        )
+    except EarmarkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return EarmarkLineOut.model_validate(line)
 
 
 @app.get("/api/domains", response_model=list[DomainOut])

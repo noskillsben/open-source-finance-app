@@ -94,6 +94,19 @@ def _assert_c4d8a1f65e92(session):
     assert walmart.seeded_key is None
 
 
+def _assert_d5e2b7c30f18(session):
+    from datetime import date
+
+    from app.models import AccountLine, CategoryLine, EarmarkLine
+    from app.services.categories import category_balance_cents
+
+    assert session.get(AccountLine, 2).cents == -8000  # the ledger survived untouched
+    assert session.get(CategoryLine, 1).cents == -8000
+    assert session.query(EarmarkLine).count() == 0  # the table this revision adds, empty
+    # The helper now reads earmark lines too; with none, the balance is what it always was.
+    assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == -8000
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -103,6 +116,7 @@ ASSERTIONS = {
     "a82c4d9e1b70": _assert_a82c4d9e1b70,
     "b91f3e7a2c45": _assert_b91f3e7a2c45,
     "c4d8a1f65e92": _assert_c4d8a1f65e92,
+    "d5e2b7c30f18": _assert_d5e2b7c30f18,
 }
 
 

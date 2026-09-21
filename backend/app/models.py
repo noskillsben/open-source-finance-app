@@ -204,3 +204,21 @@ class CategoryLine(Base, Owned):
 
     transaction: Mapped["Transaction"] = relationship(back_populates="category_lines")
     category: Mapped["Category"] = relationship()
+
+
+class EarmarkLine(Base, Owned):
+    """One signed move of on-budget money into or out of a category (DESIGN.md § Earmarks). A
+    category's balance is its earmark lines plus its transaction category lines. `source` says
+    what wrote the line; only "move" exists so far. The `transaction_id` that pool draws and
+    deposits carry arrives with #19 and #22, the issues that write those lines.
+    """
+
+    __tablename__ = "earmark_line"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
+    category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=False, index=True)
+    cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source: Mapped[str] = mapped_column(String, nullable=False)
+
+    category: Mapped["Category"] = relationship()

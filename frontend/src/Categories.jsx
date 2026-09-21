@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import Domains from './Domains.jsx'
 import NamePicker from './NamePicker.jsx'
-import { formatDate } from './utils/format.js'
+import { formatCents, formatDate, parseCents } from './utils/format.js'
 
 // The fixed ordinal scale (DESIGN.md § Need levels) — shown in its real order, not alphabetically.
 const NEED_LEVELS = [
@@ -53,10 +53,14 @@ export default function Categories({ pickerDate }) {
   const [form, setForm] = useState(EMPTY_FORM)
   const [formError, setFormError] = useState(null)
   const [formKey, setFormKey] = useState(0) // remounts the form so its pickers reseed their text
+  const [summary, setSummary] = useState(null) // ready to assign, overspent and each category's available
+  const [amounts, setAmounts] = useState({}) // the assign box's text per category id
+  const [assignError, setAssignError] = useState(null)
 
   function refresh() {
     api.categories.list(pickerDate, showArchived).then(setCategories).catch((e) => setError(e.message))
     api.domains.list(pickerDate).then(setDomains).catch((e) => setError(e.message))
+    api.readyToAssign(pickerDate).then(setSummary).catch((e) => setError(e.message))
   }
 
   useEffect(refresh, [pickerDate, showArchived])
@@ -106,6 +110,20 @@ export default function Categories({ pickerDate }) {
     }
   }
 
+  // One earmark move line, dated the "Show as of" date, from ready to assign into the category.
+  async function assign(category) {
+    setAssignError(null)
+    const cents = parseCents(amounts[category.id])
+    if (cents === null || cents === 0) return setAssignError(`Enter an amount to assign to ${category.name}.`)
+    try {
+      await api.earmarkLines.create({ date: pickerDate, category_id: category.id, cents })
+      setAmounts({ ...amounts, [category.id]: '' })
+      refresh()
+    } catch (err) {
+      setAssignError(err.message)
+    }
+  }
+
   // Archives on the "Show as of" date. Warnings never block: the archive has already happened when shown.
   async function archiveCategory(category) {
     setRowError(null)
@@ -133,10 +151,22 @@ export default function Categories({ pickerDate }) {
   const rows = categories ? orderTree(categories) : []
   const domainName = (id) => domains.find((d) => d.id === id)?.name
   const active = (categories ?? []).filter((c) => !c.archived_on)
+  const available = (id) => summary?.categories.find((c) => c.category_id === id)?.available_cents ?? 0
 
   return (
     <div className="py-6 space-y-6">
       <h2 className="text-xl font-semibold">Categories</h2>
+
+      {summary && (
+        <p className="text-lg">
+          Ready to assign {formatCents(summary.ready_to_assign_cents)}
+          {summary.overspent_cents !== 0 && (
+            <span className="text-sm text-paper-soft">
+              {' '}(includes {formatCents(summary.overspent_cents)} in overspent categories)
+            </span>
+          )}
+        </p>
+      )}
 
       <form
         key={formKey}
@@ -197,6 +227,7 @@ export default function Categories({ pickerDate }) {
       <section className="rounded-lg bg-ink-soft p-4 space-y-2">
         {error && <p className="text-bad">Could not reach the backend: {error}</p>}
         {rowError && <p className="text-bad">{rowError}</p>}
+        {assignError && <p className="text-bad">{assignError}</p>}
         {warnings.map((w) => (
           <p key={w} className="text-sm text-bad">{w}</p>
         ))}
@@ -213,6 +244,8 @@ export default function Categories({ pickerDate }) {
                 <th className="pb-1">Name</th>
                 <th className="pb-1">Domain</th>
                 <th className="pb-1">Need level</th>
+                <th className="pb-1 text-right">Available</th>
+                <th className="pb-1">Assign</th>
                 <th className="pb-1"></th>
               </tr>
             </thead>
@@ -227,6 +260,30 @@ export default function Categories({ pickerDate }) {
                   </td>
                   <td className="py-1">{domainName(c.domain_id) ?? ''}</td>
                   <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
+                  <td className={`py-1 text-right ${available(c.id) < 0 ? 'text-bad' : ''}`}>
+                    {formatCents(available(c.id))}
+                  </td>
+                  <td className="py-1 whitespace-nowrap">
+                    {!c.archived_on && (
+                      <form
+                        className="flex gap-1"
+                        onSubmit={(e) => {
+                          e.preventDefault()
+                          assign(c)
+                        }}
+                      >
+                        <input
+                          type="text"
+                          inputMode="decimal"
+                          aria-label={`Amount to assign to ${c.name}`}
+                          className="w-24 rounded bg-ink px-2 py-1"
+                          value={amounts[c.id] ?? ''}
+                          onChange={(e) => setAmounts({ ...amounts, [c.id]: e.target.value })}
+                        />
+                        <button type="submit" className="text-xs text-accent">Assign</button>
+                      </form>
+                    )}
+                  </td>
                   <td className="py-1 text-right space-x-3 whitespace-nowrap">
                     <button type="button" className="text-xs text-accent" onClick={() => startEdit(c)}>
                       Edit

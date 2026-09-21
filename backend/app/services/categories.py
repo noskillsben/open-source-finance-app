@@ -6,32 +6,40 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Category, CategoryLine, Domain, Transaction
+from app.models import Category, CategoryLine, Domain, EarmarkLine, Transaction
 from app.need_levels import NEED_LEVELS
 from app.services.archiving import Archivable
 
 
 def category_latest_ledger_date(session: Session, category_id: int) -> date | None:
-    """The most recent transaction date that still references this category — the archive-date
-    bound (DESIGN.md: `archived_on` must be strictly later than the latest ledger row still
-    pointing at the entity).
+    """The most recent ledger date — a transaction's or an earmark line's — that still
+    references this category — the archive-date bound (DESIGN.md: `archived_on` must be
+    strictly later than the latest ledger row still pointing at the entity).
     """
-    return session.scalar(
+    transaction_date = session.scalar(
         select(func.max(Transaction.date))
         .join(CategoryLine, CategoryLine.transaction_id == Transaction.id)
         .where(CategoryLine.category_id == category_id)
     )
+    earmark_date = session.scalar(select(func.max(EarmarkLine.date)).where(EarmarkLine.category_id == category_id))
+    return max((d for d in (transaction_date, earmark_date) if d is not None), default=None)
 
 
 def category_balance_cents(session: Session, category_id: int, *, as_of: date) -> int:
-    """Sum of this category's lines up to `as_of` (DESIGN.md § No stored balances) — used only
-    for the archive warning; the planning-surface balance/goal math is EPIC #2's job.
+    """A category's balance on `as_of`: its earmark lines plus its transaction category lines,
+    up to that date (DESIGN.md § Earmarks, § No stored balances). The one definition — the
+    archive warning and ready to assign both read it.
     """
-    return session.scalar(
+    from_transactions = session.scalar(
         select(func.coalesce(func.sum(CategoryLine.cents), 0))
         .join(Transaction, CategoryLine.transaction_id == Transaction.id)
         .where(CategoryLine.category_id == category_id, Transaction.date <= as_of)
     )
+    from_earmarks = session.scalar(
+        select(func.coalesce(func.sum(EarmarkLine.cents), 0))
+        .where(EarmarkLine.category_id == category_id, EarmarkLine.date <= as_of)
+    )
+    return from_transactions + from_earmarks
 
 
 def category_children(session: Session, category_id: int) -> list[Category]:
