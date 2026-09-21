@@ -90,6 +90,33 @@ def _reaches(session: Session, start_id: int | None, target_id: int, link: str) 
     return False
 
 
+def pool_chain(session: Session, category_id: int) -> list[Category]:
+    """The categories `category_id` draws on, nearest first (DESIGN.md § Pools: draws follow
+    the chain). Excludes the category itself; the seen-set keeps a cycle already in the data
+    from looping.
+    """
+    seen = {category_id}
+    chain: list[Category] = []
+    current = session.get(Category, category_id).pool_id
+    while current is not None and current not in seen:
+        seen.add(current)
+        pool = session.get(Category, current)
+        chain.append(pool)
+        current = pool.pool_id
+    return chain
+
+
+def pool_available_cents(session: Session, category_id: int, *, as_of: date) -> int:
+    """What the pool chain could cover if `category_id` overspent on `as_of`: each pool's
+    balance, a negative one counting as nothing because a draw never takes from a pool below
+    zero (DESIGN.md § Pools — the "+$170 available if overspent" pill).
+    """
+    return sum(
+        max(category_balance_cents(session, pool.id, as_of=as_of), 0)
+        for pool in pool_chain(session, category_id)
+    )
+
+
 def apply_category_settings(
     session: Session, category: Category, *, name: str, parent_id: int | None,
     pool_id: int | None, domain_id: int | None, need_level: str | None,

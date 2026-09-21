@@ -176,6 +176,7 @@ export default function Categories({ pickerDate }) {
   const domainName = (id) => domains.find((d) => d.id === id)?.name
   const active = (categories ?? []).filter((c) => !c.archived_on)
   const available = (id) => summary?.categories.find((c) => c.category_id === id)?.available_cents ?? 0
+  const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
 
   return (
     <div className="py-6 space-y-6">
@@ -310,6 +311,11 @@ export default function Categories({ pickerDate }) {
                   <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
                   <td className={`py-1 text-right ${available(c.id) < 0 ? 'text-bad' : ''}`}>
                     {formatCents(available(c.id))}
+                    {poolAvailable(c.id) > 0 && (
+                      <div className="text-xs text-paper-soft">
+                        +{formatCents(poolAvailable(c.id))} available if overspent
+                      </div>
+                    )}
                   </td>
                   <td className="py-1 whitespace-nowrap">
                     {!c.archived_on && (

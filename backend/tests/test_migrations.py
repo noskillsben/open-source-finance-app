@@ -107,6 +107,18 @@ def _assert_d5e2b7c30f18(session):
     assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == -8000
 
 
+def _assert_e6f3c8d41a29(session):
+    from datetime import date
+
+    from app.models import EarmarkLine
+    from app.services.categories import category_balance_cents
+
+    line = session.get(EarmarkLine, 1)
+    assert (line.category_id, line.cents, line.source) == (1, 5000, "move")  # the move survived
+    assert line.transaction_id is None  # the column this revision adds, left null
+    assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == -3000
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -117,6 +129,7 @@ ASSERTIONS = {
     "b91f3e7a2c45": _assert_b91f3e7a2c45,
     "c4d8a1f65e92": _assert_c4d8a1f65e92,
     "d5e2b7c30f18": _assert_d5e2b7c30f18,
+    "e6f3c8d41a29": _assert_e6f3c8d41a29,
 }
 
 

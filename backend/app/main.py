@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.config import settings
 from app.db import get_session
-from app.models import Account, Category, Domain, Payee, Transaction, Valuation
+from app.models import Account, Category, Domain, EarmarkLine, Payee, Transaction, Valuation
 from app.schemas import (
     AccountCreate,
     AccountLineOut,
@@ -54,11 +54,12 @@ from app.services.categories import (
     apply_category_settings,
     build_category_archivable,
     category_balance_cents,
+    pool_available_cents,
 )
 from app.services.earmarks import EarmarkError, move_money, overspent_cents, ready_to_assign_cents
 from app.services.integrity import find_integrity_issues
 from app.services.payees import payee_latest_ledger_date
-from app.services.transactions import TransactionError, write_transaction
+from app.services.transactions import TransactionError, clear_pool_draws, write_transaction
 from app.services.valuations import check_balance, entries_added_since_check, latest_valuation
 from app.seed import guard_not_me
 
@@ -301,7 +302,9 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
         overspent_cents=overspent_cents(session, as_of=as_of),
         categories=[
             CategoryAvailableOut(
-                category_id=category_id, available_cents=category_balance_cents(session, category_id, as_of=as_of)
+                category_id=category_id,
+                available_cents=category_balance_cents(session, category_id, as_of=as_of),
+                pool_available_cents=pool_available_cents(session, category_id, as_of=as_of),
             )
             for category_id in session.scalars(select(Category.id).order_by(Category.id))
         ],
@@ -520,6 +523,27 @@ def _transaction_notes(session: Session, transaction: Transaction) -> list[str]:
         limit_note = credit_limit_note(balance_cents, line.account.credit_limit_cents)
         if limit_note is not None:
             notes.append(f"{limit_note} on {line.account.name}.")
+    notes.extend(_pool_draw_notes(session, transaction))
+    return notes
+
+
+def _pool_draw_notes(session: Session, transaction: Transaction) -> list[str]:
+    """One note per category this transaction drew for: "Snacks: covered $40.00 from Food, then
+    $20.00 from Household." (DESIGN.md § Pools). Read back from the stored draw lines, which
+    are written pool-then-category per hop, so the words are exactly what the ledger holds.
+    """
+    lines = session.scalars(
+        select(EarmarkLine)
+        .where(EarmarkLine.transaction_id == transaction.id, EarmarkLine.source == "pool_draw")
+        .order_by(EarmarkLine.id)
+    ).all()
+    hops: dict[int, list[tuple[int, int]]] = {}
+    for pool_line, category_line in zip(lines[0::2], lines[1::2]):
+        hops.setdefault(category_line.category_id, []).append((pool_line.category_id, category_line.cents))
+    notes = []
+    for category_id, category_hops in hops.items():
+        parts = [f"{dollars(cents)} from {session.get(Category, pool_id).name}" for pool_id, cents in category_hops]
+        notes.append(f"{session.get(Category, category_id).name}: covered {', then '.join(parts)}.")
     return notes
 
 
@@ -641,6 +665,7 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
             old_line_cents=line.cents, old_line_netted=line.netted_into_opening,
             exclude_transaction_id=transaction.id,
         )
+    clear_pool_draws(session, transaction.id)
     session.delete(transaction)
     session.flush()
 
@@ -662,6 +687,7 @@ def delete_valuation(valuation_id: int, session: Session = Depends(get_session))
         )
     adjustment = session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
     if adjustment is not None:
+        clear_pool_draws(session, adjustment.id)
         session.delete(adjustment)
     session.delete(valuation)
     session.flush()

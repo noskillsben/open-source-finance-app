@@ -188,6 +188,7 @@ class EarmarkLineOut(BaseModel):
 class CategoryAvailableOut(BaseModel):
     category_id: int
     available_cents: int
+    pool_available_cents: int = 0
 
 
 class ReadyToAssignOut(BaseModel):
