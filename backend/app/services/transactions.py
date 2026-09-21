@@ -6,10 +6,12 @@ thing the app refuses"; § Transactions, "Invariant").
 """
 from datetime import date
 
+from sqlalchemy import delete
 from sqlalchemy.orm import Session
 
-from app.models import Account, AccountLine, Category, CategoryLine, Payee, Transaction
+from app.models import Account, AccountLine, Category, CategoryLine, EarmarkLine, Payee, Transaction
 from app.services.accounts import backfill_opening_balance
+from app.services.categories import category_balance_cents, pool_chain
 
 
 class TransactionError(ValueError):
@@ -37,6 +39,52 @@ def backdate_created_on(entity, txn_date: date) -> None:
     """
     if entity.created_on > txn_date:
         entity.created_on = txn_date
+
+
+def clear_pool_draws(session: Session, transaction_id: int) -> None:
+    """Remove the pool-draw lines this transaction generated — before regenerating them on an
+    edit, and before deleting the transaction. Only `pool_draw` lines: other earmark lines that
+    carry a transaction id (pay batches, deposits) are not this rule's to touch.
+    """
+    session.execute(
+        delete(EarmarkLine).where(EarmarkLine.transaction_id == transaction_id, EarmarkLine.source == "pool_draw")
+    )
+    session.flush()
+
+
+def _write_pool_draws(session: Session, transaction: Transaction) -> None:
+    """DESIGN.md § Pools: a category this transaction takes negative draws on its pool chain
+    instead. For each such category, walk the chain writing a pair per hop (pool −X, category
+    +X) dated with the transaction — X is what is still uncovered, capped by what that pool
+    holds, so a pool never goes negative from a draw. Only the part of the shortfall this
+    transaction added is drawn (a category already negative before it isn't this spend's to
+    cover). What no pool can cover stays negative. The pair nets to zero, so ready to assign
+    doesn't move. Computed here, at write time, from the pool links as they stand now.
+    """
+    spent: dict[int, int] = {}
+    for line in transaction.category_lines:
+        spent[line.category_id] = spent.get(line.category_id, 0) + line.cents
+    for category_id, cents in spent.items():
+        if cents >= 0:
+            continue
+        balance = category_balance_cents(session, category_id, as_of=transaction.date)
+        uncovered = min(-balance, -cents)
+        for pool in pool_chain(session, category_id):
+            if uncovered <= 0:
+                break
+            if pool.archived_on is not None and pool.archived_on <= transaction.date:
+                continue
+            covered = min(uncovered, max(category_balance_cents(session, pool.id, as_of=transaction.date), 0))
+            if covered == 0:
+                continue
+            backdate_created_on(pool, transaction.date)
+            for target_id, signed in ((pool.id, -covered), (category_id, covered)):
+                session.add(EarmarkLine(
+                    date=transaction.date, category_id=target_id, cents=signed,
+                    source="pool_draw", transaction_id=transaction.id,
+                ))
+            session.flush()
+            uncovered -= covered
 
 
 def write_transaction(
@@ -83,7 +131,7 @@ def write_transaction(
         transaction.payee_id = payee_id
         transaction.account_lines.clear()
         transaction.category_lines.clear()
-        session.flush()
+        clear_pool_draws(session, transaction.id)
 
     account_ids = [line["account_id"] for line in account_lines]
     accounts = {a.id: a for a in session.query(Account).filter(Account.id.in_(account_ids)).all()}
@@ -145,4 +193,5 @@ def write_transaction(
     transaction.account_lines = new_account_lines
     transaction.category_lines = new_category_lines
     session.flush()
+    _write_pool_draws(session, transaction)
     return transaction

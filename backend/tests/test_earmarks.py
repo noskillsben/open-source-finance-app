@@ -179,7 +179,7 @@ def test_the_endpoints_assign_and_report_both_numbers(client, db_session):
     summary = client.get("/api/ready-to-assign", params={"as_of": "2026-03-01"}).json()
     assert summary["ready_to_assign_cents"] == 900_00
     assert summary["overspent_cents"] == -30_00
-    assert {"category_id": groceries.id, "available_cents": -30_00} in summary["categories"]
+    assert {"category_id": groceries.id, "available_cents": -30_00, "pool_available_cents": 0} in summary["categories"]
 
 
 def test_the_endpoint_refuses_a_bad_assignment_with_400(client, db_session):
