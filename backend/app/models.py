@@ -122,6 +122,31 @@ class Category(Base, Owned, NonLedger):
     )
 
 
+class Goal(Base, Owned, NonLedger):
+    """A rule about a category, not a place money goes (DESIGN.md § Goals). One live goal per
+    category. Every amount and term is nullable — null means the kind doesn't use it, never
+    zero. `cadence_weeks` is N for "every N weeks" and set only when `cadence` is "weeks".
+    Binding to a named pay (`income_stream_id`) arrives with #21.
+    """
+
+    __tablename__ = "goal"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=False, index=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    # recurring_bill / target / commitment (app/services/goals.py).
+    kind: Mapped[str] = mapped_column(String, nullable=False)
+    amount_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    cadence: Mapped[str | None] = mapped_column(String, nullable=True)
+    cadence_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    level_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    __table_args__ = (
+        Index("ix_goal_category_live", "category_id", unique=True, postgresql_where=text("archived_on IS NULL")),
+    )
+
+
 class Payee(Base, Owned, NonLedger):
     """Stores, companies and people the user sends money to or receives it from (DESIGN.md §
     Payees). "Me" and its protection land in #44; default category and aliases are #27.

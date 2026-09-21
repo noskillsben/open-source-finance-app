@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { api } from './api.js'
 import Domains from './Domains.jsx'
 import NamePicker from './NamePicker.jsx'
@@ -34,6 +34,215 @@ function orderTree(categories) {
   return rows
 }
 
+// Goal kinds and cadences (DESIGN.md § Goals). One goal per category; "No goal" archives it.
+const GOAL_KINDS = [
+  { value: 'recurring_bill', label: 'Recurring bill' },
+  { value: 'target', label: 'Target' },
+  { value: 'commitment', label: 'Commitment' },
+]
+const CADENCES = [
+  { value: 'monthly', label: 'Monthly' },
+  { value: 'quarterly', label: 'Quarterly' },
+  { value: 'yearly', label: 'Yearly' },
+  { value: 'weeks', label: 'Every N weeks' },
+]
+const EMPTY_GOAL = { kind: '', name: '', flavour: 'add', amount: '', level: '', cadence: '', weeks: '', date: '' }
+
+const centsText = (cents) => (cents == null ? '' : (cents / 100).toFixed(2))
+
+function goalToForm(goal) {
+  if (!goal) return EMPTY_GOAL
+  return {
+    kind: goal.kind,
+    name: goal.name,
+    flavour: goal.level_cents != null ? 'refill' : 'add',
+    amount: centsText(goal.amount_cents),
+    level: centsText(goal.level_cents),
+    cadence: goal.cadence ?? '',
+    weeks: goal.cadence_weeks ?? '',
+    date: goal.target_date ?? '',
+  }
+}
+
+// The request body for a goal form: a field the kind doesn't use is sent as null, never zero.
+function goalBody(g, pickerDate) {
+  const cents = (text) => (String(text).trim() === '' ? null : parseCents(text))
+  const refill = g.kind === 'commitment' && g.flavour === 'refill'
+  return {
+    on: pickerDate,
+    name: g.name.trim(),
+    kind: g.kind,
+    amount_cents: refill ? null : cents(g.amount),
+    level_cents: refill ? cents(g.level) : null,
+    cadence: g.cadence || null,
+    cadence_weeks: g.cadence === 'weeks' && g.weeks !== '' ? Number(g.weeks) : null,
+    target_date: g.kind !== 'commitment' && g.date ? g.date : null,
+  }
+}
+
+const cadenceText = (goal) => (goal.cadence === 'weeks' ? `every ${goal.cadence_weeks} weeks` : goal.cadence)
+
+// The goal section of the category's settings form. The kind decides which fields show; "No goal"
+// removes (archives) the goal on save.
+function GoalFields({ goal, onChange }) {
+  const set = (patch) => onChange({ ...goal, ...patch })
+  const moneyInput = (label, key) => (
+    <label className="block text-sm">
+      <span className="text-paper-soft">{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+        value={goal[key]}
+        onChange={(e) => set({ [key]: e.target.value })}
+      />
+    </label>
+  )
+  const cadenceInput = (label, optional) => (
+    <>
+      <label className="block text-sm">
+        <span className="text-paper-soft">{label}</span>
+        <select
+          className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+          value={goal.cadence}
+          onChange={(e) => set({ cadence: e.target.value })}
+        >
+          <option value="">{optional ? 'Not set' : 'Choose…'}</option>
+          {CADENCES.map((c) => (
+            <option key={c.value} value={c.value}>{c.label}</option>
+          ))}
+        </select>
+      </label>
+      {goal.cadence === 'weeks' && (
+        <label className="block text-sm">
+          <span className="text-paper-soft">Number of weeks</span>
+          <input
+            type="text"
+            inputMode="numeric"
+            className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+            value={goal.weeks}
+            onChange={(e) => set({ weeks: e.target.value.replace(/[^0-9]/g, '') })}
+          />
+        </label>
+      )}
+    </>
+  )
+  const dateInput = (label) => (
+    <label className="block text-sm">
+      <span className="text-paper-soft">{label}</span>
+      <input
+        type="date"
+        className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+        value={goal.date}
+        onChange={(e) => set({ date: e.target.value })}
+      />
+    </label>
+  )
+  return (
+    <fieldset className="rounded bg-ink p-3 space-y-3">
+      <legend className="px-1 text-sm font-medium">Goal</legend>
+      <label className="block text-sm">
+        <span className="text-paper-soft">Kind</span>
+        <select
+          className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+          value={goal.kind}
+          onChange={(e) => set({ kind: e.target.value })}
+        >
+          <option value="">No goal</option>
+          {GOAL_KINDS.map((k) => (
+            <option key={k.value} value={k.value}>{k.label}</option>
+          ))}
+        </select>
+      </label>
+      {goal.kind && (
+        <label className="block text-sm">
+          <span className="text-paper-soft">Goal name</span>
+          <input
+            className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+            value={goal.name}
+            onChange={(e) => set({ name: e.target.value })}
+          />
+        </label>
+      )}
+      {goal.kind === 'recurring_bill' && (
+        <>
+          {moneyInput('Amount per bill', 'amount')}
+          {cadenceInput('How often', false)}
+          {dateInput('Next due date (optional)')}
+        </>
+      )}
+      {goal.kind === 'target' && (
+        <>
+          {moneyInput('Amount to reach', 'amount')}
+          {dateInput('Target date (optional)')}
+          {goal.date && cadenceInput('Set aside every (optional)', true)}
+        </>
+      )}
+      {goal.kind === 'commitment' && (
+        <>
+          <label className="block text-sm">
+            <span className="text-paper-soft">Rule</span>
+            <select
+              className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+              value={goal.flavour}
+              onChange={(e) => set({ flavour: e.target.value })}
+            >
+              <option value="add">Add a fixed amount</option>
+              <option value="refill">Refill to a level</option>
+            </select>
+          </label>
+          {goal.flavour === 'refill' ? moneyInput('Level to refill to', 'level') : moneyInput('Amount to add', 'amount')}
+          {cadenceInput('How often', false)}
+        </>
+      )}
+    </fieldset>
+  )
+}
+
+// The goal row under a category: name, "$X of $Y", due date, per-period amount, and its own
+// Add / Withdraw box — the same earmark move as the row above, so progress and available stay one number.
+function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
+  const { goal, balance_cents: balance, target_cents: target, owed_cents: owed, due_date: due, per_period_cents: perPeriod } = progress
+  return (
+    <tr className="text-sm text-paper-soft">
+      <td colSpan={6} className="pb-2" style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}>
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="text-paper">{goal.name}</span>
+          <span>{target == null ? formatCents(balance) : `${formatCents(balance)} of ${formatCents(target)}`}</span>
+          {goal.kind === 'recurring_bill' && owed > 0 && <span>{formatCents(owed)} still owed this cycle</span>}
+          {due && <span>{goal.kind === 'recurring_bill' ? 'due' : 'by'} {formatDate(due)}</span>}
+          {perPeriod != null && (
+            <span>
+              {formatCents(perPeriod)}
+              {goal.cadence ? ` ${goal.kind === 'target' && goal.cadence !== 'weeks' ? 'per ' : ''}${cadenceText(goal)}` : ''}
+            </span>
+          )}
+          {!archived && (
+            <form
+              className="flex gap-2 items-center"
+              onSubmit={(e) => {
+                e.preventDefault()
+                onMove('add')
+              }}
+            >
+              <input
+                type="text"
+                inputMode="decimal"
+                aria-label={`Amount to add to or withdraw from ${goal.name}`}
+                className="w-24 rounded bg-ink px-2 py-1"
+                value={amount}
+                onChange={(e) => onAmount(e.target.value)}
+              />
+              <button type="submit" className="text-xs text-accent">Add</button>
+              <button type="button" className="text-xs text-accent" onClick={() => onMove('withdraw')}>Withdraw</button>
+            </form>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 const EMPTY_FORM = { name: '', needLevel: '', parent: {}, pool: {}, domain: {} }
 
 // A picker's state is { id, text }: `text` is what was typed, so a name that matches nothing can be
@@ -56,12 +265,15 @@ export default function Categories({ pickerDate }) {
   const [summary, setSummary] = useState(null) // ready to assign, overspent and each category's available
   const [amounts, setAmounts] = useState({}) // the assign box's text per category id
   const [assignError, setAssignError] = useState(null)
+  const [goals, setGoals] = useState([]) // every goal shown at the picker date, with its progress
+  const [goalForm, setGoalForm] = useState(EMPTY_GOAL)
   const [moving, setMoving] = useState(null) // { category, to: { id, text }, amount } while moving out of a category
 
   function refresh() {
     api.categories.list(pickerDate, showArchived).then(setCategories).catch((e) => setError(e.message))
     api.domains.list(pickerDate).then(setDomains).catch((e) => setError(e.message))
     api.readyToAssign(pickerDate).then(setSummary).catch((e) => setError(e.message))
+    api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
   }
 
   useEffect(refresh, [pickerDate, showArchived])
@@ -76,6 +288,7 @@ export default function Categories({ pickerDate }) {
       pool: { id: category.pool_id },
       domain: { id: category.domain_id },
     })
+    setGoalForm(goalToForm(goals.find((g) => g.goal.category_id === category.id)?.goal))
     setFormError(null)
   }
 
@@ -83,6 +296,7 @@ export default function Categories({ pickerDate }) {
     setFormKey((k) => k + 1)
     setEditing(null)
     setForm(EMPTY_FORM)
+    setGoalForm(EMPTY_GOAL)
     setFormError(null)
   }
 
@@ -102,8 +316,12 @@ export default function Categories({ pickerDate }) {
       need_level: form.needLevel || null,
     }
     try {
-      if (editing) await api.categories.update(editing.id, settings)
-      else await api.categories.create({ ...settings, created_on: pickerDate })
+      if (editing) {
+        await api.categories.update(editing.id, settings)
+        const hadGoal = goals.some((g) => g.goal.category_id === editing.id)
+        if (goalForm.kind) await api.goals.set(editing.id, goalBody(goalForm, pickerDate))
+        else if (hadGoal) await api.goals.archive(editing.id, pickerDate)
+      } else await api.categories.create({ ...settings, created_on: pickerDate })
       resetForm()
       refresh()
     } catch (err) {
@@ -113,14 +331,14 @@ export default function Categories({ pickerDate }) {
 
   // One earmark move line, dated the "Show as of" date, between ready to assign and the category:
   // Add moves money into the category, Withdraw moves it back out.
-  async function addOrWithdraw(category, direction) {
+  async function addOrWithdraw(category, direction, boxKey = category.id) {
     setAssignError(null)
-    const cents = parseCents(amounts[category.id])
+    const cents = parseCents(amounts[boxKey])
     if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move for ${category.name}.`)
     const side = direction === 'add' ? { to_category_id: category.id } : { from_category_id: category.id }
     try {
       await api.earmarkMoves.create({ date: pickerDate, cents, ...side })
-      setAmounts({ ...amounts, [category.id]: '' })
+      setAmounts({ ...amounts, [boxKey]: '' })
       refresh()
     } catch (err) {
       setAssignError(err.message)
@@ -176,6 +394,7 @@ export default function Categories({ pickerDate }) {
   const domainName = (id) => domains.find((d) => d.id === id)?.name
   const active = (categories ?? []).filter((c) => !c.archived_on)
   const available = (id) => summary?.categories.find((c) => c.category_id === id)?.available_cents ?? 0
+  const goalOf = (id) => goals.find((g) => g.goal.category_id === id)
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
 
   return (
@@ -239,6 +458,7 @@ export default function Categories({ pickerDate }) {
           initialId={form.pool.id}
           onChange={(id, text) => setForm({ ...form, pool: { id, text } })}
         />
+        {editing && <GoalFields goal={goalForm} onChange={setGoalForm} />}
         <div className="flex gap-3">
           <button type="submit" className="rounded bg-accent px-3 py-1 text-ink">
             {editing ? 'Save' : 'Add category'}
@@ -300,7 +520,8 @@ export default function Categories({ pickerDate }) {
             </thead>
             <tbody>
               {rows.map(({ category: c, depth }) => (
-                <tr key={c.id}>
+                <Fragment key={c.id}>
+                <tr>
                   <td className="py-1" style={{ paddingLeft: `${depth * 1.25}rem` }}>
                     {c.name}
                     {c.archived_on && (
@@ -361,6 +582,17 @@ export default function Categories({ pickerDate }) {
                     </button>
                   </td>
                 </tr>
+                {goalOf(c.id) && (
+                  <GoalRow
+                    progress={goalOf(c.id)}
+                    depth={depth}
+                    amount={amounts[`goal-${c.id}`] ?? ''}
+                    onAmount={(text) => setAmounts({ ...amounts, [`goal-${c.id}`]: text })}
+                    onMove={(direction) => addOrWithdraw(c, direction, `goal-${c.id}`)}
+                    archived={!!c.archived_on}
+                  />
+                )}
+                </Fragment>
               ))}
             </tbody>
           </table>

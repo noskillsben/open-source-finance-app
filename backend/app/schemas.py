@@ -299,3 +299,47 @@ class IntegrityFindingOut(BaseModel):
     stored_cents: int
 
     model_config = {"from_attributes": True}
+
+
+class GoalIn(BaseModel):
+    """Set (create or replace) a category's goal. `on` is the picker date: it becomes
+    `created_on` of a new goal and is never read otherwise.
+    """
+
+    on: date
+    name: str = Field(min_length=1)
+    kind: str
+    amount_cents: int | None = None
+    cadence: str | None = None
+    cadence_weeks: int | None = None
+    target_date: date | None = None
+    level_cents: int | None = None
+
+
+class GoalOut(BaseModel):
+    id: int
+    category_id: int
+    name: str
+    kind: str
+    amount_cents: int | None
+    cadence: str | None
+    cadence_weeks: int | None
+    target_date: date | None
+    level_cents: int | None
+    created_on: date
+    archived_on: date | None
+
+    model_config = {"from_attributes": True}
+
+
+class GoalProgressOut(BaseModel):
+    """A goal with its progress on `as_of`. `target_cents` is what the balance is compared to
+    (null for an "add" commitment, which has no target); `owed_cents` is the shortfall to it.
+    """
+
+    goal: GoalOut
+    balance_cents: int
+    target_cents: int | None
+    owed_cents: int | None
+    due_date: date | None
+    per_period_cents: int | None
