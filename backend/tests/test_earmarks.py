@@ -12,7 +12,7 @@ from app.main import app
 from app.models import Category, EarmarkLine
 from app.services.accounts import create_account_with_opening_valuation
 from app.services.categories import category_balance_cents
-from app.services.earmarks import EarmarkError, assign_to_category, overspent_cents, ready_to_assign_cents
+from app.services.earmarks import EarmarkError, assign_to_category, move_money, overspent_cents, ready_to_assign_cents
 from app.services.transactions import write_transaction
 
 DAY = datetime.date(2026, 3, 1)
@@ -161,9 +161,11 @@ def test_the_endpoints_assign_and_report_both_numbers(client, db_session):
     chequing = _account(db_session, opening=1000_00)
     groceries = _category(db_session)
 
-    resp = client.post("/api/earmark-lines", json={"date": "2026-03-01", "category_id": groceries.id, "cents": 100_00})
+    resp = client.post(
+        "/api/earmark-moves", json={"date": "2026-03-01", "to_category_id": groceries.id, "cents": 100_00}
+    )
     assert resp.status_code == 201
-    assert resp.json()["source"] == "move"
+    assert [line["source"] for line in resp.json()] == ["move"]
     _spend(db_session, chequing, groceries, 130_00)
 
     summary = client.get("/api/ready-to-assign", params={"as_of": "2026-03-01"}).json()
@@ -174,6 +176,79 @@ def test_the_endpoints_assign_and_report_both_numbers(client, db_session):
 
 def test_the_endpoint_refuses_a_bad_assignment_with_400(client, db_session):
     groceries = _category(db_session)
-    resp = client.post("/api/earmark-lines", json={"date": "2026-03-01", "category_id": groceries.id, "cents": 0})
+    resp = client.post("/api/earmark-moves", json={"date": "2026-03-01", "to_category_id": groceries.id, "cents": 0})
     assert resp.status_code == 400
     assert "amount" in resp.json()["detail"]
+
+
+# --- #18: moving money between categories ---
+
+
+def test_a_category_to_category_move_writes_two_lines_summing_to_zero(db_session):
+    _account(db_session, opening=1000_00)
+    rent, fun = _category(db_session, "Rent"), _category(db_session, "Fun")
+    assign_to_category(db_session, move_date=DAY, category_id=rent.id, cents=400_00)
+    before = ready_to_assign_cents(db_session, as_of=DAY)
+    lines_before = db_session.query(EarmarkLine).count()
+
+    lines = move_money(db_session, move_date=DAY, from_category_id=rent.id, to_category_id=fun.id, cents=150_00)
+
+    assert db_session.query(EarmarkLine).count() == lines_before + 2
+    assert sorted((l.category_id, l.cents) for l in lines) == sorted([(rent.id, -150_00), (fun.id, 150_00)])
+    assert sum(l.cents for l in lines) == 0
+    assert all(l.source == "move" for l in lines)
+    assert category_balance_cents(db_session, rent.id, as_of=DAY) == 250_00
+    assert category_balance_cents(db_session, fun.id, as_of=DAY) == 150_00
+    assert ready_to_assign_cents(db_session, as_of=DAY) == before  # the world total does not move
+
+
+def test_a_move_against_ready_to_assign_writes_exactly_one_line(db_session):
+    _account(db_session, opening=1000_00)
+    fun = _category(db_session, "Fun")
+
+    (added,) = move_money(db_session, move_date=DAY, from_category_id=None, to_category_id=fun.id, cents=200_00)
+    assert (added.category_id, added.cents) == (fun.id, 200_00)
+    assert ready_to_assign_cents(db_session, as_of=DAY) == 800_00
+
+    (withdrawn,) = move_money(db_session, move_date=DAY, from_category_id=fun.id, to_category_id=None, cents=50_00)
+    assert (withdrawn.category_id, withdrawn.cents) == (fun.id, -50_00)
+    assert db_session.query(EarmarkLine).count() == 2
+    assert ready_to_assign_cents(db_session, as_of=DAY) == 850_00
+
+
+def test_a_move_may_take_a_category_negative(db_session):
+    _account(db_session, opening=1000_00)
+    rent, fun = _category(db_session, "Rent"), _category(db_session, "Fun")
+
+    move_money(db_session, move_date=DAY, from_category_id=rent.id, to_category_id=fun.id, cents=75_00)
+
+    assert category_balance_cents(db_session, rent.id, as_of=DAY) == -75_00
+
+
+def test_a_bad_move_is_refused_and_writes_nothing(db_session):
+    rent = _category(db_session, "Rent")
+    gone = _category(db_session, "Gone")
+    gone.archived_on = datetime.date(2026, 2, 1)
+    for kwargs in (
+        dict(from_category_id=rent.id, to_category_id=None, cents=0),
+        dict(from_category_id=rent.id, to_category_id=None, cents=-5),
+        dict(from_category_id=None, to_category_id=None, cents=5),
+        dict(from_category_id=rent.id, to_category_id=rent.id, cents=5),
+        dict(from_category_id=rent.id, to_category_id=999999, cents=5),
+        dict(from_category_id=rent.id, to_category_id=gone.id, cents=5),
+    ):
+        with pytest.raises(EarmarkError):
+            move_money(db_session, move_date=DAY, **kwargs)
+    assert db_session.query(EarmarkLine).count() == 0
+
+
+def test_the_move_endpoint_returns_the_lines(client, db_session):
+    rent, fun = _category(db_session, "Rent"), _category(db_session, "Fun")
+    resp = client.post(
+        "/api/earmark-moves",
+        json={"date": "2026-03-01", "from_category_id": rent.id, "to_category_id": fun.id, "cents": 10_00},
+    )
+    assert resp.status_code == 201
+    assert sorted(l["cents"] for l in resp.json()) == [-10_00, 10_00]
+    bad = client.post("/api/earmark-moves", json={"date": "2026-03-01", "cents": 10_00})
+    assert bad.status_code == 400

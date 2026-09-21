@@ -52,8 +52,8 @@ export const api = {
     unarchive: (id) => request(`/api/categories/${id}/unarchive`, { method: 'POST' }),
   },
   readyToAssign: (asOf) => request(`/api/ready-to-assign?as_of=${asOf}`),
-  earmarkLines: {
-    create: (line) => request('/api/earmark-lines', { method: 'POST', body: line }),
+  earmarkMoves: {
+    create: (move) => request('/api/earmark-moves', { method: 'POST', body: move }),
   },
   domains: {
     list: (asOf, includeArchived = false) => request(listPath('/api/domains', asOf, includeArchived)),

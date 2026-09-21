@@ -55,7 +55,7 @@ from app.services.categories import (
     build_category_archivable,
     category_balance_cents,
 )
-from app.services.earmarks import EarmarkError, assign_to_category, overspent_cents, ready_to_assign_cents
+from app.services.earmarks import EarmarkError, move_money, overspent_cents, ready_to_assign_cents
 from app.services.integrity import find_integrity_issues
 from app.services.payees import payee_latest_ledger_date
 from app.services.transactions import TransactionError, write_transaction
@@ -308,15 +308,19 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
     )
 
 
-@app.post("/api/earmark-lines", response_model=EarmarkLineOut, status_code=201)
-def create_earmark_move(payload: EarmarkMoveIn, session: Session = Depends(get_session)) -> EarmarkLineOut:
+@app.post("/api/earmark-moves", response_model=list[EarmarkLineOut], status_code=201)
+def create_earmark_move(payload: EarmarkMoveIn, session: Session = Depends(get_session)) -> list[EarmarkLineOut]:
     try:
-        line = assign_to_category(
-            session, move_date=payload.date, category_id=payload.category_id, cents=payload.cents
+        lines = move_money(
+            session,
+            move_date=payload.date,
+            from_category_id=payload.from_category_id,
+            to_category_id=payload.to_category_id,
+            cents=payload.cents,
         )
     except EarmarkError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    return EarmarkLineOut.model_validate(line)
+    return [EarmarkLineOut.model_validate(line) for line in lines]
 
 
 @app.get("/api/domains", response_model=list[DomainOut])
