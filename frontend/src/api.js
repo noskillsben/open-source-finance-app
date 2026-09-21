@@ -38,6 +38,8 @@ export const api = {
     create: (account) => request('/api/accounts', { method: 'POST', body: account }),
     update: (id, account) => request(`/api/accounts/${id}`, { method: 'PUT', body: account }),
     checkBalance: (id, check) => request(`/api/accounts/${id}/balance-check`, { method: 'POST', body: check }),
+    checkBalancePreview: (id, date, statedCents) =>
+      request(`/api/accounts/${id}/balance-check-preview?date=${date}&stated_balance_cents=${statedCents}`),
     archive: (id, archivedOn) => request(`/api/accounts/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/accounts/${id}/unarchive`, { method: 'POST' }),
   },
@@ -48,6 +50,8 @@ export const api = {
     list: (asOf, includeArchived = false) => request(listPath('/api/categories', asOf, includeArchived)),
     create: (category) => request('/api/categories', { method: 'POST', body: category }),
     update: (id, category) => request(`/api/categories/${id}`, { method: 'PUT', body: category }),
+    setLinkedAccounts: (id, on, accountIds) =>
+      request(`/api/categories/${id}/linked-accounts`, { method: 'PUT', body: { on, account_ids: accountIds } }),
     archive: (id, archivedOn) => request(`/api/categories/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/categories/${id}/unarchive`, { method: 'POST' }),
   },

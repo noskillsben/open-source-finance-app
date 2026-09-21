@@ -129,6 +129,18 @@ def _assert_f7a4d9e52b30(session):
     assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == -3000  # ledger untouched
 
 
+def _assert_a8b5e0f63c41(session):
+    from datetime import date
+
+    from app.models import CategoryAccountLink
+    from app.services.accounts import account_balance_cents
+    from app.services.categories import category_balance_cents
+
+    assert session.query(CategoryAccountLink).count() == 0  # the table this revision adds, empty
+    assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == 40000  # ledger untouched
+    assert account_balance_cents(session, 2, as_of=date(2026, 12, 31)) == 50000
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -141,6 +153,7 @@ ASSERTIONS = {
     "d5e2b7c30f18": _assert_d5e2b7c30f18,
     "e6f3c8d41a29": _assert_e6f3c8d41a29,
     "f7a4d9e52b30": _assert_f7a4d9e52b30,
+    "a8b5e0f63c41": _assert_a8b5e0f63c41,
 }
 
 
