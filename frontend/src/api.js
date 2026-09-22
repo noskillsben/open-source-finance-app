@@ -77,6 +77,13 @@ export const api = {
     archive: (id, archivedOn) => request(`/api/payees/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/payees/${id}/unarchive`, { method: 'POST' }),
   },
+  incomeStreams: {
+    list: (asOf, includeArchived = false) => request(listPath('/api/income-streams', asOf, includeArchived)),
+    create: (stream) => request('/api/income-streams', { method: 'POST', body: stream }),
+    update: (id, stream) => request(`/api/income-streams/${id}`, { method: 'PUT', body: stream }),
+    archive: (id, archivedOn) => request(`/api/income-streams/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
+    unarchive: (id) => request(`/api/income-streams/${id}/unarchive`, { method: 'POST' }),
+  },
   transactions: {
     list: () => request('/api/transactions'),
     create: (transaction) => request('/api/transactions', { method: 'POST', body: transaction }),
