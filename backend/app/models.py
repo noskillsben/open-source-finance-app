@@ -162,6 +162,61 @@ class Goal(Base, Owned, NonLedger):
     )
 
 
+class IncomeStream(Base, Owned, NonLedger):
+    """A named pay: a planned recurring money event the user states, that goals attach to
+    (DESIGN.md § Income streams). Next payday is `anchor_payday` rolled forward by the cadence
+    at read time, never stored (app/services/cadence.py) — the same mechanism a recurring
+    bill's due date uses. `income_stream_id` lands on a category line with the pay screen (#24);
+    binding a goal to a pay and the percentage-of-net flavour arrive with #21.
+    """
+
+    __tablename__ = "income_stream"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    payee_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("payee.id"), nullable=True, index=True)
+    # monthly / quarterly / yearly / weeks (app/services/cadence.py); cadence_weeks is N for
+    # "every N weeks" and set only when cadence is "weeks" — the same shape goals use, not a copy.
+    cadence: Mapped[str] = mapped_column(String, nullable=False)
+    cadence_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    anchor_payday: Mapped[date] = mapped_column(Date, nullable=False)
+    # Null when the user enters net only (DESIGN.md: null means unknown, never zero).
+    expected_gross_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    expected_net_low_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    expected_net_high_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    income_category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=False, index=True)
+    destination_account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("account.id"), nullable=False, index=True)
+
+    deductions: Mapped[list["IncomeStreamDeduction"]] = relationship(
+        back_populates="income_stream", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        Index(
+            "ix_income_stream_owner_lower_name", "owner_id", func.lower(name),
+            unique=True, postgresql_where=text("archived_on IS NULL"),
+        ),
+    )
+
+
+class IncomeStreamDeduction(Base, Owned):
+    """One expected deduction on a named pay — category and amount, replaced as a set on save
+    through the income stream's one write path (DESIGN.md § Income streams).
+    """
+
+    __tablename__ = "income_stream_deduction"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    income_stream_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("income_stream.id"), nullable=False, index=True
+    )
+    category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=False, index=True)
+    amount_cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    income_stream: Mapped["IncomeStream"] = relationship(back_populates="deductions")
+    category: Mapped["Category"] = relationship()
+
+
 class Payee(Base, Owned, NonLedger):
     """Stores, companies and people the user sends money to or receives it from (DESIGN.md §
     Payees). "Me" and its protection land in #44; default category and aliases are #27.

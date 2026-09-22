@@ -376,6 +376,58 @@ class GoalOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class IncomeStreamDeductionIn(BaseModel):
+    category_id: int
+    amount_cents: int
+
+
+class IncomeStreamDeductionOut(BaseModel):
+    id: int
+    category_id: int
+    amount_cents: int
+
+    model_config = {"from_attributes": True}
+
+
+class IncomeStreamIn(BaseModel):
+    """Create (or replace the settings of) a named pay. `on` is the picker date: it becomes
+    `created_on` of a new stream and is never read otherwise.
+    """
+
+    on: date
+    name: str = Field(min_length=1)
+    payee_id: int | None = None
+    cadence: str
+    cadence_weeks: int | None = None
+    anchor_payday: date
+    expected_gross_cents: int | None = None
+    expected_net_low_cents: int
+    expected_net_high_cents: int
+    income_category_id: int
+    destination_account_id: int
+    deductions: list[IncomeStreamDeductionIn] = []
+
+
+class IncomeStreamOut(BaseModel):
+    id: int
+    name: str
+    payee_id: int | None
+    cadence: str
+    cadence_weeks: int | None
+    anchor_payday: date
+    expected_gross_cents: int | None
+    expected_net_low_cents: int
+    expected_net_high_cents: int
+    income_category_id: int
+    destination_account_id: int
+    deductions: list[IncomeStreamDeductionOut] = []
+    created_on: date
+    archived_on: date | None
+    next_payday: date
+
+    model_config = {"from_attributes": True}
+
+
 class GoalProgressOut(BaseModel):
     """A goal with its progress on `as_of`. `target_cents` is what the balance is compared to
     (null for an "add" commitment, which has no target); `owed_cents` is the shortfall to it.

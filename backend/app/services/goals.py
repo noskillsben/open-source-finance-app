@@ -1,36 +1,25 @@
 """Category goals (DESIGN.md § Goals): one rule per category, progress being the category's
 balance compared to the rule. Binding a goal to a named pay is #21.
 """
-import calendar
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Category, Goal
+from app.services.cadence import CADENCES, roll_forward, step
 from app.services.categories import category_balance_cents
 
 KINDS = ("recurring_bill", "target", "commitment")
-CADENCES = ("monthly", "quarterly", "yearly", "weeks")
-_MONTHS = {"monthly": 1, "quarterly": 3, "yearly": 12}
 
 
 class GoalError(Exception):
     """A goal the service refuses — a settings surface, so a block is allowed."""
 
 
-def _add_months(day: date, months: int) -> date:
-    index = day.year * 12 + day.month - 1 + months
-    year, month = divmod(index, 12)
-    return date(year, month + 1, min(day.day, calendar.monthrange(year, month + 1)[1]))
-
-
 def _step(goal: Goal, day: date, n: int) -> date:
-    """`day` moved forward by `n` cadence periods."""
-    if goal.cadence == "weeks":
-        return day + timedelta(weeks=goal.cadence_weeks * n)
-    return _add_months(day, _MONTHS[goal.cadence] * n)
+    return step(goal.cadence, goal.cadence_weeks, day, n)
 
 
 def apply_goal(
@@ -113,10 +102,7 @@ def due_date(goal: Goal, *, as_of: date) -> date | None:
         return None
     if goal.kind != "recurring_bill":
         return goal.target_date
-    n = 0
-    while _step(goal, goal.target_date, n) < as_of:
-        n += 1
-    return _step(goal, goal.target_date, n)
+    return roll_forward(goal.cadence, goal.cadence_weeks, goal.target_date, as_of=as_of)
 
 
 @dataclass
