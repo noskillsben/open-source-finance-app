@@ -614,7 +614,7 @@ def unarchive_payee(payee_id: int, session: Session = Depends(get_session)) -> A
     return ArchiveOut(id=payee.id, archived_on=payee.archived_on, warnings=[])
 
 
-def _income_stream_out(session: Session, stream: IncomeStream, *, as_of: date) -> IncomeStreamOut:
+def _income_stream_out(stream: IncomeStream, *, as_of: date) -> IncomeStreamOut:
     return IncomeStreamOut(
         id=stream.id, name=stream.name, payee_id=stream.payee_id, cadence=stream.cadence,
         cadence_weeks=stream.cadence_weeks, anchor_payday=stream.anchor_payday,
@@ -637,7 +637,7 @@ def list_income_streams(
     streams = session.scalars(
         select(IncomeStream).where(_visible(IncomeStream, as_of, include_archived)).order_by(IncomeStream.name)
     ).all()
-    return [_income_stream_out(session, s, as_of=as_of) for s in streams]
+    return [_income_stream_out(s, as_of=as_of) for s in streams]
 
 
 @app.post("/api/income-streams", response_model=IncomeStreamOut, status_code=201)
@@ -658,7 +658,7 @@ def create_income_stream(payload: IncomeStreamIn, session: Session = Depends(get
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A named pay called {payload.name!r} already exists.")
-    return _income_stream_out(session, stream, as_of=payload.on)
+    return _income_stream_out(stream, as_of=payload.on)
 
 
 @app.put("/api/income-streams/{income_stream_id}", response_model=IncomeStreamOut)
@@ -684,7 +684,7 @@ def update_income_stream(
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A named pay called {payload.name!r} already exists.")
-    return _income_stream_out(session, stream, as_of=payload.on)
+    return _income_stream_out(stream, as_of=payload.on)
 
 
 @app.post("/api/income-streams/{income_stream_id}/archive", response_model=ArchiveOut)

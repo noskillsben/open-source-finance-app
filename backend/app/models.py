@@ -166,7 +166,7 @@ class IncomeStream(Base, Owned, NonLedger):
     """A named pay: a planned recurring money event the user states, that goals attach to
     (DESIGN.md § Income streams). Next payday is `anchor_payday` rolled forward by the cadence
     at read time, never stored (app/services/cadence.py) — the same mechanism a recurring
-    bill's due date uses. `income_stream_id` lands on a category line with the pay screen (#24);
+    bill's due date uses. `income_stream_id` lands on the transaction header with the pay screen (#24);
     binding a goal to a pay and the percentage-of-net flavour arrive with #21.
     """
 

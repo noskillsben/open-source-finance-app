@@ -47,7 +47,7 @@ function streamToForm(stream, categories, accounts, payees) {
   }
 }
 
-function streamBody(f, pickerDate) {
+function streamBody(f, pickerDate, deductions) {
   const cents = (text) => (String(text).trim() === '' ? null : parseCents(text))
   return {
     on: pickerDate,
@@ -61,14 +61,33 @@ function streamBody(f, pickerDate) {
     expected_net_high_cents: cents(f.netHigh),
     income_category_id: f.incomeCategory.id,
     destination_account_id: f.destinationAccount.id,
-    deductions: f.deductions
-      .filter((d) => d.category.id != null)
-      .map((d) => ({ category_id: d.category.id, amount_cents: cents(d.amount) ?? 0 })),
+    deductions,
   }
 }
 
 function unmatched(pick) {
   return pick.text && pick.id == null
+}
+
+// A blank row (no category typed, no amount) is dropped silently — it was never started. Any
+// other incomplete row is refused: an empty amount is a forgotten field, not a stated zero
+// (DESIGN.md § General concepts → Zero is a valid amount), and a category that didn't match
+// would otherwise vanish from what gets saved.
+function validateDeductions(deductions) {
+  const cleaned = []
+  for (const d of deductions) {
+    const categoryEmpty = !d.category.text?.trim()
+    const amountEmpty = String(d.amount).trim() === ''
+    if (categoryEmpty && amountEmpty) continue
+    if (unmatched(d.category) || d.category.id == null) {
+      return { error: 'Pick a category for each deduction.' }
+    }
+    if (amountEmpty) {
+      return { error: `Enter an amount for the ${d.category.text} deduction.` }
+    }
+    cleaned.push({ category_id: d.category.id, amount_cents: parseCents(d.amount) })
+  }
+  return { deductions: cleaned }
 }
 
 // Deductions: category + amount rows, added and removed freely, replaced as a set on save.
@@ -163,6 +182,8 @@ export default function Pay({ pickerDate }) {
     if (!name) return setFormError('Name is required.')
     if (!form.cadence) return setFormError('Choose how often this pay lands.')
     if (!form.anchorPayday) return setFormError('The next payday you know about is required.')
+    if (String(form.netLow).trim() === '') return setFormError('Enter the expected net, low.')
+    if (String(form.netHigh).trim() === '') return setFormError('Enter the expected net, high.')
     if (unmatched(form.incomeCategory) || form.incomeCategory.id == null) {
       return setFormError('Pick the category this pay lands in.')
     }
@@ -170,8 +191,10 @@ export default function Pay({ pickerDate }) {
       return setFormError('Pick the account this pay lands in.')
     }
     if (unmatched(form.payee)) return setFormError(`"${form.payee.text}" is not an existing payee.`)
+    const { deductions, error: deductionError } = validateDeductions(form.deductions)
+    if (deductionError) return setFormError(deductionError)
     try {
-      const body = streamBody(form, pickerDate)
+      const body = streamBody(form, pickerDate, deductions)
       if (editing) await api.incomeStreams.update(editing.id, body)
       else await api.incomeStreams.create(body)
       resetForm()
