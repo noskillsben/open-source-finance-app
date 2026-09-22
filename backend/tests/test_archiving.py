@@ -18,7 +18,8 @@ from app.services.accounts import (
     create_account_with_opening_valuation,
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive
-from app.services.categories import build_category_archivable
+from app.services.categories import build_category_archivable, category_balance_cents
+from app.services.earmarks import move_money, ready_to_assign_cents
 from app.services.payees import payee_latest_ledger_date
 from app.services.transactions import write_transaction
 
@@ -266,6 +267,128 @@ def test_post_archive_category_cascades_to_children(db_session):
     db_session.refresh(child)
     assert child.archived_on == LATER
     assert all(c["id"] not in (parent.id, child.id) for c in listed.json())
+
+
+def test_archiving_a_category_with_a_positive_balance_sweeps_it_to_ready_to_assign(db_session):
+    create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=1000_00,
+    )
+    groceries = make_category(db_session, "Groceries")
+    move_money(db_session, move_date=EARLIER, from_category_id=None, to_category_id=groceries.id, cents=42_10)
+    before = ready_to_assign_cents(db_session, as_of=EARLIER)
+
+    client = _client(db_session)
+    try:
+        resp = client.post(f"/api/categories/{groceries.id}/archive", json={"archived_on": LATER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert resp.json()["warnings"] == ["moved $42.10 to Ready to assign"]
+    assert not any("balance" in w for w in resp.json()["warnings"])
+    db_session.refresh(groceries)
+    assert category_balance_cents(db_session, groceries.id, as_of=LATER) == 0
+    # History does not get rewritten: ready to assign on a date before the sweep is unaffected.
+    assert ready_to_assign_cents(db_session, as_of=EARLIER) == before
+
+
+def test_archiving_a_category_with_a_deficit_sweeps_the_shortfall(db_session):
+    create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=1000_00,
+    )
+    fun = make_category(db_session, "Fun")
+    move_money(db_session, move_date=EARLIER, from_category_id=fun.id, to_category_id=None, cents=15_00)
+
+    client = _client(db_session)
+    try:
+        resp = client.post(f"/api/categories/{fun.id}/archive", json={"archived_on": LATER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert resp.json()["warnings"] == ["moved -$15.00 to Ready to assign"]
+    db_session.refresh(fun)
+    assert category_balance_cents(db_session, fun.id, as_of=LATER) == 0
+
+
+def test_archiving_a_zero_balance_category_writes_no_sweep_and_no_note(db_session):
+    category = make_category(db_session, "Groceries")
+
+    client = _client(db_session)
+    try:
+        resp = client.post(f"/api/categories/{category.id}/archive", json={"archived_on": LATER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert resp.json()["warnings"] == []
+
+
+def test_archiving_a_parent_and_child_together_sweeps_each_one_separately(db_session):
+    create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=1000_00,
+    )
+    parent = make_category(db_session, "Car")
+    child = make_category(db_session, "Car insurance", parent_id=parent.id)
+    move_money(db_session, move_date=EARLIER, from_category_id=None, to_category_id=parent.id, cents=10_00)
+    move_money(db_session, move_date=EARLIER, from_category_id=None, to_category_id=child.id, cents=5_00)
+
+    client = _client(db_session)
+    try:
+        resp = client.post(f"/api/categories/{parent.id}/archive", json={"archived_on": LATER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert sorted(resp.json()["warnings"]) == ["moved $10.00 to Ready to assign", "moved $5.00 to Ready to assign"]
+    db_session.refresh(parent)
+    db_session.refresh(child)
+    assert category_balance_cents(db_session, parent.id, as_of=LATER) == 0
+    assert category_balance_cents(db_session, child.id, as_of=LATER) == 0
+
+
+def test_a_categorys_own_sweep_line_never_blocks_re_archiving_on_the_same_date(db_session):
+    create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=1000_00,
+    )
+    groceries = make_category(db_session, "Groceries")
+    move_money(db_session, move_date=EARLIER, from_category_id=None, to_category_id=groceries.id, cents=42_10)
+
+    client = _client(db_session)
+    try:
+        first = client.post(f"/api/categories/{groceries.id}/archive", json={"archived_on": LATER.isoformat()})
+        unarchived = client.post(f"/api/categories/{groceries.id}/unarchive")
+        second = client.post(f"/api/categories/{groceries.id}/archive", json={"archived_on": LATER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert first.status_code == 200
+    assert unarchived.status_code == 200
+    assert second.status_code == 200
+    # A second sweep on a category already emptied writes nothing more.
+    assert second.json()["warnings"] == []
+
+
+def test_archiving_an_account_never_sweeps_and_still_warns(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+
+    client = _client(db_session)
+    try:
+        resp = client.post(f"/api/accounts/{account.id}/archive", json={"archived_on": LATER.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 200
+    assert len(resp.json()["warnings"]) == 1
+    assert "50000" in resp.json()["warnings"][0]
+    assert "Ready to assign" not in resp.json()["warnings"][0]
 
 
 BEFORE_CREATED = EARLIER - datetime.timedelta(days=1)
