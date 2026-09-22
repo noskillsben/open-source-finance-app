@@ -17,10 +17,15 @@ from app.schemas import (
     ArchiveOut,
     BalanceCheckIn,
     BalanceCheckOut,
+    BalanceCheckPreviewOut,
+    CategoryLinksIn,
+    CategoryLineIn,
+    DepositIn,
     CategoryCreate,
     CategoryLineOut,
     CategoryAvailableOut,
     CategoryOut,
+    LinkedAccountOut,
     CategoryUpdate,
     DebtTerms,
     DomainCreate,
@@ -51,6 +56,17 @@ from app.services.accounts import (
     floor_note,
     update_account,
 )
+from app.services.links import (
+    LinkError,
+    drift_cents,
+    drift_note,
+    linked_accounts_by_category,
+    linked_category_ids,
+    linked_money_note,
+    prune_archived_links,
+    set_category_links,
+    suggest_split,
+)
 from app.services.goals import GoalError, apply_goal, goal_progress, live_goal
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import (
@@ -63,7 +79,7 @@ from app.services.categories import (
 from app.services.earmarks import EarmarkError, move_money, overspent_cents, ready_to_assign_cents
 from app.services.integrity import find_integrity_issues
 from app.services.payees import payee_latest_ledger_date
-from app.services.transactions import TransactionError, clear_pool_draws, write_transaction
+from app.services.transactions import TransactionError, clear_generated_earmarks, read_deposits, read_deposits_for, write_transaction
 from app.services.valuations import check_balance, entries_added_since_check, latest_valuation
 from app.seed import guard_not_me
 
@@ -90,10 +106,15 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
     limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)
     if limit_note is not None:
         notes.append(f"{limit_note}.")
+    drift = drift_cents(session, account.id, as_of=as_of)
+    drifting = drift_note(session, account, drift)
+    if drifting is not None:
+        notes.append(drifting)
     return AccountOut(
         id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
         type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
         balance_cents=balance_cents,
+        linked_category_ids=linked_category_ids(session, account.id), drift_cents=drift,
         checked_on=valuation.date if valuation is not None else None,
         checked_valuation_id=valuation.id if valuation is not None else None,
         entries_added_since_check=(
@@ -183,6 +204,21 @@ def update_account_route(
     return _account_out(session, account)
 
 
+@app.get("/api/accounts/{account_id}/balance-check-preview", response_model=BalanceCheckPreviewOut)
+def balance_check_preview(
+    account_id: int, date: date, stated_balance_cents: int, session: Session = Depends(get_session)
+) -> BalanceCheckPreviewOut:
+    """The difference a balance check would find and, on an account with linked categories,
+    the pro-rata split of it across them (DESIGN.md § Linked categories) — a suggestion the
+    form lets the user edit before it saves. Writes nothing.
+    """
+    if session.get(Account, account_id) is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    diff_cents = stated_balance_cents - account_balance_cents(session, account_id, as_of=date)
+    lines = suggest_split(session, account_id, as_of=date, diff_cents=diff_cents)
+    return BalanceCheckPreviewOut(diff_cents=diff_cents, category_lines=[CategoryLineIn(**line) for line in lines])
+
+
 @app.post("/api/accounts/{account_id}/balance-check", response_model=BalanceCheckOut)
 def balance_check_account(
     account_id: int, payload: BalanceCheckIn, session: Session = Depends(get_session)
@@ -196,13 +232,19 @@ def balance_check_account(
     if payload.category_id is not None and session.get(Category, payload.category_id) is None:
         raise HTTPException(status_code=400, detail=f"Unknown category id: {payload.category_id}")
 
-    valuation, transaction, diff_cents = check_balance(
-        session,
-        account_id=account_id,
-        check_date=payload.date,
-        stated_balance_cents=payload.stated_balance_cents,
-        category_id=payload.category_id,
-    )
+    try:
+        valuation, transaction, diff_cents = check_balance(
+            session,
+            account_id=account_id,
+            check_date=payload.date,
+            stated_balance_cents=payload.stated_balance_cents,
+            category_id=payload.category_id,
+            category_lines=(
+                [line.model_dump() for line in payload.category_lines] if payload.category_lines is not None else None
+            ),
+        )
+    except TransactionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
     return BalanceCheckOut(
         valuation_id=valuation.id,
@@ -228,7 +270,7 @@ def archive_account(
         warnings = archive(target, payload.archived_on)
     except ArchiveError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    session.flush()
+    prune_archived_links(session)
     return ArchiveOut(id=account.id, archived_on=account.archived_on, warnings=warnings)
 
 
@@ -247,6 +289,12 @@ def unarchive_account(account_id: int, session: Session = Depends(get_session)) 
     return ArchiveOut(id=account.id, archived_on=account.archived_on, warnings=[])
 
 
+def _category_out(category: Category, linked: dict[int, list[Account]]) -> CategoryOut:
+    out = CategoryOut.model_validate(category)
+    out.linked_accounts = [LinkedAccountOut.model_validate(a) for a in linked.get(category.id, [])]
+    return out
+
+
 @app.get("/api/categories", response_model=list[CategoryOut])
 def list_categories(
     as_of: date | None = None, include_archived: bool = False, session: Session = Depends(get_session)
@@ -254,7 +302,8 @@ def list_categories(
     categories = session.scalars(
         select(Category).where(_visible(Category, as_of, include_archived)).order_by(Category.name)
     ).all()
-    return [CategoryOut.model_validate(c) for c in categories]
+    linked = linked_accounts_by_category(session)
+    return [_category_out(c, linked) for c in categories]
 
 
 @app.post("/api/categories", response_model=CategoryOut, status_code=201)
@@ -272,7 +321,7 @@ def create_category(payload: CategoryCreate, session: Session = Depends(get_sess
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
-    return CategoryOut.model_validate(category)
+    return _category_out(category, linked_accounts_by_category(session))
 
 
 @app.put("/api/categories/{category_id}", response_model=CategoryOut)
@@ -293,7 +342,24 @@ def update_category(
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A category named {payload.name!r} already exists.")
-    return CategoryOut.model_validate(category)
+    return _category_out(category, linked_accounts_by_category(session))
+
+
+@app.put("/api/categories/{category_id}/linked-accounts", response_model=CategoryOut)
+def set_linked_accounts(
+    category_id: int, payload: CategoryLinksIn, session: Session = Depends(get_session)
+) -> CategoryOut:
+    """DESIGN.md § Linked categories: replace the on-budget accounts this category's money
+    lives in. Many-to-many; an empty list unlinks.
+    """
+    category = session.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=404, detail=f"No category with id {category_id}.")
+    try:
+        set_category_links(session, category, payload.account_ids, as_of=payload.on)
+    except LinkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return _category_out(category, linked_accounts_by_category(session))
 
 
 @app.get("/api/ready-to-assign", response_model=ReadyToAssignOut)
@@ -448,7 +514,7 @@ def archive_category(
         warnings = archive(target, payload.archived_on)
     except ArchiveError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    session.flush()
+    prune_archived_links(session)
     return ArchiveOut(id=category.id, archived_on=category.archived_on, warnings=warnings)
 
 
@@ -529,6 +595,20 @@ def _transaction_query():
     )
 
 
+def _linked_money_notes(session: Session, transaction: Transaction) -> list[str]:
+    """DESIGN.md § Linked categories, point 3: spending out of a linked category warns that
+    the money is in an account you didn't spend from. Skipped when the transaction itself
+    touches that account (spending straight out of it). A warning, never a refusal.
+    """
+    touched = {line.account_id for line in transaction.account_lines}
+    notes = []
+    for category_id in dict.fromkeys(line.category_id for line in transaction.category_lines if line.cents < 0):
+        note = linked_money_note(session, category_id, exclude_account_ids=touched)
+        if note is not None:
+            notes.append(note)
+    return notes
+
+
 def _transaction_notes(session: Session, transaction: Transaction) -> list[str]:
     """Advisory notes for a save: "This predates your <date> check" (DESIGN.md § Balance
     checks) for each account whose latest check is on or after this transaction's date, and a
@@ -568,6 +648,7 @@ def _transaction_notes(session: Session, transaction: Transaction) -> list[str]:
         if limit_note is not None:
             notes.append(f"{limit_note} on {line.account.name}.")
     notes.extend(_pool_draw_notes(session, transaction))
+    notes.extend(_linked_money_notes(session, transaction))
     return notes
 
 
@@ -591,8 +672,9 @@ def _pool_draw_notes(session: Session, transaction: Transaction) -> list[str]:
     return notes
 
 
-def _transaction_shape(t: Transaction, notes: list[str]) -> TransactionOut:
+def _transaction_shape(t: Transaction, notes: list[str], deposits: list[dict] | None = None) -> TransactionOut:
     return TransactionOut(
+        deposits=[DepositIn(**item) for item in deposits or []],
         id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id, valuation_id=t.valuation_id,
         account_lines=[
             AccountLineOut(id=l.id, account_id=l.account_id, cents=l.cents, budget_cents=l.budget_cents)
@@ -607,15 +689,17 @@ def _transaction_shape(t: Transaction, notes: list[str]) -> TransactionOut:
 
 
 def _transaction_out(session: Session, t: Transaction) -> TransactionOut:
-    return _transaction_shape(t, _transaction_notes(session, t))
+    return _transaction_shape(t, _transaction_notes(session, t), read_deposits(session, t))
 
 
 @app.get("/api/transactions", response_model=list[TransactionOut])
 def list_transactions(session: Session = Depends(get_session)) -> list[TransactionOut]:
     transactions = session.scalars(_transaction_query().order_by(Transaction.date, Transaction.id)).all()
     # Notes belong to the save response and the account page, never the historical list
-    # (each one costs per-line queries), so the list carries none.
-    return [_transaction_shape(t, []) for t in transactions]
+    # (each one costs per-line queries), so the list carries none. Deposits ride along: the
+    # edit form pre-fills from them, and an edit that lost them would clear them.
+    deposits = read_deposits_for(session, list(transactions))
+    return [_transaction_shape(t, [], deposits.get(t.id)) for t in transactions]
 
 
 @app.post("/api/transactions", response_model=TransactionOut, status_code=201)
@@ -629,6 +713,7 @@ def create_transaction(payload: TransactionCreate, session: Session = Depends(ge
             payee_id=payload.payee_id,
             account_lines=[line.model_dump() for line in payload.account_lines],
             category_lines=[line.model_dump() for line in payload.category_lines],
+            deposits=[item.model_dump() for item in payload.deposits],
         )
     except TransactionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -652,6 +737,7 @@ def update_transaction(
             payee_id=payload.payee_id,
             account_lines=[line.model_dump() for line in payload.account_lines],
             category_lines=[line.model_dump() for line in payload.category_lines],
+            deposits=[item.model_dump() for item in payload.deposits],
         )
     except TransactionError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -709,7 +795,7 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
             old_line_cents=line.cents, old_line_netted=line.netted_into_opening,
             exclude_transaction_id=transaction.id,
         )
-    clear_pool_draws(session, transaction.id)
+    clear_generated_earmarks(session, transaction.id)
     session.delete(transaction)
     session.flush()
 
@@ -731,7 +817,7 @@ def delete_valuation(valuation_id: int, session: Session = Depends(get_session))
         )
     adjustment = session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
     if adjustment is not None:
-        clear_pool_draws(session, adjustment.id)
+        clear_generated_earmarks(session, adjustment.id)
         session.delete(adjustment)
     session.delete(valuation)
     session.flush()

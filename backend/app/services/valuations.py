@@ -23,10 +23,14 @@ def check_balance(
     check_date: date,
     stated_balance_cents: int,
     category_id: int | None,
+    category_lines: list[dict] | None = None,
 ) -> tuple[Valuation, Transaction | None, int]:
     """Write the valuation and, if it disagrees with the ledger, the adjustment that makes
     the ledger agree with it. Zero difference writes only the valuation — the valuation
-    itself is never a line and changes no balance. Returns (valuation, adjustment or None,
+    itself is never a line and changes no balance. `category_lines`, when given, are the
+    adjustment's category lines as the user edited them (the linked-category split, DESIGN.md
+    § Linked categories) and win over `category_id`; the invariant checks them like any other.
+    Returns (valuation, adjustment or None,
     the difference in cents, stated minus ledger).
     """
     ledger_cents = account_balance_cents(session, account_id, as_of=check_date)
@@ -39,7 +43,8 @@ def check_balance(
     if diff_cents == 0:
         return valuation, None, 0
 
-    category_lines = [{"category_id": category_id, "cents": diff_cents}] if category_id is not None else []
+    if category_lines is None:
+        category_lines = [{"category_id": category_id, "cents": diff_cents}] if category_id is not None else []
     transaction = write_transaction(
         session,
         transaction=None,

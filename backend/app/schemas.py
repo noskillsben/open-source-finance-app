@@ -84,6 +84,10 @@ class AccountOut(BaseModel):
     on_budget: bool
     on_budget_floor_cents: int
     balance_cents: int
+    # Linked categories (DESIGN.md § Linked categories): who claims this account's money, and
+    # the account minus what they hold — null with no links. A reminder, never enforced.
+    linked_category_ids: list[int] = []
+    drift_cents: int | None = None
     checked_on: date | None = None
     checked_valuation_id: int | None = None
     entries_added_since_check: int = 0
@@ -122,6 +126,14 @@ class CategoryUpdate(BaseModel):
     _need_level = field_validator("need_level")(_need_level_is_known)
 
 
+class LinkedAccountOut(BaseModel):
+    id: int
+    name: str
+    type: str
+
+    model_config = {"from_attributes": True}
+
+
 class CategoryOut(BaseModel):
     id: int
     name: str
@@ -131,8 +143,17 @@ class CategoryOut(BaseModel):
     need_level: str | None
     created_on: date
     archived_on: date | None
+    linked_accounts: list[LinkedAccountOut] = []
 
     model_config = {"from_attributes": True}
+
+
+class CategoryLinksIn(BaseModel):
+    """Replace a category's linked accounts. `on` is the picker date, used only to refuse an
+    account archived by then."""
+
+    on: date
+    account_ids: list[int]
 
 
 class DomainCreate(BaseModel):
@@ -248,12 +269,24 @@ class CategoryLineOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class DepositIn(BaseModel):
+    """One envelope a transfer into (or out of) a linked account funds (or drains): `cents` is
+    positive; `other_category_id` is where it comes from (or goes to), null for ready to assign.
+    """
+
+    category_id: int
+    cents: int
+    other_category_id: int | None = None
+
+
 class TransactionCreate(BaseModel):
     date: date
     memo: str | None = None
     payee_id: int | None = None
     account_lines: list[AccountLineIn] = Field(min_length=1)
     category_lines: list[CategoryLineIn] = []
+    # Omitted or empty: "already earmarked" — no deposit lines (DESIGN.md § Linked categories).
+    deposits: list[DepositIn] = []
 
 
 class TransactionOut(BaseModel):
@@ -264,6 +297,7 @@ class TransactionOut(BaseModel):
     valuation_id: int | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
+    deposits: list[DepositIn] = []
     notes: list[str] = []
 
     model_config = {"from_attributes": True}
@@ -277,6 +311,16 @@ class BalanceCheckIn(BaseModel):
     date: date
     stated_balance_cents: int
     category_id: int | None = None
+    # The adjustment's category lines as edited (the linked-category split); wins over
+    # `category_id` when present.
+    category_lines: list[CategoryLineIn] | None = None
+
+
+class BalanceCheckPreviewOut(BaseModel):
+    """What a balance check would find, and the linked-category split it would suggest."""
+
+    diff_cents: int
+    category_lines: list[CategoryLineIn]
 
 
 class BalanceCheckOut(BaseModel):
