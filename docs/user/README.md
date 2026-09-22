@@ -6,6 +6,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 - Run `docker compose up --build` and open http://localhost:5173.
 - Pick a date with the "Show as of" control in the header to see every balance as it stood that day — it also becomes the default date on every form (accounts and transactions), and the category and payee lists only show what existed that day, until you change it again.
+- Move around the app from the menu, grouped by what you're doing: **Record** (Ledger), **Assign** (Categories, Accounts, Payees, Domains), and **Settings** (Data check). **Plan** and **Review** show as headers with nothing under them yet — their pages arrive with later issues. On a narrow phone, tap "Menu" to open it.
 - The payee "Me" already exists the first time you open the app — no need to add it before recording a transfer between your own accounts.
 - A starter set of categories (Groceries, Dining out, Rent, Utilities, Transit, Health care, Clothing, Entertainment, Debt payments) and domains (Food, Housing, Transportation, Health, Lifestyle, Financial) is there the first time you open the app. Rename or archive any of them; they won't come back. If you already made a category or domain with one of those names, yours is kept and the starter one is skipped.
 
