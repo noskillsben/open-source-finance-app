@@ -14,4 +14,9 @@ export default defineConfig({
       '/docs': { target: process.env.VITE_BACKEND_URL || 'http://localhost:8000', changeOrigin: true },
     },
   },
+  test: {
+    environment: 'jsdom',
+    globals: true,
+    setupFiles: ['./src/tests/setup.js'],
+  },
 })
