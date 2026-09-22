@@ -61,6 +61,23 @@ def _write_move_line(session: Session, category: Category, move_date: date, cent
     return line
 
 
+def sweep_archived_category_balance(
+    session: Session, category: Category, *, archived_on: date, balance_cents: int
+) -> EarmarkLine | None:
+    """Empty an archived category's balance, or shortfall, back into ready to assign
+    (DESIGN.md § General concepts → Non-ledger rows are archived: "archiving a category
+    empties it into ready to assign"). Writes nothing when there is nothing to sweep. This
+    bypasses `_movable_category`'s archived guard deliberately — the design's stated
+    exemption, since the sweep line is dated on `archived_on` itself, after the category is
+    archived.
+    """
+    if balance_cents == 0:
+        return None
+    line = EarmarkLine(date=archived_on, category_id=category.id, cents=-balance_cents, source="archive_sweep")
+    session.add(line)
+    return line
+
+
 def move_money(
     session: Session, *, move_date: date, from_category_id: int | None, to_category_id: int | None, cents: int
 ) -> list[EarmarkLine]:

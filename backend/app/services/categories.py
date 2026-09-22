@@ -14,14 +14,20 @@ from app.services.archiving import Archivable
 def category_latest_ledger_date(session: Session, category_id: int) -> date | None:
     """The most recent ledger date — a transaction's or an earmark line's — that still
     references this category — the archive-date bound (DESIGN.md: `archived_on` must be
-    strictly later than the latest ledger row still pointing at the entity).
+    strictly later than the latest ledger row still pointing at the entity). An archive-sweep
+    line is excluded: it is dated on `archived_on` itself, the one row the design exempts from
+    this bound, so it must never be what blocks a later archive-date check.
     """
     transaction_date = session.scalar(
         select(func.max(Transaction.date))
         .join(CategoryLine, CategoryLine.transaction_id == Transaction.id)
         .where(CategoryLine.category_id == category_id)
     )
-    earmark_date = session.scalar(select(func.max(EarmarkLine.date)).where(EarmarkLine.category_id == category_id))
+    earmark_date = session.scalar(
+        select(func.max(EarmarkLine.date)).where(
+            EarmarkLine.category_id == category_id, EarmarkLine.source != "archive_sweep"
+        )
+    )
     return max((d for d in (transaction_date, earmark_date) if d is not None), default=None)
 
 

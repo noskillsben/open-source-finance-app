@@ -76,7 +76,13 @@ from app.services.categories import (
     category_balance_cents,
     pool_available_cents,
 )
-from app.services.earmarks import EarmarkError, move_money, overspent_cents, ready_to_assign_cents
+from app.services.earmarks import (
+    EarmarkError,
+    move_money,
+    overspent_cents,
+    ready_to_assign_cents,
+    sweep_archived_category_balance,
+)
 from app.services.integrity import find_integrity_issues
 from app.services.payees import payee_latest_ledger_date
 from app.services.transactions import TransactionError, clear_generated_earmarks, read_deposits, read_deposits_for, write_transaction
@@ -501,6 +507,17 @@ def unarchive_domain(domain_id: int, session: Session = Depends(get_session)) ->
     return ArchiveOut(id=domain.id, archived_on=domain.archived_on, warnings=[])
 
 
+def _archive_sweep_note(balance_cents: int) -> str:
+    sign = "-" if balance_cents < 0 else ""
+    return f"moved {sign}${abs(balance_cents) / 100:,.2f} to Ready to assign"
+
+
+def _iter_archivable(node: Archivable):
+    yield node
+    for child in node.children:
+        yield from _iter_archivable(child)
+
+
 @app.post("/api/categories/{category_id}/archive", response_model=ArchiveOut)
 def archive_category(
     category_id: int, payload: ArchiveIn, session: Session = Depends(get_session)
@@ -510,11 +527,19 @@ def archive_category(
         raise HTTPException(status_code=404, detail=f"No category with id {category_id}.")
     target = build_category_archivable(session, category, as_of=payload.archived_on)
     try:
-        warnings = archive(target, payload.archived_on)
+        archive(target, payload.archived_on)
     except ArchiveError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    notes = []
+    for node in _iter_archivable(target):
+        line = sweep_archived_category_balance(
+            session, node.entity, archived_on=payload.archived_on, balance_cents=node.balance_cents
+        )
+        if line is not None:
+            notes.append(_archive_sweep_note(node.balance_cents))
+    session.flush()
     prune_archived_links(session)
-    return ArchiveOut(id=category.id, archived_on=category.archived_on, warnings=warnings)
+    return ArchiveOut(id=category.id, archived_on=category.archived_on, warnings=notes)
 
 
 @app.post("/api/categories/{category_id}/unarchive", response_model=ArchiveOut)
