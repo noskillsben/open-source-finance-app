@@ -5,6 +5,7 @@ import Categories from './Categories.jsx'
 import Domains from './Domains.jsx'
 import IntegrityCheck from './IntegrityCheck.jsx'
 import Nav from './Nav.jsx'
+import Pay from './Pay.jsx'
 import Payees from './Payees.jsx'
 import Transactions from './Transactions.jsx'
 import { api } from './api.js'
@@ -51,6 +52,7 @@ export default function App() {
 
         <Routes>
           <Route path="/" element={<Navigate to="/ledger" replace />} />
+          <Route path="/pay" element={<Pay pickerDate={pickerDate} />} />
           <Route path="/ledger" element={<Transactions pickerDate={pickerDate} />} />
           <Route path="/categories" element={<Categories pickerDate={pickerDate} />} />
           <Route path="/accounts" element={<Accounts pickerDate={pickerDate} />} />

@@ -14,6 +14,7 @@ vi.mock('./api.js', () => {
       readyToAssign: () => Promise.resolve({ ready_to_assign_cents: 0, overspent_cents: 0, categories: [] }),
       domains: { list },
       payees: { list },
+      incomeStreams: { list },
       transactions: { list },
       integrityCheck: { list },
     },
@@ -32,6 +33,7 @@ describe('nav menu', () => {
     const headings = within(nav).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
     expect(headings).toEqual(['Record', 'Assign', 'Plan', 'Review', 'Settings'])
 
+    expect(within(nav).getByRole('link', { name: 'Pay' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Ledger' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Categories' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Accounts' })).toBeInTheDocument()
@@ -39,14 +41,14 @@ describe('nav menu', () => {
     expect(within(nav).getByRole('link', { name: 'Domains' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Data check' })).toBeInTheDocument()
 
-    // No placeholder links for unbuilt pages.
-    expect(within(nav).queryByText('Pay')).not.toBeInTheDocument()
+    // No placeholder link for the still-unbuilt Home page.
     expect(within(nav).queryByText('Home')).not.toBeInTheDocument()
   })
 })
 
 describe('routing', () => {
   it.each([
+    ['/pay', 2, 'Pay'],
     ['/ledger', 2, 'Transactions'],
     ['/categories', 2, 'Categories'],
     ['/accounts', 2, 'Accounts'],
