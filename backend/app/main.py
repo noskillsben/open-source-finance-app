@@ -279,13 +279,12 @@ def unarchive_account(account_id: int, session: Session = Depends(get_session)) 
     account = session.get(Account, account_id)
     if account is None:
         raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    name = account.name  # read before the flush: a failed flush rolls the session back and expires the row
     unarchive(account)
     try:
         session.flush()
     except IntegrityError:
-        raise HTTPException(
-            status_code=409, detail=f"An account named {account.name!r} already exists."
-        )
+        raise HTTPException(status_code=409, detail=f"An account named {name!r} already exists.")
     return ArchiveOut(id=account.id, archived_on=account.archived_on, warnings=[])
 
 
@@ -523,13 +522,12 @@ def unarchive_category(category_id: int, session: Session = Depends(get_session)
     category = session.get(Category, category_id)
     if category is None:
         raise HTTPException(status_code=404, detail=f"No category with id {category_id}.")
+    name = category.name  # read before the flush: a failed flush rolls the session back and expires the row
     unarchive(category)
     try:
         session.flush()
     except IntegrityError:
-        raise HTTPException(
-            status_code=409, detail=f"A category named {category.name!r} already exists."
-        )
+        raise HTTPException(status_code=409, detail=f"A category named {name!r} already exists.")
     return ArchiveOut(id=category.id, archived_on=category.archived_on, warnings=[])
 
 
@@ -579,13 +577,12 @@ def unarchive_payee(payee_id: int, session: Session = Depends(get_session)) -> A
     payee = session.get(Payee, payee_id)
     if payee is None:
         raise HTTPException(status_code=404, detail=f"No payee with id {payee_id}.")
+    name = payee.name  # read before the flush: a failed flush rolls the session back and expires the row
     unarchive(payee)
     try:
         session.flush()
     except IntegrityError:
-        raise HTTPException(
-            status_code=409, detail=f"A payee named {payee.name!r} already exists."
-        )
+        raise HTTPException(status_code=409, detail=f"A payee named {name!r} already exists.")
     return ArchiveOut(id=payee.id, archived_on=payee.archived_on, warnings=[])
 
 

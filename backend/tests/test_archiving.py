@@ -582,3 +582,37 @@ def test_post_unarchive_account_into_a_taken_name_is_409(db_session):
 
     assert resp.status_code == 409
     assert "Chequing" in resp.json()["detail"]
+
+
+def test_post_unarchive_category_into_a_taken_name_is_409(db_session):
+    archived = make_category(db_session, "Groceries")
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        client.post(f"/api/categories/{archived.id}/archive", json={"archived_on": LATER.isoformat()})
+        make_category(db_session, "Groceries", created_on=LATER)
+        db_session.flush()
+        resp = client.post(f"/api/categories/{archived.id}/unarchive")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 409
+    assert "Groceries" in resp.json()["detail"]
+
+
+def test_post_unarchive_payee_into_a_taken_name_is_409(db_session):
+    archived = make_payee(db_session, "Walmart")
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        client.post(f"/api/payees/{archived.id}/archive", json={"archived_on": LATER.isoformat()})
+        make_payee(db_session, "Walmart", created_on=LATER)
+        db_session.flush()
+        resp = client.post(f"/api/payees/{archived.id}/unarchive")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resp.status_code == 409
+    assert "Walmart" in resp.json()["detail"]
