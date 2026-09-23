@@ -215,6 +215,13 @@ export default function PayRecord({ pickerDate }) {
     )
   }, [stream, categories, seeded, goalsLoaded, billGoals, targetGoals, fundingGoals])
 
+  // Never matches on the one-off route: streamId is Number(undefined) === NaN there, and a
+  // one-off transaction is written with income_stream_id: null, so NaN === null is always false.
+  // That's deliberate, not an oversight — nothing in the schema distinguishes a transaction this
+  // screen wrote from any other unlinked one dated the same day, so matching on
+  // `income_stream_id == null` would misfire on an unrelated same-day transaction and block a
+  // real recording. Revisiting an already-recorded one-off to redo or delete it is out of scope
+  // here; tracked as a follow-up (#116 PR review).
   const existingTransaction = useMemo(
     () => transactions?.find((t) => t.income_stream_id === streamId && t.date === payday) ?? null,
     [transactions, streamId, payday]
