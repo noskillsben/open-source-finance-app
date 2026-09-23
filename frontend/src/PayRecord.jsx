@@ -27,6 +27,20 @@ function stepDate(cadence, cadenceWeeks, iso, n) {
 
 const emptyRow = () => ({ category: {}, amount: '' })
 
+// The fixed ordinal scale (DESIGN.md § Need levels), in trim order: wants go first once the
+// leftover is negative, so the rows most worth cutting are the ones on top. A category with no
+// need level sorts after every leveled one, alongside the rest.
+const NEED_TRIM_ORDER = { want: 0, nice_to_have: 1, should: 2, need: 3 }
+
+function sortByNeedIfShort(rows, categoriesById, leftover) {
+  if (leftover >= 0) return rows
+  return [...rows].sort((a, b) => {
+    const na = NEED_TRIM_ORDER[categoriesById.get(a.categoryId)?.need_level] ?? 4
+    const nb = NEED_TRIM_ORDER[categoriesById.get(b.categoryId)?.need_level] ?? 4
+    return na - nb
+  })
+}
+
 // Category + amount rows, added and removed freely — the shape blocks 3, 5 and 9 all share.
 function AmountRows({ rows, categories, onChange, addLabel }) {
   const set = (i, patch) => onChange(rows.map((r, idx) => (idx === i ? { ...r, ...patch } : r)))
@@ -95,6 +109,12 @@ export default function PayRecord({ pickerDate }) {
   const [oneOff, setOneOff] = useState([])
   const [everythingElse, setEverythingElse] = useState({}) // category_id -> amount text
   const [removeBatchOnDelete, setRemoveBatchOnDelete] = useState(true)
+  const [goalsLoaded, setGoalsLoaded] = useState(false)
+  const [retainRemoved, setRetainRemoved] = useState(new Set()) // block 4: goal ids taken out
+  const [billAmounts, setBillAmounts] = useState({}) // block 6: goal id -> amount text
+  const [fundingAmounts, setFundingAmounts] = useState({}) // block 7: goal id -> amount text
+  const [fundingSkipped, setFundingSkipped] = useState(new Set()) // block 7: goal ids skipped
+  const [targetAmounts, setTargetAmounts] = useState({}) // block 8: goal id -> amount text
 
   const stream = streams?.find((s) => s.id === streamId) ?? null
 
@@ -118,13 +138,41 @@ export default function PayRecord({ pickerDate }) {
   useEffect(() => {
     if (!payday) return
     api.categories.list(payday).then(setCategories).catch((e) => setError(e.message))
-    api.goals.list(payday).then(setGoals).catch((e) => setError(e.message))
+    setGoalsLoaded(false)
+    api.goals.list(payday)
+      .then((g) => { setGoals(g); setGoalsLoaded(true) })
+      .catch((e) => setError(e.message))
   }, [payday])
 
-  // Prefill gross/deductions from the named pay once its categories have loaded, so each
-  // deduction row's NamePicker can seed its text along with its id (once only).
+  // Every goal bound to this named pay (DESIGN.md § Goals are paid by a named pay).
+  const streamGoals = useMemo(
+    () => (stream ? goals.filter((g) => g.goal.income_stream_id === stream.id) : []),
+    [goals, stream]
+  )
+  const retainGoals = useMemo(
+    () => streamGoals.filter((g) => g.goal.kind === 'commitment' && g.goal.percent_of_net != null),
+    [streamGoals]
+  )
+  const billGoals = useMemo(
+    () =>
+      streamGoals
+        .filter((g) => g.goal.kind === 'recurring_bill')
+        .sort((a, b) => (a.due_date ?? '').localeCompare(b.due_date ?? '')),
+    [streamGoals]
+  )
+  const fundingGoals = useMemo(
+    () =>
+      streamGoals.filter(
+        (g) => g.goal.kind === 'commitment' && (g.goal.amount_cents != null || g.goal.level_cents != null)
+      ),
+    [streamGoals]
+  )
+  const targetGoals = useMemo(() => streamGoals.filter((g) => g.goal.kind === 'target'), [streamGoals])
+
+  // Prefill gross/deductions/goal blocks from the named pay once its categories and goals have
+  // loaded, so each row can seed its text along with its id (once only).
   useEffect(() => {
-    if (!stream || seeded || categories.length === 0) return
+    if (!stream || seeded || categories.length === 0 || !goalsLoaded) return
     setSeeded(true)
     setGross(stream.expected_gross_cents == null ? '' : (stream.expected_gross_cents / 100).toFixed(2))
     setDeductionsOn(stream.deductions.length > 0 || stream.expected_gross_cents != null)
@@ -134,7 +182,22 @@ export default function PayRecord({ pickerDate }) {
         amount: (d.amount_cents / 100).toFixed(2),
       }))
     )
-  }, [stream, categories, seeded])
+    setBillAmounts(
+      Object.fromEntries(
+        billGoals.map((g) => [g.goal.id, g.due_by_next_payday_cents != null ? (g.due_by_next_payday_cents / 100).toFixed(2) : ''])
+      )
+    )
+    setTargetAmounts(
+      Object.fromEntries(
+        targetGoals.map((g) => [g.goal.id, g.due_by_next_payday_cents != null ? (g.due_by_next_payday_cents / 100).toFixed(2) : ''])
+      )
+    )
+    setFundingAmounts(
+      Object.fromEntries(
+        fundingGoals.map((g) => [g.goal.id, ((g.goal.amount_cents ?? g.owed_cents ?? 0) / 100).toFixed(2)])
+      )
+    )
+  }, [stream, categories, seeded, goalsLoaded, billGoals, targetGoals, fundingGoals])
 
   const existingTransaction = useMemo(
     () => transactions?.find((t) => t.income_stream_id === streamId && t.date === payday) ?? null,
@@ -175,8 +238,59 @@ export default function PayRecord({ pickerDate }) {
     return totals
   }, [transactions, payday, stream])
 
+  const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
+
+  // Block 4: computed live from net, rounded to the cent — never stored, so nothing to seed.
+  const retainRows = useMemo(
+    () =>
+      retainGoals
+        .filter((g) => !retainRemoved.has(g.goal.id))
+        .map((g) => ({
+          goalId: g.goal.id,
+          categoryId: g.goal.category_id,
+          name: g.goal.name,
+          percent: g.goal.percent_of_net,
+          cents: Math.round((parseFloat(g.goal.percent_of_net) / 100) * net),
+        })),
+    [retainGoals, retainRemoved, net]
+  )
+  const retainTotal = retainRows.reduce((sum, r) => sum + r.cents, 0)
+
+  const billRows = billGoals.map((g) => ({
+    goalId: g.goal.id,
+    categoryId: g.goal.category_id,
+    name: g.goal.name,
+    dueDate: g.due_date,
+    expectedCents: g.goal.amount_cents,
+    cents: parseCents(billAmounts[g.goal.id]) ?? 0,
+  }))
+  const billTotal = billRows.reduce((sum, r) => sum + r.cents, 0)
+
+  const fundingRows = fundingGoals
+    .filter((g) => !fundingSkipped.has(g.goal.id))
+    .map((g) => ({
+      goalId: g.goal.id,
+      categoryId: g.goal.category_id,
+      name: g.goal.name,
+      level: g.goal.level_cents != null,
+      shortfallCents: g.owed_cents,
+      cents: parseCents(fundingAmounts[g.goal.id]) ?? 0,
+    }))
+  const fundingTotal = fundingRows.reduce((sum, r) => sum + r.cents, 0)
+
+  const targetRows = targetGoals.map((g) => ({
+    goalId: g.goal.id,
+    categoryId: g.goal.category_id,
+    name: g.goal.name,
+    dueDate: g.due_date,
+    balanceCents: g.balance_cents,
+    targetCents: g.target_cents,
+    cents: parseCents(targetAmounts[g.goal.id]) ?? 0,
+  }))
+  const targetTotal = targetRows.reduce((sum, r) => sum + r.cents, 0)
+
   const everythingElseTotal = Object.values(everythingElse).reduce((sum, text) => sum + (parseCents(text) ?? 0), 0)
-  const leftover = net - oneOffTotal - everythingElseTotal
+  const leftover = net - retainTotal - oneOffTotal - billTotal - fundingTotal - targetTotal - everythingElseTotal
 
   if (error) return <p className="text-bad py-6">Could not reach the backend: {error}</p>
   if (!streams || !payday) return <p className="py-6">Loading…</p>
@@ -235,7 +349,10 @@ export default function PayRecord({ pickerDate }) {
           cents: net, transaction_id: txn.id,
         })
       }
-      for (const move of [...rowsToMoves(oneOff), ...everythingElseMoves()]) {
+      const goalMoves = [...retainRows, ...billRows, ...fundingRows, ...targetRows]
+        .filter((r) => r.cents > 0)
+        .map((r) => ({ category_id: r.categoryId, cents: r.cents }))
+      for (const move of [...goalMoves, ...rowsToMoves(oneOff), ...everythingElseMoves()]) {
         await api.earmarkMoves.create({
           date: payday, from_category_id: null, to_category_id: move.category_id,
           cents: move.cents, transaction_id: txn.id,
@@ -339,12 +456,146 @@ export default function PayRecord({ pickerDate }) {
         <p className="text-sm text-paper-soft">Net: {formatCents(net)}</p>
       </fieldset>
 
+      {/* 4. Retain income */}
+      {retainGoals.length > 0 && (
+        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
+          <legend className="px-1 font-medium">Retain income</legend>
+          {sortByNeedIfShort(retainRows, categoriesById, leftover).map((r) => (
+            <div key={r.goalId} className="flex items-center justify-between gap-2 text-sm">
+              <div>
+                <span>{r.name}</span>
+                <span className="text-paper-soft"> · {categoriesById.get(r.categoryId)?.name} · {r.percent}% of net</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span>{formatCents(r.cents)}</span>
+                <button
+                  type="button"
+                  className="text-xs text-accent"
+                  onClick={() => setRetainRemoved(new Set([...retainRemoved, r.goalId]))}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+        </fieldset>
+      )}
+
       {/* 5. One-off this period */}
       <fieldset className="rounded-lg bg-ink-soft p-4 space-y-3">
         <legend className="px-1 font-medium">One-off this period</legend>
         <p className="text-sm text-paper-soft">Add anything that only applies this period.</p>
         <AmountRows rows={oneOff} categories={categories} onChange={setOneOff} addLabel="+ Add a one-off" />
       </fieldset>
+
+      {/* 6. Bills */}
+      {billGoals.length > 0 && (
+        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
+          <legend className="px-1 font-medium">Bills</legend>
+          {sortByNeedIfShort(billRows, categoriesById, leftover).map((r) => (
+            <div key={r.goalId} className="flex items-end justify-between gap-2">
+              <div className="text-sm">
+                <div>{r.name}</div>
+                <div className="text-paper-soft">
+                  {categoriesById.get(r.categoryId)?.name} · due {formatDate(r.dueDate)}
+                  {r.expectedCents != null && <> · expected {formatCents(r.expectedCents)}</>}
+                </div>
+              </div>
+              <label className="block text-sm w-28">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded bg-ink px-2 py-1"
+                  value={billAmounts[r.goalId] ?? ''}
+                  onChange={(e) => setBillAmounts({ ...billAmounts, [r.goalId]: e.target.value })}
+                />
+              </label>
+            </div>
+          ))}
+        </fieldset>
+      )}
+
+      {/* 7. Funding rules */}
+      {fundingGoals.length > 0 && (
+        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
+          <legend className="px-1 font-medium">Funding rules</legend>
+          {sortByNeedIfShort(
+            fundingGoals.map((g) => ({
+              goalId: g.goal.id,
+              categoryId: g.goal.category_id,
+              name: g.goal.name,
+              level: g.goal.level_cents != null,
+              shortfallCents: g.owed_cents,
+              levelCents: g.goal.level_cents,
+            })),
+            categoriesById,
+            leftover
+          ).map((r) => (
+            <div key={r.goalId} className="flex items-end justify-between gap-2">
+              <label className="flex items-start gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  className="mt-1"
+                  checked={fundingSkipped.has(r.goalId)}
+                  onChange={(e) => {
+                    const next = new Set(fundingSkipped)
+                    if (e.target.checked) next.add(r.goalId)
+                    else next.delete(r.goalId)
+                    setFundingSkipped(next)
+                  }}
+                />
+                <span>
+                  <div>{r.name}</div>
+                  <div className="text-paper-soft">
+                    {categoriesById.get(r.categoryId)?.name} ·{' '}
+                    {r.level
+                      ? `${formatCents(r.shortfallCents)} short of ${formatCents(r.levelCents)} level`
+                      : 'fixed'}
+                  </div>
+                </span>
+              </label>
+              <label className="block text-sm w-28">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  disabled={fundingSkipped.has(r.goalId)}
+                  className="mt-1 w-full rounded bg-ink px-2 py-1 disabled:opacity-50"
+                  value={fundingAmounts[r.goalId] ?? ''}
+                  onChange={(e) => setFundingAmounts({ ...fundingAmounts, [r.goalId]: e.target.value })}
+                />
+              </label>
+            </div>
+          ))}
+        </fieldset>
+      )}
+
+      {/* 8. Goal set-asides */}
+      {targetGoals.length > 0 && (
+        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
+          <legend className="px-1 font-medium">Goal set-asides</legend>
+          {sortByNeedIfShort(targetRows, categoriesById, leftover).map((r) => (
+            <div key={r.goalId} className="flex items-end justify-between gap-2">
+              <div className="text-sm">
+                <div>{r.name}</div>
+                <div className="text-paper-soft">
+                  {categoriesById.get(r.categoryId)?.name} ·{' '}
+                  {r.targetCents != null && <>{formatCents(r.balanceCents)} of {formatCents(r.targetCents)} saved · </>}
+                  due {formatDate(r.dueDate)}
+                </div>
+              </div>
+              <label className="block text-sm w-28">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  className="mt-1 w-full rounded bg-ink px-2 py-1"
+                  value={targetAmounts[r.goalId] ?? ''}
+                  onChange={(e) => setTargetAmounts({ ...targetAmounts, [r.goalId]: e.target.value })}
+                />
+              </label>
+            </div>
+          ))}
+        </fieldset>
+      )}
 
       {/* 9. Everything else */}
       <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">

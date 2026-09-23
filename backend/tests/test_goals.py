@@ -281,6 +281,25 @@ def test_due_by_next_payday_none_for_a_commitment(db_session, category, stream):
     assert due_by_next_payday(db_session, goal, stream, as_of=DAY) is None
 
 
+def test_due_by_next_payday_cents_on_the_goals_api(client, db_session, category, stream):
+    # Same worked example as test_due_by_next_payday_worked_example, but through /api/goals
+    # (#107: the pay screen's blocks 6 and 8 pre-fill from this field).
+    _fund(db_session, category, 40000)
+    response = _set(
+        client, category, kind="recurring_bill", amount_cents=120000, cadence="quarterly",
+        target_date="2026-03-20", income_stream_id=stream.id,
+    )
+    assert response.status_code == 200
+    (row,) = _progress(client)
+    assert row["due_by_next_payday_cents"] == 40000
+
+
+def test_due_by_next_payday_cents_null_without_a_bound_pay(client, category):
+    _set(client, category, kind="target", amount_cents=10000)
+    (row,) = _progress(client)
+    assert row["due_by_next_payday_cents"] is None
+
+
 def test_database_refuses_a_second_live_goal_on_a_category(db_session, category):
     for name in ("a", "b"):
         db_session.add(Goal(category_id=category.id, name=name, kind="target", amount_cents=1, created_on=DAY))
