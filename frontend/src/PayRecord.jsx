@@ -249,7 +249,8 @@ export default function PayRecord({ pickerDate }) {
           goalId: g.goal.id,
           categoryId: g.goal.category_id,
           name: g.goal.name,
-          percent: g.goal.percent_of_net,
+          // GoalOut serializes percent_of_net at a fixed 4 places ("5.0000"); trim it for display.
+          percent: parseFloat(g.goal.percent_of_net),
           cents: Math.round((parseFloat(g.goal.percent_of_net) / 100) * net),
         })),
     [retainGoals, retainRemoved, net]
