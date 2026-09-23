@@ -115,6 +115,7 @@ export default function PayRecord({ pickerDate }) {
   const [fundingAmounts, setFundingAmounts] = useState({}) // block 7: goal id -> amount text
   const [fundingSkipped, setFundingSkipped] = useState(new Set()) // block 7: goal ids skipped
   const [targetAmounts, setTargetAmounts] = useState({}) // block 8: goal id -> amount text
+  const [readyToAssign, setReadyToAssign] = useState(null) // block 10: /api/ready-to-assign summary
 
   const stream = streams?.find((s) => s.id === streamId) ?? null
 
@@ -143,6 +144,13 @@ export default function PayRecord({ pickerDate }) {
       .then((g) => { setGoals(g); setGoalsLoaded(true) })
       .catch((e) => setError(e.message))
   }, [payday])
+
+  function refreshReadyToAssign() {
+    if (!payday) return
+    return api.readyToAssign(payday).then(setReadyToAssign).catch((e) => setError(e.message))
+  }
+
+  useEffect(refreshReadyToAssign, [payday])
 
   // Every goal bound to this named pay (DESIGN.md § Goals are paid by a named pay).
   const streamGoals = useMemo(
@@ -292,6 +300,43 @@ export default function PayRecord({ pickerDate }) {
 
   const everythingElseTotal = Object.values(everythingElse).reduce((sum, text) => sum + (parseCents(text) ?? 0), 0)
   const leftover = net - retainTotal - oneOffTotal - billTotal - fundingTotal - targetTotal - everythingElseTotal
+
+  // Block 10: categories currently receiving money on this screen, recomputed live as the user
+  // types, so Short by never offers to cover a goal from itself.
+  const fundedThisScreenCategoryIds = useMemo(() => {
+    const ids = new Set()
+    for (const r of [...retainRows, ...billRows, ...fundingRows, ...targetRows]) {
+      if (r.cents > 0) ids.add(r.categoryId)
+    }
+    for (const m of [...rowsToMoves(oneOff), ...everythingElseMoves()]) ids.add(m.category_id)
+    return ids
+  }, [retainRows, billRows, fundingRows, targetRows, oneOff, everythingElse])
+
+  const shortByRows = useMemo(() => {
+    if (!readyToAssign) return []
+    return readyToAssign.categories
+      .filter((c) => c.available_cents > 0 && !fundedThisScreenCategoryIds.has(c.category_id))
+      .map((c) => ({
+        categoryId: c.category_id,
+        name: categoriesById.get(c.category_id)?.name ?? '',
+        availableCents: c.available_cents,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [readyToAssign, fundedThisScreenCategoryIds, categoriesById])
+
+  async function coverFrom(row) {
+    setFormError(null)
+    try {
+      await api.earmarkMoves.create({
+        date: payday,
+        cents: Math.min(-leftover, row.availableCents),
+        from_category_id: row.categoryId,
+      })
+      await refreshReadyToAssign()
+    } catch (err) {
+      setFormError(err.message)
+    }
+  }
 
   if (error) return <p className="text-bad py-6">Could not reach the backend: {error}</p>
   if (!streams || !payday) return <p className="py-6">Loading…</p>
@@ -625,6 +670,28 @@ export default function PayRecord({ pickerDate }) {
           </div>
         ))}
       </fieldset>
+
+      {/* 10. Short by */}
+      {leftover < 0 && (
+        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
+          <legend className="px-1 font-medium">Short by</legend>
+          {shortByRows.length === 0 ? (
+            <p className="text-sm text-paper-soft">No other category has money to cover this from.</p>
+          ) : (
+            shortByRows.map((r) => (
+              <div key={r.categoryId} className="flex items-center justify-between gap-2 text-sm">
+                <div>
+                  <span>{r.name}</span>
+                  <span className="text-paper-soft"> · {formatCents(r.availableCents)} available</span>
+                </div>
+                <button type="button" className="text-xs text-accent" onClick={() => coverFrom(r)}>
+                  Cover from this
+                </button>
+              </div>
+            ))
+          )}
+        </fieldset>
+      )}
 
       {/* 11. Left over */}
       <div className="rounded-lg bg-ink-soft p-4 space-y-3">
