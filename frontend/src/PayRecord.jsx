@@ -98,9 +98,13 @@ export default function PayRecord({ pickerDate }) {
 
   const stream = streams?.find((s) => s.id === streamId) ?? null
 
+  function refreshTransactions() {
+    return api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
+  }
+
   function refresh() {
     api.incomeStreams.list(pickerDate, true).then(setStreams).catch((e) => setError(e.message))
-    api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
+    refreshTransactions()
   }
 
   useEffect(refresh, [pickerDate])
@@ -183,6 +187,9 @@ export default function PayRecord({ pickerDate }) {
   async function record(e) {
     e.preventDefault()
     setFormError(null)
+    if (existingTransaction) {
+      return setFormError('This pay is already recorded. Delete it first if you need to redo it.')
+    }
     if (deductionsOn) {
       if (!gross.trim()) return setFormError('Enter the gross amount.')
       for (const d of deductions) {
@@ -238,6 +245,10 @@ export default function PayRecord({ pickerDate }) {
       navigate('/pay')
     } catch (err) {
       setFormError(err.message)
+      // A partial write (the transaction saved but a move 400'd) must be recognized as
+      // `existingTransaction` before the form is usable again, so Record can't be resubmitted
+      // blindly into a second transaction for the same payday.
+      await refreshTransactions()
     } finally {
       setSaving(false)
     }
@@ -370,9 +381,15 @@ export default function PayRecord({ pickerDate }) {
           <span className={`text-2xl font-semibold ${leftover < 0 ? 'text-bad' : ''}`}>{formatCents(leftover)}</span>
         </div>
         {leftover < 0 && <p className="text-sm text-bad">Assigned more than this paycheque brings in.</p>}
-        <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink">
-          Record
-        </button>
+        {existingTransaction ? (
+          <p className="text-sm text-paper-soft">
+            Already recorded. Delete this pay first if you need to redo it.
+          </p>
+        ) : (
+          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink">
+            Record
+          </button>
+        )}
         {existingTransaction && (
           <div className="pt-3 border-t border-ink space-y-2">
             <label className="flex items-center gap-2 text-sm">
