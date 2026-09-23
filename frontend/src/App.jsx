@@ -54,6 +54,7 @@ export default function App() {
         <Routes>
           <Route path="/" element={<Navigate to="/ledger" replace />} />
           <Route path="/pay" element={<Pay pickerDate={pickerDate} />} />
+          <Route path="/pay/one-off" element={<PayRecord pickerDate={pickerDate} />} />
           <Route path="/pay/:id/record" element={<PayRecord pickerDate={pickerDate} />} />
           <Route path="/ledger" element={<Transactions pickerDate={pickerDate} />} />
           <Route path="/categories" element={<Categories pickerDate={pickerDate} />} />
