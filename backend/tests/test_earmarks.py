@@ -250,6 +250,27 @@ def test_a_bad_move_is_refused_and_writes_nothing(db_session):
     assert db_session.query(EarmarkLine).count() == 0
 
 
+def test_a_move_can_carry_a_transaction_id_for_navigation_only(db_session):
+    """DESIGN.md § Earmarks: a pay batch's move lines carry the generating transaction's id for
+    navigation only — still an ordinary "move" line, not a consequence the transaction regenerates.
+    """
+    account = _account(db_session, opening=1000_00)
+    groceries = _category(db_session, "Groceries")
+    paycheque = write_transaction(
+        db_session, transaction=None, txn_date=DAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": 0}], category_lines=[],
+    )
+    db_session.flush()
+
+    lines = move_money(
+        db_session, move_date=DAY, from_category_id=None, to_category_id=groceries.id,
+        cents=100_00, transaction_id=paycheque.id,
+    )
+
+    assert lines[0].source == "move"
+    assert lines[0].transaction_id == paycheque.id
+
+
 def test_the_move_endpoint_returns_the_lines(client, db_session):
     rent, fun = _category(db_session, "Rent"), _category(db_session, "Fun")
     resp = client.post(

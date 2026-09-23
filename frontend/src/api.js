@@ -63,6 +63,9 @@ export const api = {
   readyToAssign: (asOf) => request(`/api/ready-to-assign?as_of=${asOf}`),
   earmarkMoves: {
     create: (move) => request('/api/earmark-moves', { method: 'POST', body: move }),
+    forTransaction: (transactionId) => request(`/api/earmark-moves?transaction_id=${transactionId}`),
+    removeForTransaction: (transactionId) =>
+      request(`/api/earmark-moves?transaction_id=${transactionId}`, { method: 'DELETE' }),
   },
   domains: {
     list: (asOf, includeArchived = false) => request(listPath('/api/domains', asOf, includeArchived)),

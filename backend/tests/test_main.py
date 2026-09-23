@@ -9,8 +9,9 @@ from sqlalchemy import event, select
 
 from app.db import get_session
 from app.main import app
-from app.models import AccountLine, Category, Payee, Transaction, Valuation
+from app.models import AccountLine, Category, EarmarkLine, Payee, Transaction, Valuation
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
+from app.services.categories import category_balance_cents
 from app.services.transactions import write_transaction
 from app.services.valuations import check_balance
 
@@ -109,6 +110,85 @@ def test_delete_transaction_removes_its_lines_from_the_balance(db_session):
     assert resp.status_code == 204
     assert all(t["id"] != txn.id for t in follow_up.json())
     assert account_balance_cents(db_session, account.id, as_of=LATER) == 500_00
+
+
+def test_delete_transaction_unlinks_but_keeps_its_pay_batch(db_session):
+    """DESIGN.md § Pay screen layout, block 11: "Delete this pay" always removes the
+    transaction; removing the earmark batch that referenced it (for navigation only) is a
+    separate, offered action — so deleting the transaction must never fail on that reference,
+    and the batch's money must survive untouched.
+    """
+    from app.services.earmarks import earmark_moves_for_transaction, move_money
+
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    salary = Category(name="Salary income", created_on=EARLIER)
+    groceries = Category(name="Groceries", created_on=EARLIER)
+    db_session.add_all([salary, groceries])
+    db_session.flush()
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=LATER, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": 2_400_00}],
+        category_lines=[{"category_id": salary.id, "cents": 2_400_00}],
+    )
+    db_session.flush()
+    move_money(
+        db_session, move_date=LATER, from_category_id=salary.id, to_category_id=None,
+        cents=2_400_00, transaction_id=txn.id,
+    )
+    move_money(
+        db_session, move_date=LATER, from_category_id=None, to_category_id=groceries.id,
+        cents=500_00, transaction_id=txn.id,
+    )
+    db_session.flush()
+
+    resp = _delete(db_session, txn.id)
+
+    assert resp.status_code == 204
+    lines = earmark_moves_for_transaction(db_session, txn.id)
+    assert lines == []  # unlinked, not gone
+    assert db_session.query(EarmarkLine).count() == 2  # the batch's lines all survive
+    assert all(line.transaction_id is None for line in db_session.query(EarmarkLine).all())
+    assert category_balance_cents(db_session, groceries.id, as_of=LATER) == 500_00
+
+
+def test_earmark_moves_endpoints_read_and_remove_a_pay_batch(db_session):
+    from app.services.earmarks import move_money
+
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    groceries = Category(name="Groceries", created_on=EARLIER)
+    db_session.add(groceries)
+    db_session.flush()
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=LATER, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": 500_00}],
+        category_lines=[],
+    )
+    db_session.flush()
+    move_money(
+        db_session, move_date=LATER, from_category_id=None, to_category_id=groceries.id,
+        cents=500_00, transaction_id=txn.id,
+    )
+    db_session.flush()
+
+    client = _client(db_session)
+    try:
+        listed = client.get("/api/earmark-moves", params={"transaction_id": txn.id})
+        removed = client.delete("/api/earmark-moves", params={"transaction_id": txn.id})
+        after = client.get("/api/earmark-moves", params={"transaction_id": txn.id})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert listed.status_code == 200
+    assert [line["cents"] for line in listed.json()] == [500_00]
+    assert removed.status_code == 204
+    assert after.json() == []
+    assert db_session.query(EarmarkLine).count() == 0
 
 
 def _delete(db_session, txn_id):

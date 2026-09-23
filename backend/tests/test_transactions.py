@@ -6,7 +6,7 @@ import datetime
 import pytest
 from sqlalchemy import func, select
 
-from app.models import AccountLine, Category, Payee, Transaction, Valuation
+from app.models import AccountLine, Category, IncomeStream, Payee, Transaction, Valuation
 from app.services.archiving import ArchiveError, Archivable, archive, visible_as_of
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.transactions import TransactionError, write_transaction
@@ -241,6 +241,41 @@ def test_paycheque_gross_with_deductions(db_session):
     )
 
     assert sum(line.cents for line in txn.category_lines) == 2_500_00
+
+
+def test_paycheque_carries_the_named_pay_link(db_session):
+    """DESIGN.md § Income streams: recording a named pay writes an income transaction with
+    `income_stream_id` set — the pay screen's link, never reassigned on an edit.
+    """
+    chequing = make_account(db_session, "Chequing", opening_balance=0)
+    salary = make_category(db_session, "Salary income")
+    stream = IncomeStream(
+        name="Salary", cadence="monthly", anchor_payday=TODAY,
+        expected_net_low_cents=2_400_00, expected_net_high_cents=2_400_00,
+        income_category_id=salary.id, destination_account_id=chequing.id, created_on=TODAY,
+    )
+    other_stream = IncomeStream(
+        name="Gig work", cadence="monthly", anchor_payday=TODAY,
+        expected_net_low_cents=0, expected_net_high_cents=0,
+        income_category_id=salary.id, destination_account_id=chequing.id, created_on=TODAY,
+    )
+    db_session.add_all([stream, other_stream])
+    db_session.flush()
+
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None, income_stream_id=stream.id,
+        account_lines=[{"account_id": chequing.id, "cents": 2_400_00}],
+        category_lines=[{"category_id": salary.id, "cents": 2_400_00}],
+    )
+    assert txn.income_stream_id == stream.id
+
+    edited = write_transaction(
+        db_session, transaction=txn, txn_date=TODAY, memo="fixed amount", payee_id=None,
+        income_stream_id=other_stream.id,
+        account_lines=[{"account_id": chequing.id, "cents": 2_450_00}],
+        category_lines=[{"category_id": salary.id, "cents": 2_450_00}],
+    )
+    assert edited.income_stream_id == stream.id  # unchanged by the edit, same rule as valuation_id
 
 
 def test_employer_rrsp_match_on_budget_linked_account(db_session):

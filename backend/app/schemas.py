@@ -188,12 +188,15 @@ class ArchiveIn(BaseModel):
 class EarmarkMoveIn(BaseModel):
     """One move of `cents` (positive) from one category to another; a null side is ready to
     assign. The caller states the date (the picker date) — the backend never reads the clock.
+    `transaction_id` links the move back to a transaction for navigation only (a pay batch,
+    DESIGN.md § Earmarks) — it is never a consequence the transaction regenerates.
     """
 
     date: date
     from_category_id: int | None = None
     to_category_id: int | None = None
     cents: int
+    transaction_id: int | None = None
 
 
 class EarmarkLineOut(BaseModel):
@@ -202,6 +205,7 @@ class EarmarkLineOut(BaseModel):
     category_id: int
     cents: int
     source: str
+    transaction_id: int | None = None
 
     model_config = {"from_attributes": True}
 
@@ -283,6 +287,7 @@ class TransactionCreate(BaseModel):
     date: date
     memo: str | None = None
     payee_id: int | None = None
+    income_stream_id: int | None = None
     account_lines: list[AccountLineIn] = Field(min_length=1)
     category_lines: list[CategoryLineIn] = []
     # Omitted or empty: "already earmarked" — no deposit lines (DESIGN.md § Linked categories).
@@ -295,6 +300,7 @@ class TransactionOut(BaseModel):
     memo: str | None
     payee_id: int | None
     valuation_id: int | None
+    income_stream_id: int | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
     deposits: list[DepositIn] = []

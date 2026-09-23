@@ -54,9 +54,13 @@ def _movable_category(session: Session, category_id: int, move_date: date) -> Ca
     return category
 
 
-def _write_move_line(session: Session, category: Category, move_date: date, cents: int) -> EarmarkLine:
+def _write_move_line(
+    session: Session, category: Category, move_date: date, cents: int, *, transaction_id: int | None = None
+) -> EarmarkLine:
     backdate_created_on(category, move_date)
-    line = EarmarkLine(date=move_date, category_id=category.id, cents=cents, source="move")
+    line = EarmarkLine(
+        date=move_date, category_id=category.id, cents=cents, source="move", transaction_id=transaction_id
+    )
     session.add(line)
     return line
 
@@ -79,12 +83,17 @@ def sweep_archived_category_balance(
 
 
 def move_money(
-    session: Session, *, move_date: date, from_category_id: int | None, to_category_id: int | None, cents: int
+    session: Session, *, move_date: date, from_category_id: int | None, to_category_id: int | None, cents: int,
+    transaction_id: int | None = None,
 ) -> list[EarmarkLine]:
     """Move `cents` (positive) out of one category and into another. A null side is ready to
     assign, so that side writes no line: category → category is two lines (−from, +to), either
     side null is one. No balance check — a move is a recording surface, and a category may go
     negative. Validates everything, then writes.
+
+    `transaction_id`, when given, links the move back to a transaction for navigation only (a
+    pay batch, DESIGN.md § Earmarks) — the move is still an ordinary "move" line, not a
+    consequence that transaction would ever regenerate.
     """
     if cents <= 0:
         raise EarmarkError("Enter an amount to move.")
@@ -96,8 +105,31 @@ def move_money(
     target = _movable_category(session, to_category_id, move_date) if to_category_id is not None else None
     lines = []
     if source is not None:
-        lines.append(_write_move_line(session, source, move_date, -cents))
+        lines.append(_write_move_line(session, source, move_date, -cents, transaction_id=transaction_id))
     if target is not None:
-        lines.append(_write_move_line(session, target, move_date, cents))
+        lines.append(_write_move_line(session, target, move_date, cents, transaction_id=transaction_id))
     session.flush()
     return lines
+
+
+def earmark_moves_for_transaction(session: Session, transaction_id: int) -> list[EarmarkLine]:
+    """The "move"-sourced earmark lines a pay batch wrote against `transaction_id` — what
+    "Delete this pay" offers to remove alongside the transaction (DESIGN.md § Pay screen
+    layout, block 11). Pool draws and deposits have their own lifecycle (`clear_generated_earmarks`)
+    and are excluded.
+    """
+    return list(
+        session.scalars(
+            select(EarmarkLine)
+            .where(EarmarkLine.transaction_id == transaction_id, EarmarkLine.source == "move")
+            .order_by(EarmarkLine.id)
+        )
+    )
+
+
+def delete_earmark_moves_for_transaction(session: Session, transaction_id: int) -> None:
+    """Remove a pay batch's "move" lines — the user's own separate choice, never automatic
+    (DESIGN.md § Pay screen layout, block 11: "offers to remove the batch")."""
+    for line in earmark_moves_for_transaction(session, transaction_id):
+        session.delete(line)
+    session.flush()

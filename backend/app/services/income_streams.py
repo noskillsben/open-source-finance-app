@@ -4,9 +4,10 @@ issue only ever writes the stream and its expected deductions — never a transa
 """
 from datetime import date
 
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Category, IncomeStream, IncomeStreamDeduction, Payee
+from app.models import Account, Category, IncomeStream, IncomeStreamDeduction, Payee, Transaction
 from app.services.cadence import CADENCES, roll_forward
 
 
@@ -14,6 +15,16 @@ class IncomeStreamError(Exception):
     """A named pay the service refuses — a planning surface, so a block is allowed
     (DESIGN.md § General concepts → blocks are allowed on planning and settings surfaces).
     """
+
+
+def income_stream_latest_ledger_date(session: Session, income_stream_id: int) -> date | None:
+    """The most recent transaction date that still names this named pay — the archive-date
+    bound (DESIGN.md: `archived_on` must be strictly later than the latest ledger row still
+    pointing at the entity). Set by the pay screen (#24).
+    """
+    return session.scalar(
+        select(func.max(Transaction.date)).where(Transaction.income_stream_id == income_stream_id)
+    )
 
 
 def next_payday(stream: IncomeStream, *, as_of: date) -> date:

@@ -115,6 +115,29 @@ def test_archive_hides_from_a_later_picker_date_and_unarchive_restores(client, c
     assert len(_list(client, on=datetime.date(2026, 3, 15))) == 1
 
 
+def test_archive_is_refused_before_a_paycheque_it_named(client, db_session, category, account):
+    """DESIGN.md: `archived_on` must be strictly later than the latest ledger row still
+    pointing at the entity — a named pay is no exception once the pay screen (#24) can bind a
+    transaction to it.
+    """
+    from app.services.transactions import write_transaction
+
+    created = _create(client, category, account).json()
+    write_transaction(
+        db_session, transaction=None, txn_date=datetime.date(2026, 3, 15), memo=None, payee_id=None,
+        income_stream_id=created["id"],
+        account_lines=[{"account_id": account.id, "cents": 250000}],
+        category_lines=[{"category_id": category.id, "cents": 250000}],
+    )
+    db_session.flush()
+
+    refused = client.post(f"/api/income-streams/{created['id']}/archive", json={"archived_on": "2026-03-10"})
+    assert refused.status_code == 400
+
+    allowed = client.post(f"/api/income-streams/{created['id']}/archive", json={"archived_on": "2026-03-16"})
+    assert allowed.status_code == 200
+
+
 @pytest.mark.parametrize("fields, as_of, expected", [
     ({"cadence": "weeks", "cadence_weeks": 1, "anchor_payday": "2026-03-06"}, "2026-03-20", "2026-03-20"),
     ({"cadence": "weeks", "cadence_weeks": 2, "anchor_payday": "2026-02-20"}, "2026-03-01", "2026-03-06"),

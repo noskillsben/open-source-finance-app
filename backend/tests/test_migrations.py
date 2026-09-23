@@ -165,6 +165,18 @@ def _assert_6c1b8e93f5a7(session):
     assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == 13282  # ledger untouched
 
 
+def _assert_b85e039f86ae(session):
+    from datetime import date
+
+    from app.services.accounts import account_balance_cents
+
+    opening = session.get(Transaction, 1)
+    assert opening.income_stream_id is None  # the column this revision adds, left unset
+    paycheque = session.get(Transaction, 2)
+    assert paycheque.income_stream_id is None
+    assert account_balance_cents(session, 1, as_of=date(2026, 12, 31)) == 290000  # ledger untouched
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -180,6 +192,7 @@ ASSERTIONS = {
     "a8b5e0f63c41": _assert_a8b5e0f63c41,
     "3850604f8ded": _assert_3850604f8ded,
     "6c1b8e93f5a7": _assert_6c1b8e93f5a7,
+    "b85e039f86ae": _assert_b85e039f86ae,
 }
 
 
