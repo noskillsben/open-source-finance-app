@@ -152,6 +152,19 @@ def _assert_3850604f8ded(session):
     assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == 40000  # ledger untouched
 
 
+def _assert_6c1b8e93f5a7(session):
+    from datetime import date
+
+    from app.models import Goal
+    from app.services.categories import category_balance_cents
+
+    goal = session.get(Goal, 1)
+    assert (goal.category_id, goal.kind, goal.amount_cents) == (1, "recurring_bill", 104800)  # survived
+    assert goal.income_stream_id is None  # the columns this revision adds, left unset
+    assert goal.percent_of_net is None
+    assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == 13282  # ledger untouched
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -166,6 +179,7 @@ ASSERTIONS = {
     "f7a4d9e52b30": _assert_f7a4d9e52b30,
     "a8b5e0f63c41": _assert_a8b5e0f63c41,
     "3850604f8ded": _assert_3850604f8ded,
+    "6c1b8e93f5a7": _assert_6c1b8e93f5a7,
 }
 
 

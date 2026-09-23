@@ -347,7 +347,9 @@ class IntegrityFindingOut(BaseModel):
 
 class GoalIn(BaseModel):
     """Set (create or replace) a category's goal. `on` is the picker date: it becomes
-    `created_on` of a new goal and is never read otherwise.
+    `created_on` of a new goal and is never read otherwise. `income_stream_id` binds the goal to
+    the named pay that funds it; a Commitment's "add" amount is `amount_cents` (fixed) or
+    `percent_of_net` (resolved against that pay's net at read time), never both.
     """
 
     on: date
@@ -358,6 +360,8 @@ class GoalIn(BaseModel):
     cadence_weeks: int | None = None
     target_date: date | None = None
     level_cents: int | None = None
+    income_stream_id: int | None = None
+    percent_of_net: Decimal | None = None
 
 
 class GoalOut(BaseModel):
@@ -370,8 +374,18 @@ class GoalOut(BaseModel):
     cadence_weeks: int | None
     target_date: date | None
     level_cents: int | None
+    income_stream_id: int | None
+    percent_of_net: Decimal | None
     created_on: date
     archived_on: date | None
+
+    @field_serializer("percent_of_net")
+    def _percent_as_string(self, value: Decimal | None) -> str | None:
+        """Leaves the API as an exact string at the column's four places, never a float —
+        the same convention as a debt account's rates (DebtTerms)."""
+        if value is None:
+            return None
+        return format(value.quantize(Decimal("0.0001")), "f")
 
     model_config = {"from_attributes": True}
 
