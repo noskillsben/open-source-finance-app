@@ -219,6 +219,7 @@ def write_transaction(
     account_lines: list[dict],
     category_lines: list[dict],
     valuation_id: int | None = None,
+    income_stream_id: int | None = None,
     deposits: list[dict] | None = None,
 ) -> Transaction:
     """Create (transaction=None) or edit (transaction=existing row) a transaction: recompute
@@ -230,8 +231,9 @@ def write_transaction(
     A list, empty included, replaces whatever deposit lines the transaction had; None leaves
     them as they are (the integrity re-save carries no such input).
 
-    `valuation_id` is only ever set on a new transaction — it names the balance check that
-    produced this adjustment (DESIGN.md § Balance checks) and is never reassigned on an edit.
+    `valuation_id` and `income_stream_id` are only ever set on a new transaction — the balance
+    check or named pay that produced it (DESIGN.md § Balance checks, § Income streams) — and are
+    never reassigned on an edit.
     """
     if not account_lines:
         raise TransactionError("A transaction needs at least one account line.")
@@ -250,7 +252,10 @@ def write_transaction(
             old_netted_by_account[line.account_id] = old_netted_by_account.get(line.account_id, False) or line.netted_into_opening
 
     if transaction is None:
-        transaction = Transaction(date=txn_date, memo=memo, payee_id=payee_id, valuation_id=valuation_id)
+        transaction = Transaction(
+            date=txn_date, memo=memo, payee_id=payee_id,
+            valuation_id=valuation_id, income_stream_id=income_stream_id,
+        )
         session.add(transaction)
     else:
         transaction.date = txn_date

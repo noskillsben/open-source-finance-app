@@ -257,6 +257,11 @@ class Transaction(Base, Owned):
     # Set on the one transaction a valuation produced: the opening adjustment (DESIGN.md §
     # Opening balance and backfilling history), and later the balance-check adjustment (#12).
     valuation_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("valuation.id"), nullable=True, index=True)
+    # Which named pay this fulfilled (DESIGN.md § Income streams) — set only when the pay
+    # screen writes this transaction, never reassigned on an edit, same rule as valuation_id.
+    income_stream_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("income_stream.id"), nullable=True, index=True
+    )
 
     valuation: Mapped["Valuation | None"] = relationship()
     account_lines: Mapped[list["AccountLine"]] = relationship(
@@ -312,7 +317,9 @@ class EarmarkLine(Base, Owned):
     category's balance is its earmark lines plus its transaction category lines. `source` says
     what wrote the line: "move", "pool_draw" (written by the transaction that overspent) or
     "deposit" (the move a transfer into or out of a linked account directed); the last two carry
-    the generating transaction's id in `transaction_id`.
+    the generating transaction's id in `transaction_id`. A pay batch (#24) is a set of ordinary
+    "move" lines that also carry `transaction_id`, but only for navigation back to the
+    paycheque — the batch is the user's decisions, not a consequence the transaction regenerates.
     """
 
     __tablename__ = "earmark_line"

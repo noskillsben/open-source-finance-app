@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from './api.js'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
@@ -393,6 +394,11 @@ export default function Pay({ pickerDate }) {
                   <td className="py-1">{cadenceText(s)}</td>
                   <td className="py-1">{formatDate(s.next_payday)}</td>
                   <td className="py-1 text-right space-x-3 whitespace-nowrap">
+                    {!s.archived_on && (
+                      <Link className="text-xs text-accent" to={`/pay/${s.id}/record`}>
+                        Record
+                      </Link>
+                    )}
                     {!s.archived_on && (
                       <button type="button" className="text-xs text-accent" onClick={() => startEdit(s)}>
                         Edit

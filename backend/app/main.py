@@ -70,7 +70,7 @@ from app.services.links import (
     suggest_split,
 )
 from app.services.goals import GoalError, apply_goal, goal_progress, live_goal
-from app.services.income_streams import IncomeStreamError, apply_income_stream, next_payday
+from app.services.income_streams import IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import (
     CategoryError,
@@ -81,6 +81,8 @@ from app.services.categories import (
 )
 from app.services.earmarks import (
     EarmarkError,
+    delete_earmark_moves_for_transaction,
+    earmark_moves_for_transaction,
     move_money,
     overspent_cents,
     ready_to_assign_cents,
@@ -439,10 +441,26 @@ def create_earmark_move(payload: EarmarkMoveIn, session: Session = Depends(get_s
             from_category_id=payload.from_category_id,
             to_category_id=payload.to_category_id,
             cents=payload.cents,
+            transaction_id=payload.transaction_id,
         )
     except EarmarkError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return [EarmarkLineOut.model_validate(line) for line in lines]
+
+
+@app.get("/api/earmark-moves", response_model=list[EarmarkLineOut])
+def list_earmark_moves(transaction_id: int, session: Session = Depends(get_session)) -> list[EarmarkLineOut]:
+    """The "move"-sourced earmark lines a pay batch wrote against a transaction — what "Delete
+    this pay" (DESIGN.md § Pay screen layout, block 11) shows before offering to remove them.
+    """
+    return [EarmarkLineOut.model_validate(line) for line in earmark_moves_for_transaction(session, transaction_id)]
+
+
+@app.delete("/api/earmark-moves", status_code=204)
+def delete_earmark_moves(transaction_id: int, session: Session = Depends(get_session)) -> None:
+    """Remove a pay batch's "move" lines — the separate, explicit half of "Delete this pay"
+    (DESIGN.md § Pay screen layout, block 11)."""
+    delete_earmark_moves_for_transaction(session, transaction_id)
 
 
 @app.get("/api/domains", response_model=list[DomainOut])
@@ -695,9 +713,11 @@ def archive_income_stream(
     stream = session.get(IncomeStream, income_stream_id)
     if stream is None:
         raise HTTPException(status_code=404, detail=f"No named pay with id {income_stream_id}.")
-    # Nothing references a named pay yet (transaction.income_stream_id ships with #24), so there
-    # is no ledger bound to check.
-    warnings = archive(Archivable(entity=stream, latest_ledger_date=None), payload.archived_on)
+    latest_ledger_date = income_stream_latest_ledger_date(session, stream.id)
+    try:
+        warnings = archive(Archivable(entity=stream, latest_ledger_date=latest_ledger_date), payload.archived_on)
+    except ArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
     return ArchiveOut(id=stream.id, archived_on=stream.archived_on, warnings=warnings)
 
@@ -803,6 +823,7 @@ def _transaction_shape(t: Transaction, notes: list[str], deposits: list[dict] | 
     return TransactionOut(
         deposits=[DepositIn(**item) for item in deposits or []],
         id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id, valuation_id=t.valuation_id,
+        income_stream_id=t.income_stream_id,
         account_lines=[
             AccountLineOut(id=l.id, account_id=l.account_id, cents=l.cents, budget_cents=l.budget_cents)
             for l in t.account_lines
@@ -838,6 +859,7 @@ def create_transaction(payload: TransactionCreate, session: Session = Depends(ge
             txn_date=payload.date,
             memo=payload.memo,
             payee_id=payload.payee_id,
+            income_stream_id=payload.income_stream_id,
             account_lines=[line.model_dump() for line in payload.account_lines],
             category_lines=[line.model_dump() for line in payload.category_lines],
             deposits=[item.model_dump() for item in payload.deposits],
@@ -923,6 +945,12 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
             exclude_transaction_id=transaction.id,
         )
     clear_generated_earmarks(session, transaction.id)
+    # Any pay-batch "move" lines still pointing here are the user's decisions, not this
+    # transaction's to remove (DESIGN.md § Pay screen layout, block 11: removing the batch is a
+    # separate, offered action) — unlink them so deleting the transaction never fails on their
+    # reference; the lines and their money are untouched.
+    for line in earmark_moves_for_transaction(session, transaction.id):
+        line.transaction_id = None
     session.delete(transaction)
     session.flush()
 
