@@ -1,5 +1,7 @@
 """Category goals (DESIGN.md § Goals): one rule per category, progress being the category's
-balance compared to the rule. Binding a goal to a named pay is #21.
+balance compared to the rule. A goal binds to a named pay (#21) that funds it: `income_stream_id`
+plus, for a Commitment's "add" flavour, `percent_of_net` as an alternative to a fixed
+`amount_cents` — resolved against the pay's net, never gross, and never stored as cents.
 """
 from dataclasses import dataclass
 from datetime import date
@@ -7,9 +9,10 @@ from datetime import date
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Category, Goal
+from app.models import Category, Goal, IncomeStream
 from app.services.cadence import CADENCES, roll_forward, step
 from app.services.categories import category_balance_cents
+from app.services.income_streams import next_payday
 
 KINDS = ("recurring_bill", "target", "commitment")
 
@@ -26,6 +29,7 @@ def apply_goal(
     session: Session, category: Category, goal: Goal | None, *, on: date, name: str, kind: str,
     amount_cents: int | None, cadence: str | None, cadence_weeks: int | None,
     target_date: date | None, level_cents: int | None,
+    income_stream_id: int | None = None, percent_of_net=None,
 ) -> Goal:
     """The one write path for a goal, shared by create and edit. Validates everything before
     touching the row; a field the kind doesn't use must be left empty (null, never zero).
@@ -42,17 +46,26 @@ def apply_goal(
     for label, cents in (("amount", amount_cents), ("level", level_cents)):
         if cents is not None and cents < 0:
             raise GoalError(f"The {label} cannot be negative.")
+    if percent_of_net is not None and percent_of_net < 0:
+        raise GoalError("The percentage cannot be negative.")
+
+    if income_stream_id is not None and session.get(IncomeStream, income_stream_id) is None:
+        raise GoalError(f"Unknown income stream id: {income_stream_id}")
 
     if kind == "recurring_bill":
         if amount_cents is None or cadence is None:
             raise GoalError("A recurring bill needs an amount and a cadence.")
         if level_cents is not None:
             raise GoalError("A recurring bill has no level.")
+        if percent_of_net is not None:
+            raise GoalError("A recurring bill has no percentage.")
     elif kind == "target":
         if amount_cents is None:
             raise GoalError("A target needs an amount.")
         if level_cents is not None:
             raise GoalError("A target has no level.")
+        if percent_of_net is not None:
+            raise GoalError("A target has no percentage.")
         if cadence is not None and target_date is None:
             raise GoalError("A per-period contribution needs a target date.")
     else:
@@ -60,8 +73,15 @@ def apply_goal(
             raise GoalError("A commitment has no target date.")
         if cadence is None:
             raise GoalError("A commitment needs a cadence.")
-        if (amount_cents is None) == (level_cents is None):
-            raise GoalError("A commitment either adds a fixed amount or refills to a level — give one, not both.")
+        flavours = [v for v in (amount_cents, level_cents, percent_of_net) if v is not None]
+        if len(flavours) != 1:
+            raise GoalError(
+                "A commitment adds a fixed amount, adds a percentage of net, or refills to a "
+                "level — give exactly one, not more."
+            )
+
+    if percent_of_net is not None and income_stream_id is None:
+        raise GoalError("A percentage of net needs a bound pay.")
 
     if goal is None:
         goal = Goal(category_id=category.id, created_on=on)
@@ -73,6 +93,8 @@ def apply_goal(
     goal.cadence_weeks = cadence_weeks
     goal.target_date = target_date
     goal.level_cents = level_cents
+    goal.income_stream_id = income_stream_id
+    goal.percent_of_net = percent_of_net
     return goal
 
 
@@ -130,3 +152,28 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
         due_date=due_date(goal, as_of=as_of),
         per_period_cents=per_period,
     )
+
+
+def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> int | None:
+    """What a bound goal wants at its very next payday (DESIGN.md § Goals): the shortfall to the
+    goal's amount, spread over the STREAM's paydays remaining up to the goal's due date — the
+    $1,200 quarterly bill with $400 saved and two Salary paydays left wants $400 now. Counts the
+    stream's cadence, not the goal's own (a quarterly bill still wants an instalment at each of
+    its biweekly paydays), so it is not `contribution_cents`, which spreads a target's shortfall
+    over its own cadence. None for a goal with no due date (a dateless Target, or any Commitment —
+    Commitments have their own per-payday amount already, not a date to spread one over). No
+    display consumer yet; the pay screen (#107) is what calls this.
+    """
+    due = due_date(goal, as_of=as_of)
+    if due is None:
+        return None
+    target = goal.amount_cents
+    if target is None:
+        return None
+    balance = int(category_balance_cents(session, goal.category_id, as_of=as_of))
+    shortfall = max(target - balance, 0)
+    pivot = next_payday(stream, as_of=as_of)
+    periods = 0
+    while step(stream.cadence, stream.cadence_weeks, pivot, periods) <= due:
+        periods += 1
+    return -(-shortfall // max(periods, 1))

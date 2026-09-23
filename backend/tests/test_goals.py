@@ -9,8 +9,9 @@ from sqlalchemy.exc import IntegrityError
 
 from app.db import get_session
 from app.main import app
-from app.models import Category, Goal
+from app.models import Category, Goal, IncomeStream
 from app.services.earmarks import move_money
+from app.services.goals import due_by_next_payday
 
 DAY = datetime.date(2026, 3, 1)
 
@@ -33,6 +34,27 @@ def category(db_session):
     db_session.add(category)
     db_session.flush()
     return category
+
+
+@pytest.fixture()
+def stream(db_session):
+    from app.services.accounts import create_account_with_opening_valuation
+
+    income_category = Category(name="Salary income", created_on=DAY)
+    db_session.add(income_category)
+    db_session.flush()
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=DAY, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    stream = IncomeStream(
+        name="Salary", cadence="weeks", cadence_weeks=2, anchor_payday=datetime.date(2026, 3, 6),
+        expected_net_low_cents=0, expected_net_high_cents=0, income_category_id=income_category.id,
+        destination_account_id=account.id, created_on=DAY,
+    )
+    db_session.add(stream)
+    db_session.flush()
+    return stream
 
 
 def _fund(db_session, category, cents, on=DAY):
@@ -140,13 +162,17 @@ def test_progress_reads_the_picker_date(client, db_session, category):
     ({"kind": "target", "amount_cents": 100, "cadence": "monthly"}, "needs a target date"),
     ({"kind": "target", "amount_cents": 100, "level_cents": 5}, "no level"),
     ({"kind": "target", "amount_cents": -1}, "negative"),
-    ({"kind": "commitment", "cadence": "monthly"}, "give one, not both"),
-    ({"kind": "commitment", "amount_cents": 1, "level_cents": 2, "cadence": "monthly"}, "give one, not both"),
+    ({"kind": "commitment", "cadence": "monthly"}, "give exactly one"),
+    ({"kind": "commitment", "amount_cents": 1, "level_cents": 2, "cadence": "monthly"}, "give exactly one"),
     ({"kind": "commitment", "amount_cents": 1}, "needs a cadence"),
     ({"kind": "commitment", "amount_cents": 1, "cadence": "monthly", "target_date": "2026-05-01"}, "no target date"),
     ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "weeks"}, "needs N"),
     ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "cadence_weeks": 2}, "only applies"),
     ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "daily"}, "Unknown cadence"),
+    ({"kind": "target", "amount_cents": 100, "percent_of_net": "5"}, "no percentage"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "percent_of_net": "5"}, "no percentage"),
+    ({"kind": "commitment", "cadence": "monthly", "percent_of_net": "5"}, "needs a bound pay"),
+    ({"kind": "target", "amount_cents": 100, "income_stream_id": 999}, "Unknown income stream id"),
 ])
 def test_invalid_goals_are_refused_and_nothing_is_written(client, category, fields, message):
     response = _set(client, category, **fields)
@@ -181,6 +207,78 @@ def test_archive_frees_the_category_for_a_new_goal(client, category):
     assert len(_progress(client, datetime.date(2026, 3, 2))) == 1  # still there on earlier dates
     _set(client, category, name="Second", kind="target", amount_cents=200)
     assert [r["goal"]["name"] for r in _progress(client, datetime.date(2026, 3, 10))] == ["Second"]
+
+
+def test_goal_binds_to_a_named_pay(client, category, stream):
+    response = _set(client, category, kind="target", amount_cents=10000, income_stream_id=stream.id)
+    assert response.status_code == 200
+    assert response.json()["income_stream_id"] == stream.id
+    (row,) = _progress(client)
+    assert row["goal"]["income_stream_id"] == stream.id
+
+
+def test_commitment_percent_of_net_bound_to_a_pay(client, category, stream):
+    response = _set(
+        client, category, kind="commitment", cadence="monthly",
+        percent_of_net="5.5", income_stream_id=stream.id,
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["percent_of_net"] == "5.5000"
+    assert body["amount_cents"] is None
+    (row,) = _progress(client)
+    assert row["goal"]["percent_of_net"] == "5.5000"
+
+
+def test_commitment_percent_and_fixed_amount_are_mutually_exclusive(client, category, stream):
+    response = _set(
+        client, category, kind="commitment", cadence="monthly",
+        amount_cents=5000, percent_of_net="5", income_stream_id=stream.id,
+    )
+    assert response.status_code == 400
+    assert "give exactly one" in response.json()["detail"]
+    assert _progress(client) == []
+
+
+def test_editing_a_goal_can_clear_its_binding(client, category, stream):
+    _set(client, category, kind="target", amount_cents=10000, income_stream_id=stream.id)
+    response = _set(client, category, kind="target", amount_cents=10000)
+    assert response.status_code == 200
+    assert response.json()["income_stream_id"] is None
+
+
+def test_due_by_next_payday_worked_example(db_session, category, stream):
+    # $1,200 quarterly bill, $400 saved, two Salary paydays (every 2 weeks) left before the
+    # due date wants $400 now (DESIGN.md § Goals).
+    _fund(db_session, category, 40000)
+    goal = Goal(
+        category_id=category.id, name="Insurance", kind="recurring_bill", amount_cents=120000,
+        cadence="quarterly", target_date=datetime.date(2026, 3, 20), income_stream_id=stream.id,
+        created_on=DAY,
+    )
+    db_session.add(goal)
+    db_session.flush()
+    assert due_by_next_payday(db_session, goal, stream, as_of=DAY) == 40000
+
+
+def test_due_by_next_payday_none_without_a_due_date(db_session, category, stream):
+    goal = Goal(
+        category_id=category.id, name="Someday", kind="target", amount_cents=10000,
+        income_stream_id=stream.id, created_on=DAY,
+    )
+    db_session.add(goal)
+    db_session.flush()
+    assert due_by_next_payday(db_session, goal, stream, as_of=DAY) is None
+
+
+def test_due_by_next_payday_none_for_a_commitment(db_session, category, stream):
+    goal = Goal(
+        category_id=category.id, name="Fun money", kind="commitment", amount_cents=5000,
+        cadence="weeks", cadence_weeks=2, income_stream_id=stream.id, created_on=DAY,
+    )
+    db_session.add(goal)
+    db_session.flush()
+    assert due_by_next_payday(db_session, goal, stream, as_of=DAY) is None
 
 
 def test_database_refuses_a_second_live_goal_on_a_category(db_session, category):

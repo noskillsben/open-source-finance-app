@@ -46,7 +46,10 @@ const CADENCES = [
   { value: 'yearly', label: 'Yearly' },
   { value: 'weeks', label: 'Every N weeks' },
 ]
-const EMPTY_GOAL = { kind: '', name: '', flavour: 'add', amount: '', level: '', cadence: '', weeks: '', date: '' }
+const EMPTY_GOAL = {
+  kind: '', name: '', flavour: 'add', addFlavour: 'fixed', amount: '', level: '', percent: '',
+  cadence: '', weeks: '', date: '', incomeStreamId: null,
+}
 
 const centsText = (cents) => (cents == null ? '' : (cents / 100).toFixed(2))
 
@@ -56,11 +59,14 @@ function goalToForm(goal) {
     kind: goal.kind,
     name: goal.name,
     flavour: goal.level_cents != null ? 'refill' : 'add',
+    addFlavour: goal.percent_of_net != null ? 'percent' : 'fixed',
     amount: centsText(goal.amount_cents),
     level: centsText(goal.level_cents),
+    percent: goal.percent_of_net ?? '',
     cadence: goal.cadence ?? '',
     weeks: goal.cadence_weeks ?? '',
     date: goal.target_date ?? '',
+    incomeStreamId: goal.income_stream_id ?? null,
   }
 }
 
@@ -68,15 +74,18 @@ function goalToForm(goal) {
 function goalBody(g, pickerDate) {
   const cents = (text) => (String(text).trim() === '' ? null : parseCents(text))
   const refill = g.kind === 'commitment' && g.flavour === 'refill'
+  const percentFlavour = g.kind === 'commitment' && g.flavour === 'add' && g.addFlavour === 'percent'
   return {
     on: pickerDate,
     name: g.name.trim(),
     kind: g.kind,
-    amount_cents: refill ? null : cents(g.amount),
+    amount_cents: refill || percentFlavour ? null : cents(g.amount),
     level_cents: refill ? cents(g.level) : null,
+    percent_of_net: percentFlavour && String(g.percent).trim() !== '' ? g.percent : null,
     cadence: g.cadence || null,
     cadence_weeks: g.cadence === 'weeks' && g.weeks !== '' ? Number(g.weeks) : null,
     target_date: g.kind !== 'commitment' && g.date ? g.date : null,
+    income_stream_id: g.incomeStreamId ?? null,
   }
 }
 
@@ -84,7 +93,7 @@ const cadenceText = (goal) => (goal.cadence === 'weeks' ? `every ${goal.cadence_
 
 // The goal section of the category's settings form. The kind decides which fields show; "No goal"
 // removes (archives) the goal on save.
-function GoalFields({ goal, onChange }) {
+function GoalFields({ goal, onChange, streams }) {
   const set = (patch) => onChange({ ...goal, ...patch })
   const moneyInput = (label, key) => (
     <label className="block text-sm">
@@ -97,6 +106,26 @@ function GoalFields({ goal, onChange }) {
         onChange={(e) => set({ [key]: e.target.value })}
       />
     </label>
+  )
+  const percentInput = (label, key) => (
+    <label className="block text-sm">
+      <span className="text-paper-soft">{label}</span>
+      <input
+        type="text"
+        inputMode="decimal"
+        className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+        value={goal[key]}
+        onChange={(e) => set({ [key]: e.target.value.replace(/[^0-9.]/g, '') })}
+      />
+    </label>
+  )
+  const payPicker = (
+    <NamePicker
+      label="Named pay this is paid by (optional)"
+      items={streams}
+      initialId={goal.incomeStreamId}
+      onChange={(id) => set({ incomeStreamId: id })}
+    />
   )
   const cadenceInput = (label, optional) => (
     <>
@@ -164,6 +193,7 @@ function GoalFields({ goal, onChange }) {
           />
         </label>
       )}
+      {goal.kind && payPicker}
       {goal.kind === 'recurring_bill' && (
         <>
           {moneyInput('Amount per bill', 'amount')}
@@ -191,7 +221,25 @@ function GoalFields({ goal, onChange }) {
               <option value="refill">Refill to a level</option>
             </select>
           </label>
-          {goal.flavour === 'refill' ? moneyInput('Level to refill to', 'level') : moneyInput('Amount to add', 'amount')}
+          {goal.flavour === 'refill' && moneyInput('Level to refill to', 'level')}
+          {goal.flavour === 'add' && (
+            <>
+              <label className="block text-sm">
+                <span className="text-paper-soft">Add</span>
+                <select
+                  className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+                  value={goal.addFlavour}
+                  onChange={(e) => set({ addFlavour: e.target.value })}
+                >
+                  <option value="fixed">A fixed amount</option>
+                  <option value="percent">A percentage of net (needs a named pay above)</option>
+                </select>
+              </label>
+              {goal.addFlavour === 'percent'
+                ? percentInput('% of net', 'percent')
+                : moneyInput('Amount to add', 'amount')}
+            </>
+          )}
           {cadenceInput('How often', false)}
         </>
       )}
@@ -320,6 +368,7 @@ export default function Categories({ pickerDate }) {
   const [assignError, setAssignError] = useState(null)
   const [goals, setGoals] = useState([]) // every goal shown at the picker date, with its progress
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL)
+  const [streams, setStreams] = useState([]) // named pays, for the goal form's pay picker
   const [accounts, setAccounts] = useState([]) // for the link picker
   const [linkIds, setLinkIds] = useState([]) // account ids the category being edited is linked to
   const [linkFilter, setLinkFilter] = useState('')
@@ -332,6 +381,7 @@ export default function Categories({ pickerDate }) {
     api.readyToAssign(pickerDate).then(setSummary).catch((e) => setError(e.message))
     api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
     api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
+    api.incomeStreams.list(pickerDate).then(setStreams).catch((e) => setError(e.message))
   }
 
   useEffect(refresh, [pickerDate, showArchived])
@@ -525,7 +575,7 @@ export default function Categories({ pickerDate }) {
           initialId={form.pool.id}
           onChange={(id, text) => setForm({ ...form, pool: { id, text } })}
         />
-        {editing && <GoalFields goal={goalForm} onChange={setGoalForm} />}
+        {editing && <GoalFields goal={goalForm} onChange={setGoalForm} streams={streams} />}
         {editing && (
           <LinkFields
             accounts={accounts}

@@ -141,7 +141,9 @@ class Goal(Base, Owned, NonLedger):
     """A rule about a category, not a place money goes (DESIGN.md § Goals). One live goal per
     category. Every amount and term is nullable — null means the kind doesn't use it, never
     zero. `cadence_weeks` is N for "every N weeks" and set only when `cadence` is "weeks".
-    Binding to a named pay (`income_stream_id`) arrives with #21.
+    `income_stream_id` binds the goal to the named pay that funds it (#21); a commitment's
+    "add" amount may be `amount_cents` (fixed) or `percent_of_net` (resolved against the bound
+    pay's net, never gross), never both — app/services/goals.py enforces exactly one flavour.
     """
 
     __tablename__ = "goal"
@@ -156,6 +158,10 @@ class Goal(Base, Owned, NonLedger):
     cadence_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     level_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    income_stream_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("income_stream.id"), nullable=True, index=True
+    )
+    percent_of_net: Mapped[Decimal | None] = mapped_column(Numeric(9, 4), nullable=True)
 
     __table_args__ = (
         Index("ix_goal_category_live", "category_id", unique=True, postgresql_where=text("archived_on IS NULL")),
@@ -166,8 +172,8 @@ class IncomeStream(Base, Owned, NonLedger):
     """A named pay: a planned recurring money event the user states, that goals attach to
     (DESIGN.md § Income streams). Next payday is `anchor_payday` rolled forward by the cadence
     at read time, never stored (app/services/cadence.py) — the same mechanism a recurring
-    bill's due date uses. `income_stream_id` lands on the transaction header with the pay screen (#24);
-    binding a goal to a pay and the percentage-of-net flavour arrive with #21.
+    bill's due date uses. `income_stream_id` lands on the transaction header with the pay screen (#24).
+    Goals bind here via `Goal.income_stream_id` (#21).
     """
 
     __tablename__ = "income_stream"
