@@ -357,18 +357,23 @@ export default function Pay({ pickerDate }) {
         {warnings.map((w) => (
           <p key={w} className="text-sm text-bad">{w}</p>
         ))}
-        <div className="flex flex-wrap items-center gap-3">
-          <input
-            className="rounded bg-ink px-2 py-1 text-sm"
-            placeholder="Search named pays"
-            aria-label="Search named pays"
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-            Show archived
-          </label>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              className="rounded bg-ink px-2 py-1 text-sm"
+              placeholder="Search named pays"
+              aria-label="Search named pays"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              Show archived
+            </label>
+          </div>
+          <Link className="text-sm text-accent" to="/pay/one-off">
+            One-off income
+          </Link>
         </div>
         {!error && !streams && <p>Loading…</p>}
         {streams && streams.length === 0 && <p className="text-paper-soft">No named pays yet.</p>}

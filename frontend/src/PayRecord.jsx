@@ -89,11 +89,13 @@ function rowsToMoves(rows) {
 
 export default function PayRecord({ pickerDate }) {
   const { id } = useParams()
+  const isOneOff = id === undefined
   const streamId = Number(id)
   const navigate = useNavigate()
 
   const [streams, setStreams] = useState(null)
   const [categories, setCategories] = useState([])
+  const [accounts, setAccounts] = useState([])
   const [goals, setGoals] = useState([])
   const [transactions, setTransactions] = useState(null)
   const [error, setError] = useState(null)
@@ -107,6 +109,8 @@ export default function PayRecord({ pickerDate }) {
   const [deductions, setDeductions] = useState([])
   const [netOnly, setNetOnly] = useState('')
   const [oneOff, setOneOff] = useState([])
+  const [oneOffIncomeCategory, setOneOffIncomeCategory] = useState({})
+  const [oneOffDestinationAccount, setOneOffDestinationAccount] = useState({})
   const [everythingElse, setEverythingElse] = useState({}) // category_id -> amount text
   const [removeBatchOnDelete, setRemoveBatchOnDelete] = useState(true)
   const [goalsLoaded, setGoalsLoaded] = useState(false)
@@ -130,15 +134,19 @@ export default function PayRecord({ pickerDate }) {
 
   useEffect(refresh, [pickerDate])
 
-  // Seed the payday once the stream is known.
+  // Seed the payday once the stream is known — or, with no named pay behind this screen, from
+  // the app-wide picker date, since there is no next payday to anchor on.
   useEffect(() => {
-    if (!stream || payday !== null) return
+    if (payday !== null) return
+    if (isOneOff) return setPayday(pickerDate)
+    if (!stream) return
     setPayday(stream.next_payday)
-  }, [stream, payday])
+  }, [stream, payday, isOneOff, pickerDate])
 
   useEffect(() => {
     if (!payday) return
     api.categories.list(payday).then(setCategories).catch((e) => setError(e.message))
+    api.accounts.list(payday).then(setAccounts).catch((e) => setError(e.message))
     setGoalsLoaded(false)
     api.goals.list(payday)
       .then((g) => { setGoals(g); setGoalsLoaded(true) })
@@ -150,7 +158,7 @@ export default function PayRecord({ pickerDate }) {
     return api.readyToAssign(payday).then(setReadyToAssign).catch((e) => setError(e.message))
   }
 
-  useEffect(refreshReadyToAssign, [payday])
+  useEffect(() => { refreshReadyToAssign() }, [payday])
 
   // Every goal bound to this named pay (DESIGN.md § Goals are paid by a named pay).
   const streamGoals = useMemo(
@@ -207,6 +215,13 @@ export default function PayRecord({ pickerDate }) {
     )
   }, [stream, categories, seeded, goalsLoaded, billGoals, targetGoals, fundingGoals])
 
+  // Never matches on the one-off route: streamId is Number(undefined) === NaN there, and a
+  // one-off transaction is written with income_stream_id: null, so NaN === null is always false.
+  // That's deliberate, not an oversight — nothing in the schema distinguishes a transaction this
+  // screen wrote from any other unlinked one dated the same day, so matching on
+  // `income_stream_id == null` would misfire on an unrelated same-day transaction and block a
+  // real recording. Revisiting an already-recorded one-off to redo or delete it is out of scope
+  // here; tracked as a follow-up (#116 PR review).
   const existingTransaction = useMemo(
     () => transactions?.find((t) => t.income_stream_id === streamId && t.date === payday) ?? null,
     [transactions, streamId, payday]
@@ -218,33 +233,52 @@ export default function PayRecord({ pickerDate }) {
 
   const oneOffTotal = rowsToMoves(oneOff).reduce((sum, m) => sum + m.cents, 0)
 
+  // Where this pay lands: read off the named pay, or, with no named pay behind this screen,
+  // whatever the user picked (DESIGN.md § Record income — the pay screen: "A one-off on the pay
+  // screen" — nothing pre-filled).
+  const incomeCategoryId = isOneOff ? (oneOffIncomeCategory.id ?? null) : (stream?.income_category_id ?? null)
+  const destinationAccountId = isOneOff
+    ? (oneOffDestinationAccount.id ?? null)
+    : (stream?.destination_account_id ?? null)
+
   const liveGoalCategoryIds = useMemo(() => new Set(goals.map((g) => g.goal.category_id)), [goals])
   const deductionCategoryIds = useMemo(
     () => new Set(deductions.map((d) => d.category.id).filter((id) => id != null)),
     [deductions]
   )
   const everythingElseCategories = useMemo(() => {
-    if (!stream) return []
     return categories
       .filter((c) => !c.archived_on)
       .filter((c) => !liveGoalCategoryIds.has(c.id))
-      .filter((c) => c.id !== stream.income_category_id && !deductionCategoryIds.has(c.id))
+      .filter((c) => c.id !== incomeCategoryId && !deductionCategoryIds.has(c.id))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [categories, liveGoalCategoryIds, deductionCategoryIds, stream])
+  }, [categories, liveGoalCategoryIds, deductionCategoryIds, incomeCategoryId])
 
+  // Last period's actual for a named pay, last calendar month's for a one-off — there is no pay
+  // period to compare a one-off against (DESIGN.md § "A one-off on the pay screen").
   const lastPeriodActuals = useMemo(() => {
-    if (!payday || !stream || !transactions) return {}
-    const start = stepDate(stream.cadence, stream.cadence_weeks, payday, -1)
+    if (!payday || !transactions) return {}
+    let start
+    let end
+    if (isOneOff) {
+      end = `${payday.slice(0, 7)}-01`
+      start = addMonths(end, -1)
+    } else if (stream) {
+      start = stepDate(stream.cadence, stream.cadence_weeks, payday, -1)
+      end = payday
+    } else {
+      return {}
+    }
     const totals = {}
     for (const t of transactions) {
-      if (t.date < start || t.date >= payday) continue
+      if (t.date < start || t.date >= end) continue
       for (const line of t.category_lines) {
         if (line.cents >= 0) continue
         totals[line.category_id] = (totals[line.category_id] ?? 0) - line.cents
       }
     }
     return totals
-  }, [transactions, payday, stream])
+  }, [transactions, payday, stream, isOneOff])
 
   const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
 
@@ -340,15 +374,19 @@ export default function PayRecord({ pickerDate }) {
 
   if (error) return <p className="text-bad py-6">Could not reach the backend: {error}</p>
   if (!streams || !payday) return <p className="py-6">Loading…</p>
-  if (!stream) return <p className="text-bad py-6">No named pay with id {streamId}.</p>
+  if (!isOneOff && !stream) return <p className="text-bad py-6">No named pay with id {streamId}.</p>
 
-  const periodEnd = stepDate(stream.cadence, stream.cadence_weeks, payday, 1)
+  const periodEnd = isOneOff ? null : stepDate(stream.cadence, stream.cadence_weeks, payday, 1)
 
   async function record(e) {
     e.preventDefault()
     setFormError(null)
     if (existingTransaction) {
       return setFormError('This pay is already recorded. Delete it first if you need to redo it.')
+    }
+    if (isOneOff) {
+      if (incomeCategoryId == null) return setFormError('Pick the category this income lands in.')
+      if (destinationAccountId == null) return setFormError('Pick the account this income lands in.')
     }
     if (deductionsOn) {
       if (!gross.trim()) return setFormError('Enter the gross amount.')
@@ -365,17 +403,17 @@ export default function PayRecord({ pickerDate }) {
     try {
       const categoryLines = deductionsOn
         ? [
-            { category_id: stream.income_category_id, cents: grossCents },
+            { category_id: incomeCategoryId, cents: grossCents },
             ...deductions
               .filter((d) => d.category.id != null && String(d.amount).trim() !== '')
               .map((d) => ({ category_id: d.category.id, cents: -parseCents(d.amount) })),
           ]
-        : [{ category_id: stream.income_category_id, cents: net }]
+        : [{ category_id: incomeCategoryId, cents: net }]
 
       const txn = await api.transactions.create({
         date: payday,
-        income_stream_id: stream.id,
-        account_lines: [{ account_id: stream.destination_account_id, cents: net }],
+        income_stream_id: isOneOff ? null : stream.id,
+        account_lines: [{ account_id: destinationAccountId, cents: net }],
         category_lines: categoryLines,
       })
 
@@ -384,14 +422,14 @@ export default function PayRecord({ pickerDate }) {
           const cents = parseCents(d.amount)
           if (d.category.id == null || !cents) continue
           await api.earmarkMoves.create({
-            date: payday, from_category_id: stream.income_category_id, to_category_id: d.category.id,
+            date: payday, from_category_id: incomeCategoryId, to_category_id: d.category.id,
             cents, transaction_id: txn.id,
           })
         }
       }
       if (net > 0) {
         await api.earmarkMoves.create({
-          date: payday, from_category_id: stream.income_category_id, to_category_id: null,
+          date: payday, from_category_id: incomeCategoryId, to_category_id: null,
           cents: net, transaction_id: txn.id,
         })
       }
@@ -441,13 +479,13 @@ export default function PayRecord({ pickerDate }) {
       {/* 1. Header */}
       <div className="rounded-lg bg-ink-soft p-4 space-y-1">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">{stream.name}</h2>
+          <h2 className="text-xl font-semibold">{isOneOff ? 'One-off income' : stream.name}</h2>
           <span className="rounded bg-ink px-2 py-0.5 text-xs uppercase text-paper-soft">
             {existingTransaction ? 'recorded' : 'upcoming'}
           </span>
         </div>
         <label className="block text-sm">
-          <span className="text-paper-soft">Payday</span>
+          <span className="text-paper-soft">{isOneOff ? 'Date' : 'Payday'}</span>
           <input
             type="date"
             className="mt-1 rounded bg-ink px-2 py-1"
@@ -455,7 +493,27 @@ export default function PayRecord({ pickerDate }) {
             onChange={(e) => setPayday(e.target.value)}
           />
         </label>
-        <p className="text-sm text-paper-soft">{formatDate(payday)} – {formatDate(periodEnd)}</p>
+        {isOneOff ? (
+          <p className="text-sm text-paper-soft">{formatDate(payday)}</p>
+        ) : (
+          <p className="text-sm text-paper-soft">{formatDate(payday)} – {formatDate(periodEnd)}</p>
+        )}
+        {isOneOff && (
+          <div className="grid grid-cols-2 gap-3 pt-2">
+            <NamePicker
+              label="Income category"
+              items={categories}
+              initialId={oneOffIncomeCategory.id}
+              onChange={(catId, text) => setOneOffIncomeCategory({ id: catId, text })}
+            />
+            <NamePicker
+              label="Destination account"
+              items={accounts}
+              initialId={oneOffDestinationAccount.id}
+              onChange={(acctId, text) => setOneOffDestinationAccount({ id: acctId, text })}
+            />
+          </div>
+        )}
       </div>
 
       {formError && <p className="text-bad">{formError}</p>}
@@ -654,7 +712,9 @@ export default function PayRecord({ pickerDate }) {
             <div className="flex-1 text-sm">
               <span>{c.name}</span>
               {lastPeriodActuals[c.id] > 0 && (
-                <span className="text-paper-soft"> · last period {formatCents(lastPeriodActuals[c.id])}</span>
+                <span className="text-paper-soft">
+                  {' '}· {isOneOff ? 'last month' : 'last period'} {formatCents(lastPeriodActuals[c.id])}
+                </span>
               )}
             </div>
             <label className="block text-sm w-28">
