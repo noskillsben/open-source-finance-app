@@ -69,7 +69,7 @@ from app.services.links import (
     set_category_links,
     suggest_split,
 )
-from app.services.goals import GoalError, apply_goal, goal_progress, live_goal
+from app.services.goals import GoalError, apply_goal, due_by_next_payday, goal_progress, live_goal
 from app.services.income_streams import IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import (
@@ -395,10 +395,21 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
 def list_goals(as_of: date, session: Session = Depends(get_session)) -> list[GoalProgressOut]:
     """Every goal shown on `as_of`, each with its progress — the picker date is the only "today"."""
     goals = session.scalars(select(Goal).where(visible_as_of(Goal, as_of)).order_by(Goal.category_id)).all()
-    return [
-        GoalProgressOut(goal=GoalOut.model_validate(g), **vars(goal_progress(session, g, as_of=as_of)))
-        for g in goals
-    ]
+    out = []
+    for g in goals:
+        due_cents = None
+        if g.income_stream_id is not None:
+            stream = session.get(IncomeStream, g.income_stream_id)
+            if stream is not None:
+                due_cents = due_by_next_payday(session, g, stream, as_of=as_of)
+        out.append(
+            GoalProgressOut(
+                goal=GoalOut.model_validate(g),
+                due_by_next_payday_cents=due_cents,
+                **vars(goal_progress(session, g, as_of=as_of)),
+            )
+        )
+    return out
 
 
 @app.put("/api/categories/{category_id}/goal", response_model=GoalOut)

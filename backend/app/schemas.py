@@ -451,6 +451,8 @@ class IncomeStreamOut(BaseModel):
 class GoalProgressOut(BaseModel):
     """A goal with its progress on `as_of`. `target_cents` is what the balance is compared to
     (null for an "add" commitment, which has no target); `owed_cents` is the shortfall to it.
+    `due_by_next_payday_cents` is what the pay screen (#107) pre-fills — null for a goal with no
+    bound pay, or with no due date (DESIGN.md § Goals).
     """
 
     goal: GoalOut
@@ -459,3 +461,4 @@ class GoalProgressOut(BaseModel):
     owed_cents: int | None
     due_date: date | None
     per_period_cents: int | None
+    due_by_next_payday_cents: int | None
