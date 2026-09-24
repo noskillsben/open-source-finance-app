@@ -273,6 +273,31 @@ describe('PayRecord re-opens a recorded pay', () => {
     ])
   })
 
+  it('keeps a pay split across accounts: only the first account line takes the change in net', async () => {
+    existingTransactions = [
+      {
+        ...RECORDED,
+        account_lines: [
+          { id: 1, account_id: 1, cents: 250000 },
+          { id: 2, account_id: 8, cents: 50000 },
+        ],
+      },
+    ]
+    writes.updateTransaction.mockResolvedValue({ id: 42 })
+    writes.replaceBatch.mockResolvedValue([])
+    renderSalary()
+    await screen.findByText('Vacation (archived)')
+
+    fireEvent.change(screen.getByLabelText(/Gross/), { target: { value: '4100.00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+
+    await screen.findByText('Pay list')
+    expect(writes.updateTransaction.mock.calls[0][1].account_lines).toEqual([
+      { account_id: 1, cents: 260000 },
+      { account_id: 8, cents: 50000 },
+    ])
+  })
+
   it('shows the error when the batch call fails, and saving again writes no second transaction', async () => {
     writes.updateTransaction.mockResolvedValue({ id: 42 })
     writes.replaceBatch.mockRejectedValueOnce(new Error('Batch refused.')).mockResolvedValue([])

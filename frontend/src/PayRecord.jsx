@@ -28,6 +28,17 @@ function stepDate(cadence, cadenceWeeks, iso, n) {
 const emptyRow = () => ({ category: {}, amount: '' })
 
 const centsText = (cents) => (cents / 100).toFixed(2)
+
+// A pay split across accounts in the Ledger keeps its split: every line after the first stays as
+// recorded, and the first takes the whole change in net.
+function correctedAccountLines(transaction, net) {
+  const [primary, ...rest] = transaction.account_lines
+  const recordedNet = transaction.account_lines.reduce((sum, l) => sum + l.cents, 0)
+  return [
+    { account_id: primary.account_id, cents: primary.cents + (net - recordedNet) },
+    ...rest.map((l) => ({ account_id: l.account_id, cents: l.cents })),
+  ]
+}
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 // The fixed ordinal scale (DESIGN.md § Need levels), in trim order: wants go first once the
@@ -566,7 +577,7 @@ export default function PayRecord({ pickerDate }) {
             memo: existingTransaction.memo ?? null,
             payee_id: existingTransaction.payee_id ?? null,
             income_stream_id: existingTransaction.income_stream_id,
-            account_lines: [{ account_id: destinationAccountId, cents: net }],
+            account_lines: correctedAccountLines(existingTransaction, net),
             category_lines: categoryLines.map((l) => {
               const needLevel = existingTransaction.category_lines.find((o) => o.category_id === l.category_id)?.need_level
               return needLevel ? { ...l, need_level: needLevel } : l
