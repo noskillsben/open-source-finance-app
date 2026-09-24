@@ -315,11 +315,13 @@ class CategoryLine(Base, Owned):
 class EarmarkLine(Base, Owned):
     """One signed move of on-budget money into or out of a category (DESIGN.md § Earmarks). A
     category's balance is its earmark lines plus its transaction category lines. `source` says
-    what wrote the line: "move", "pool_draw" (written by the transaction that overspent) or
-    "deposit" (the move a transfer into or out of a linked account directed); the last two carry
-    the generating transaction's id in `transaction_id`. A pay batch (#24) is a set of ordinary
-    "move" lines that also carry `transaction_id`, but only for navigation back to the
-    paycheque — the batch is the user's decisions, not a consequence the transaction regenerates.
+    what wrote the line: "move", "pay_batch", "pool_draw" (written by the transaction that
+    overspent), "deposit" (the move a transfer into or out of a linked account directed) or
+    "archive_sweep"; pool draws and deposits carry the generating transaction's id in
+    `transaction_id`. Pay-batch lines carry `transaction_id` too, but only for navigation back to
+    the paycheque — the batch is the user's decisions, not a consequence the transaction
+    regenerates, and it is saved whole by one call that replaces every pay-batch line for that
+    transaction (#126). A plain "move" never carries a transaction id.
     """
 
     __tablename__ = "earmark_line"

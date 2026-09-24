@@ -188,8 +188,8 @@ class ArchiveIn(BaseModel):
 class EarmarkMoveIn(BaseModel):
     """One move of `cents` (positive) from one category to another; a null side is ready to
     assign. The caller states the date (the picker date) — the backend never reads the clock.
-    `transaction_id` links the move back to a transaction for navigation only (a pay batch,
-    DESIGN.md § Earmarks) — it is never a consequence the transaction regenerates.
+    `transaction_id` is accepted only to be refused: pay-batch lines are saved whole through
+    `PUT /api/transactions/{id}/pay-batch`, never one move at a time (DESIGN.md § Earmarks).
     """
 
     date: date
@@ -197,6 +197,21 @@ class EarmarkMoveIn(BaseModel):
     to_category_id: int | None = None
     cents: int
     transaction_id: int | None = None
+
+
+class PayBatchLineIn(BaseModel):
+    """One signed pay-batch line; its date is the transaction's."""
+
+    category_id: int
+    cents: int
+
+
+class PayBatchIn(BaseModel):
+    """Every pay-batch line for one transaction — the whole batch, replacing whatever was there
+    (DESIGN.md § Earmarks). An empty list removes the batch.
+    """
+
+    lines: list[PayBatchLineIn]
 
 
 class EarmarkLineOut(BaseModel):

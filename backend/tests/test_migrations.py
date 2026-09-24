@@ -177,6 +177,24 @@ def _assert_b85e039f86ae(session):
     assert account_balance_cents(session, 1, as_of=date(2026, 12, 31)) == 290000  # ledger untouched
 
 
+def _assert_06817c6fe779(session):
+    from datetime import date
+
+    from app.models import EarmarkLine
+    from app.services.categories import category_balance_cents
+
+    sources = {line.id: (line.source, line.transaction_id) for line in session.query(EarmarkLine)}
+    assert sources == {
+        1: ("pay_batch", 2),  # the pay batch, relabelled
+        2: ("pay_batch", 2),
+        3: ("move", None),  # a plain move keeps its source
+        4: ("pool_draw", 2),  # a generated line keeps its source
+    }
+    assert category_balance_cents(session, 1, as_of=date(2026, 12, 31)) == 0  # balances untouched
+    assert category_balance_cents(session, 2, as_of=date(2026, 12, 31)) == 50000
+    assert category_balance_cents(session, 3, as_of=date(2026, 12, 31)) == 9000
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -193,6 +211,7 @@ ASSERTIONS = {
     "3850604f8ded": _assert_3850604f8ded,
     "6c1b8e93f5a7": _assert_6c1b8e93f5a7,
     "b85e039f86ae": _assert_b85e039f86ae,
+    "06817c6fe779": _assert_06817c6fe779,
 }
 
 

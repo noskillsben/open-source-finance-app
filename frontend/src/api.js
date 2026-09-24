@@ -63,9 +63,13 @@ export const api = {
   readyToAssign: (asOf) => request(`/api/ready-to-assign?as_of=${asOf}`),
   earmarkMoves: {
     create: (move) => request('/api/earmark-moves', { method: 'POST', body: move }),
-    forTransaction: (transactionId) => request(`/api/earmark-moves?transaction_id=${transactionId}`),
-    removeForTransaction: (transactionId) =>
-      request(`/api/earmark-moves?transaction_id=${transactionId}`, { method: 'DELETE' }),
+  },
+  // A pay's earmark batch, saved whole: `replace` states every line and replaces whatever was
+  // there; an empty list removes it (DESIGN.md § Earmarks).
+  payBatch: {
+    get: (transactionId) => request(`/api/transactions/${transactionId}/pay-batch`),
+    replace: (transactionId, lines) =>
+      request(`/api/transactions/${transactionId}/pay-batch`, { method: 'PUT', body: { lines } }),
   },
   domains: {
     list: (asOf, includeArchived = false) => request(listPath('/api/domains', asOf, includeArchived)),

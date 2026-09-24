@@ -1,12 +1,13 @@
 """The earmark ledger and ready to assign (DESIGN.md § Earmarks; § Categories → Pools, "Ready
 to assign is not a category").
 """
+from collections import Counter
 from datetime import date
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Category, EarmarkLine
+from app.models import Account, Category, EarmarkLine, Transaction
 from app.services.accounts import account_balance_cents, on_budget_cents
 from app.services.categories import category_balance_cents
 from app.services.transactions import backdate_created_on
@@ -54,13 +55,9 @@ def _movable_category(session: Session, category_id: int, move_date: date) -> Ca
     return category
 
 
-def _write_move_line(
-    session: Session, category: Category, move_date: date, cents: int, *, transaction_id: int | None = None
-) -> EarmarkLine:
+def _write_move_line(session: Session, category: Category, move_date: date, cents: int) -> EarmarkLine:
     backdate_created_on(category, move_date)
-    line = EarmarkLine(
-        date=move_date, category_id=category.id, cents=cents, source="move", transaction_id=transaction_id
-    )
+    line = EarmarkLine(date=move_date, category_id=category.id, cents=cents, source="move")
     session.add(line)
     return line
 
@@ -84,16 +81,12 @@ def sweep_archived_category_balance(
 
 def move_money(
     session: Session, *, move_date: date, from_category_id: int | None, to_category_id: int | None, cents: int,
-    transaction_id: int | None = None,
 ) -> list[EarmarkLine]:
     """Move `cents` (positive) out of one category and into another. A null side is ready to
     assign, so that side writes no line: category → category is two lines (−from, +to), either
     side null is one. No balance check — a move is a recording surface, and a category may go
-    negative. Validates everything, then writes.
-
-    `transaction_id`, when given, links the move back to a transaction for navigation only (a
-    pay batch, DESIGN.md § Earmarks) — the move is still an ordinary "move" line, not a
-    consequence that transaction would ever regenerate.
+    negative. Validates everything, then writes. Never writes pay-batch lines — those are saved
+    whole through `replace_pay_batch` (DESIGN.md § Earmarks).
     """
     if cents <= 0:
         raise EarmarkError("Enter an amount to move.")
@@ -105,31 +98,65 @@ def move_money(
     target = _movable_category(session, to_category_id, move_date) if to_category_id is not None else None
     lines = []
     if source is not None:
-        lines.append(_write_move_line(session, source, move_date, -cents, transaction_id=transaction_id))
+        lines.append(_write_move_line(session, source, move_date, -cents))
     if target is not None:
-        lines.append(_write_move_line(session, target, move_date, cents, transaction_id=transaction_id))
+        lines.append(_write_move_line(session, target, move_date, cents))
     session.flush()
     return lines
 
 
-def earmark_moves_for_transaction(session: Session, transaction_id: int) -> list[EarmarkLine]:
-    """The "move"-sourced earmark lines a pay batch wrote against `transaction_id` — what
-    "Delete this pay" offers to remove alongside the transaction (DESIGN.md § Pay screen
-    layout, block 11). Pool draws and deposits have their own lifecycle (`clear_generated_earmarks`)
-    and are excluded.
+def pay_batch_lines(session: Session, transaction_id: int) -> list[EarmarkLine]:
+    """The pay-batch earmark lines that point at `transaction_id` (DESIGN.md § Earmarks). Pool
+    draws and deposits have their own lifecycle (`clear_generated_earmarks`) and are excluded.
     """
     return list(
         session.scalars(
             select(EarmarkLine)
-            .where(EarmarkLine.transaction_id == transaction_id, EarmarkLine.source == "move")
+            .where(EarmarkLine.transaction_id == transaction_id, EarmarkLine.source == "pay_batch")
             .order_by(EarmarkLine.id)
         )
     )
 
 
-def delete_earmark_moves_for_transaction(session: Session, transaction_id: int) -> None:
-    """Remove a pay batch's "move" lines — the user's own separate choice, never automatic
-    (DESIGN.md § Pay screen layout, block 11: "offers to remove the batch")."""
-    for line in earmark_moves_for_transaction(session, transaction_id):
+def replace_pay_batch(session: Session, transaction: Transaction, lines: list[dict]) -> list[EarmarkLine]:
+    """Replace every pay-batch line pointing at `transaction` with `lines` (`category_id`,
+    signed `cents`), all dated on the transaction's date (DESIGN.md § Earmarks: a pay batch is
+    written whole, never line by line). Saving an empty list removes the batch. Validates every
+    line before touching anything, so a refusal leaves the old batch exactly as it was; the
+    request's one database transaction makes the delete + insert land together or not at all.
+    Knows nothing about paydays, gross or goals — it only replaces lines.
+
+    A line on an archived category — archived at all, whatever the date, since a re-opened pay's
+    row on a category archived since is read-only (DESIGN.md § Re-opening a recorded pay) — is
+    allowed only when the old batch held that same category and cents: a row that references an
+    archived category "saves unchanged" (§ General concepts → Non-ledger rows are archived), and
+    adding to one would leave money the archive sweep never emptied.
+    """
+    old_lines = pay_batch_lines(session, transaction.id)
+    unchanged = Counter((line.category_id, line.cents) for line in old_lines)
+    categories = []
+    for item in lines:
+        category = session.get(Category, item["category_id"])
+        if category is None:
+            raise EarmarkError(f"Unknown category id: {item['category_id']}")
+        if category.archived_on is not None:
+            key = (category.id, item["cents"])
+            if unchanged[key] == 0:
+                raise EarmarkError(f"{category.name} was archived on {category.archived_on.isoformat()}.")
+            unchanged[key] -= 1
+        categories.append(category)
+
+    for line in old_lines:
         session.delete(line)
     session.flush()
+    new_lines = []
+    for category, item in zip(categories, lines):
+        backdate_created_on(category, transaction.date)
+        line = EarmarkLine(
+            date=transaction.date, category_id=category.id, cents=item["cents"], source="pay_batch",
+            transaction_id=transaction.id,
+        )
+        session.add(line)
+        new_lines.append(line)
+    session.flush()
+    return new_lines
