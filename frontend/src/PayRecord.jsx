@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from './api.js'
 import NamePicker from './NamePicker.jsx'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
@@ -26,6 +26,20 @@ function stepDate(cadence, cadenceWeeks, iso, n) {
 }
 
 const emptyRow = () => ({ category: {}, amount: '' })
+
+const centsText = (cents) => (cents / 100).toFixed(2)
+
+// A pay split across accounts in the Ledger keeps its split: every line after the first stays as
+// recorded, and the first takes the whole change in net.
+function correctedAccountLines(transaction, net) {
+  const [primary, ...rest] = transaction.account_lines
+  const recordedNet = transaction.account_lines.reduce((sum, l) => sum + l.cents, 0)
+  return [
+    { account_id: primary.account_id, cents: primary.cents + (net - recordedNet) },
+    ...rest.map((l) => ({ account_id: l.account_id, cents: l.cents })),
+  ]
+}
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
 // The fixed ordinal scale (DESIGN.md § Need levels), in trim order: wants go first once the
 // leftover is negative, so the rows most worth cutting are the ones on top. A category with no
@@ -92,9 +106,13 @@ export default function PayRecord({ pickerDate }) {
   const isOneOff = id === undefined
   const streamId = Number(id)
   const navigate = useNavigate()
+  // The Ledger's "Re-open pay" link names the payday, since a stream's next payday rolls on past it.
+  const [searchParams] = useSearchParams()
+  const dateParam = searchParams.get('date')
 
   const [streams, setStreams] = useState(null)
   const [categories, setCategories] = useState([])
+  const [categoriesAll, setCategoriesAll] = useState([]) // including archived, to label a row "(archived)"
   const [accounts, setAccounts] = useState([])
   const [goals, setGoals] = useState([])
   const [transactions, setTransactions] = useState(null)
@@ -120,6 +138,14 @@ export default function PayRecord({ pickerDate }) {
   const [fundingSkipped, setFundingSkipped] = useState(new Set()) // block 7: goal ids skipped
   const [targetAmounts, setTargetAmounts] = useState({}) // block 8: goal id -> amount text
   const [readyToAssign, setReadyToAssign] = useState(null) // block 10: /api/ready-to-assign summary
+  // Re-opening a recorded pay (DESIGN.md § Re-opening a recorded pay): the recorded batch, and the
+  // rows the screen laid out from it, once.
+  const [batch, setBatch] = useState(null) // { transactionId, lines }
+  const [reopenSeededFor, setReopenSeededFor] = useState(null) // transaction id the rows were built from
+  const [retainAmounts, setRetainAmounts] = useState({}) // block 4 on a recorded pay: goal id -> amount text
+  const [shortCovers, setShortCovers] = useState({}) // block 10: category_id -> amount covered (text, positive)
+  const [archivedRows, setArchivedRows] = useState([]) // read-only rows: { categoryId, cents, lines }
+  const [reopenExtraIds, setReopenExtraIds] = useState(new Set()) // recorded Everything else rows
 
   const stream = streams?.find((s) => s.id === streamId) ?? null
 
@@ -140,12 +166,13 @@ export default function PayRecord({ pickerDate }) {
     if (payday !== null) return
     if (isOneOff) return setPayday(pickerDate)
     if (!stream) return
-    setPayday(stream.next_payday)
-  }, [stream, payday, isOneOff, pickerDate])
+    setPayday(dateParam && ISO_DATE.test(dateParam) ? dateParam : stream.next_payday)
+  }, [stream, payday, isOneOff, pickerDate, dateParam])
 
   useEffect(() => {
     if (!payday) return
     api.categories.list(payday).then(setCategories).catch((e) => setError(e.message))
+    api.categories.list(payday, true).then(setCategoriesAll).catch((e) => setError(e.message))
     api.accounts.list(payday).then(setAccounts).catch((e) => setError(e.message))
     setGoalsLoaded(false)
     api.goals.list(payday)
@@ -185,10 +212,24 @@ export default function PayRecord({ pickerDate }) {
   )
   const targetGoals = useMemo(() => streamGoals.filter((g) => g.goal.kind === 'target'), [streamGoals])
 
+  // Named pays only. A one-off has no income_stream_id and no anchor payday, so the screen has no
+  // way to find the transaction it wrote before, and a marker invented just to re-find one would be
+  // a second identity mechanism (DESIGN.md § Record income, "A one-off on the pay screen"). A
+  // one-off is a one-shot write every time; a recorded one is corrected in the Ledger.
+  const existingTransaction = useMemo(
+    () =>
+      isOneOff
+        ? null
+        : (transactions?.find((t) => t.income_stream_id === streamId && t.date === payday) ?? null),
+    [transactions, streamId, payday, isOneOff]
+  )
+  const reopening = existingTransaction != null
+
   // Prefill gross/deductions/goal blocks from the named pay once its categories and goals have
   // loaded, so each row can seed its text along with its id (once only).
   useEffect(() => {
-    if (!stream || seeded || categories.length === 0 || !goalsLoaded) return
+    // A recorded pay shows what was recorded, never what the named pay would suggest now.
+    if (!stream || seeded || reopening || categories.length === 0 || !goalsLoaded) return
     setSeeded(true)
     setGross(stream.expected_gross_cents == null ? '' : (stream.expected_gross_cents / 100).toFixed(2))
     setDeductionsOn(stream.deductions.length > 0 || stream.expected_gross_cents != null)
@@ -213,19 +254,113 @@ export default function PayRecord({ pickerDate }) {
         fundingGoals.map((g) => [g.goal.id, ((g.goal.amount_cents ?? g.owed_cents ?? 0) / 100).toFixed(2)])
       )
     )
-  }, [stream, categories, seeded, goalsLoaded, billGoals, targetGoals, fundingGoals])
+  }, [stream, categories, seeded, reopening, goalsLoaded, billGoals, targetGoals, fundingGoals])
 
-  // Named pays only. A one-off has no income_stream_id and no anchor payday, so the screen has no
-  // way to find the transaction it wrote before, and a marker invented just to re-find one would be
-  // a second identity mechanism (DESIGN.md § Record income, "A one-off on the pay screen"). A
-  // one-off is a one-shot write every time; a recorded one is corrected in the Ledger.
-  const existingTransaction = useMemo(
-    () =>
-      isOneOff
-        ? null
-        : (transactions?.find((t) => t.income_stream_id === streamId && t.date === payday) ?? null),
-    [transactions, streamId, payday, isOneOff]
-  )
+  const reopenReady = reopening && reopenSeededFor === existingTransaction.id
+
+  // The income category the recorded pay landed in: the named pay's, unless the transaction was
+  // since edited so it has no line there.
+  const recordedIncomeCategoryId = useMemo(() => {
+    if (!existingTransaction) return null
+    const lines = existingTransaction.category_lines
+    if (stream && lines.some((l) => l.category_id === stream.income_category_id)) return stream.income_category_id
+    const biggest = [...lines].filter((l) => l.cents > 0).sort((a, b) => b.cents - a.cents)[0]
+    return biggest?.category_id ?? stream?.income_category_id ?? null
+  }, [existingTransaction, stream])
+
+  const existingTransactionId = existingTransaction?.id ?? null
+  useEffect(() => {
+    if (existingTransactionId == null) {
+      // The payday moved off a recorded pay: let the named pay's own pre-fill run again.
+      if (reopenSeededFor != null) {
+        setReopenSeededFor(null)
+        setBatch(null)
+        setSeeded(false)
+      }
+      return
+    }
+    if (batch?.transactionId === existingTransactionId) return
+    api.payBatch
+      .get(existingTransactionId)
+      .then((lines) => setBatch({ transactionId: existingTransactionId, lines }))
+      .catch((e) => setFormError(e.message))
+  }, [existingTransactionId])
+
+  // Lay the recorded pay out once: block 3 from the transaction, every other row from the batch's
+  // per-category net, minus the bookkeeping lines the save recomputes. Goals are the context line
+  // only, never the value (DESIGN.md § Re-opening a recorded pay).
+  useEffect(() => {
+    if (!existingTransaction || !stream || !goalsLoaded || categoriesAll.length === 0) return
+    if (batch?.transactionId !== existingTransaction.id || reopenSeededFor === existingTransaction.id) return
+    const incomeId = recordedIncomeCategoryId
+    const lines = existingTransaction.category_lines
+    const recordedDeductions = lines.filter((l) => l.category_id !== incomeId && l.cents < 0)
+    const recordedNet = existingTransaction.account_lines.reduce((sum, l) => sum + l.cents, 0)
+
+    setDeductionsOn(recordedDeductions.length > 0)
+    setGross(centsText(lines.filter((l) => l.category_id === incomeId).reduce((sum, l) => sum + l.cents, 0)))
+    setNetOnly(centsText(recordedNet))
+    setDeductions(
+      recordedDeductions.map((l) => ({
+        category: { id: l.category_id, text: categoriesAll.find((c) => c.id === l.category_id)?.name ?? '' },
+        amount: centsText(-l.cents),
+      }))
+    )
+
+    const net = new Map()
+    for (const l of batch.lines) {
+      if (l.category_id === incomeId) continue
+      net.set(l.category_id, (net.get(l.category_id) ?? 0) + l.cents)
+    }
+    const deductionCategoryIds = new Set(recordedDeductions.map((l) => l.category_id))
+    for (const l of recordedDeductions) net.set(l.category_id, (net.get(l.category_id) ?? 0) + l.cents)
+
+    const retain = {}
+    const bills = {}
+    const funding = {}
+    const targets = {}
+    const elsewhere = {}
+    const covers = {}
+    const archived = []
+    for (const [categoryId, cents] of net) {
+      if (cents === 0) continue
+      const category = categoriesAll.find((c) => c.id === categoryId)
+      if (!category || category.archived_on) {
+        // Saved as recorded: the backend lets an archived category's line through only when it is
+        // unchanged, so send back its own lines (one net line where a deduction shares it).
+        archived.push({
+          categoryId,
+          cents,
+          lines: deductionCategoryIds.has(categoryId)
+            ? [{ category_id: categoryId, cents }]
+            : batch.lines.filter((l) => l.category_id === categoryId).map((l) => ({ category_id: categoryId, cents: l.cents })),
+        })
+        continue
+      }
+      if (cents < 0) {
+        covers[categoryId] = centsText(-cents)
+        continue
+      }
+      const goal = streamGoals.find((g) => g.goal.category_id === categoryId)?.goal
+      if (goal?.kind === 'commitment' && goal.percent_of_net != null) retain[goal.id] = centsText(cents)
+      else if (goal?.kind === 'recurring_bill') bills[goal.id] = centsText(cents)
+      else if (goal?.kind === 'commitment') funding[goal.id] = centsText(cents)
+      else if (goal?.kind === 'target') targets[goal.id] = centsText(cents)
+      else elsewhere[categoryId] = centsText(cents)
+    }
+    setRetainAmounts(retain)
+    setBillAmounts(bills)
+    setFundingAmounts(funding)
+    setTargetAmounts(targets)
+    setEverythingElse(elsewhere)
+    setReopenExtraIds(new Set(Object.keys(elsewhere).map(Number)))
+    setShortCovers(covers)
+    setArchivedRows(archived)
+    setOneOff([])
+    setRetainRemoved(new Set())
+    setFundingSkipped(new Set())
+    setReopenSeededFor(existingTransaction.id)
+  }, [existingTransaction, stream, goalsLoaded, categoriesAll, batch, reopenSeededFor, recordedIncomeCategoryId, streamGoals])
 
   const grossCents = parseCents(gross) ?? 0
   const deductionTotal = deductions.reduce((sum, d) => sum + (parseCents(d.amount) ?? 0), 0)
@@ -236,10 +371,13 @@ export default function PayRecord({ pickerDate }) {
   // Where this pay lands: read off the named pay, or, with no named pay behind this screen,
   // whatever the user picked (DESIGN.md § Record income — the pay screen: "A one-off on the pay
   // screen" — nothing pre-filled).
-  const incomeCategoryId = isOneOff ? (oneOffIncomeCategory.id ?? null) : (stream?.income_category_id ?? null)
+  // A recorded pay keeps the category and account it landed in, whatever the named pay says now.
+  const incomeCategoryId = isOneOff
+    ? (oneOffIncomeCategory.id ?? null)
+    : (recordedIncomeCategoryId ?? stream?.income_category_id ?? null)
   const destinationAccountId = isOneOff
     ? (oneOffDestinationAccount.id ?? null)
-    : (stream?.destination_account_id ?? null)
+    : (existingTransaction?.account_lines[0]?.account_id ?? stream?.destination_account_id ?? null)
 
   const liveGoalCategoryIds = useMemo(() => new Set(goals.map((g) => g.goal.category_id)), [goals])
   const deductionCategoryIds = useMemo(
@@ -281,6 +419,16 @@ export default function PayRecord({ pickerDate }) {
   }, [transactions, payday, stream, isOneOff])
 
   const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
+  const categoriesAllById = useMemo(() => new Map(categoriesAll.map((c) => [c.id, c])), [categoriesAll])
+
+  // Everything else on a recorded pay also holds the rows the batch put in categories this list
+  // leaves out (a goal bound to another pay, or none the named pay's blocks show).
+  const everythingElseList = useMemo(() => {
+    if (reopenExtraIds.size === 0) return everythingElseCategories
+    const have = new Set(everythingElseCategories.map((c) => c.id))
+    return [...everythingElseCategories, ...categoriesAll.filter((c) => reopenExtraIds.has(c.id) && !have.has(c.id))]
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [everythingElseCategories, categoriesAll, reopenExtraIds])
 
   // Block 4: computed live from net, rounded to the cent — never stored, so nothing to seed.
   const retainRows = useMemo(
@@ -293,9 +441,13 @@ export default function PayRecord({ pickerDate }) {
           name: g.goal.name,
           // GoalOut serializes percent_of_net at a fixed 4 places ("5.0000"); trim it for display.
           percent: parseFloat(g.goal.percent_of_net),
-          cents: Math.round((parseFloat(g.goal.percent_of_net) / 100) * net),
+          // On a recorded pay the amount is what was recorded, so correcting net moves Left over
+          // rather than the row; otherwise it is computed live off net.
+          cents: reopening
+            ? (parseCents(retainAmounts[g.goal.id]) ?? 0)
+            : Math.round((parseFloat(g.goal.percent_of_net) / 100) * net),
         })),
-    [retainGoals, retainRemoved, net]
+    [retainGoals, retainRemoved, net, reopening, retainAmounts]
   )
   const retainTotal = retainRows.reduce((sum, r) => sum + r.cents, 0)
 
@@ -333,7 +485,16 @@ export default function PayRecord({ pickerDate }) {
   const targetTotal = targetRows.reduce((sum, r) => sum + r.cents, 0)
 
   const everythingElseTotal = Object.values(everythingElse).reduce((sum, text) => sum + (parseCents(text) ?? 0), 0)
-  const leftover = net - retainTotal - oneOffTotal - billTotal - fundingTotal - targetTotal - everythingElseTotal
+  // A recorded cover is a negative line in the batch: money taken back from that category.
+  const coverRows = Object.entries(shortCovers).map(([categoryId, text]) => ({
+    categoryId: Number(categoryId),
+    cents: parseCents(text) ?? 0,
+  }))
+  const coverTotal = coverRows.reduce((sum, r) => sum + r.cents, 0)
+  const archivedTotal = archivedRows.reduce((sum, r) => sum + r.cents, 0)
+  const leftover =
+    net - retainTotal - oneOffTotal - billTotal - fundingTotal - targetTotal - everythingElseTotal
+    + coverTotal - archivedTotal
 
   // Block 10: categories currently receiving money on this screen, recomputed live as the user
   // types, so Short by never offers to cover a goal from itself.
@@ -381,9 +542,7 @@ export default function PayRecord({ pickerDate }) {
   async function record(e) {
     e.preventDefault()
     setFormError(null)
-    if (existingTransaction) {
-      return setFormError('This pay is already recorded. Delete it first if you need to redo it.')
-    }
+    if (reopening && !reopenReady) return setFormError('Still loading the recorded pay. Try again in a moment.')
     if (isOneOff) {
       if (incomeCategoryId == null) return setFormError('Pick the category this income lands in.')
       if (destinationAccountId == null) return setFormError('Pick the account this income lands in.')
@@ -410,12 +569,27 @@ export default function PayRecord({ pickerDate }) {
           ]
         : [{ category_id: incomeCategoryId, cents: net }]
 
-      const txn = await api.transactions.create({
-        date: payday,
-        income_stream_id: isOneOff ? null : stream.id,
-        account_lines: [{ account_id: destinationAccountId, cents: net }],
-        category_lines: categoryLines,
-      })
+      // A recorded pay is corrected through the ordinary update: same transaction, same date.
+      // The update replaces the whole record, so memo, payee and deposits go back as they were.
+      const txn = existingTransaction
+        ? await api.transactions.update(existingTransaction.id, {
+            date: existingTransaction.date,
+            memo: existingTransaction.memo ?? null,
+            payee_id: existingTransaction.payee_id ?? null,
+            income_stream_id: existingTransaction.income_stream_id,
+            account_lines: correctedAccountLines(existingTransaction, net),
+            category_lines: categoryLines.map((l) => {
+              const needLevel = existingTransaction.category_lines.find((o) => o.category_id === l.category_id)?.need_level
+              return needLevel ? { ...l, need_level: needLevel } : l
+            }),
+            deposits: existingTransaction.deposits ?? [],
+          })
+        : await api.transactions.create({
+            date: payday,
+            income_stream_id: isOneOff ? null : stream.id,
+            account_lines: [{ account_id: destinationAccountId, cents: net }],
+            category_lines: categoryLines,
+          })
 
       // The whole earmark batch in one call, so a failure never leaves half of it (DESIGN.md §
       // Earmarks): income → each deduction category, income → ready to assign for the net, then
@@ -433,6 +607,8 @@ export default function PayRecord({ pickerDate }) {
         .filter((r) => r.cents > 0)
         .map((r) => ({ category_id: r.categoryId, cents: r.cents }))
       batch.push(...goalMoves, ...rowsToMoves(oneOff), ...everythingElseMoves())
+      for (const r of coverRows) if (r.cents > 0) batch.push({ category_id: r.categoryId, cents: -r.cents })
+      for (const r of archivedRows) batch.push(...r.lines)
       await api.payBatch.replace(txn.id, batch)
 
       navigate('/pay')
@@ -480,7 +656,8 @@ export default function PayRecord({ pickerDate }) {
           <span className="text-paper-soft">{isOneOff ? 'Date' : 'Payday'}</span>
           <input
             type="date"
-            className="mt-1 rounded bg-ink px-2 py-1"
+            className="mt-1 rounded bg-ink px-2 py-1 disabled:opacity-50"
+            disabled={reopening}
             value={payday}
             onChange={(e) => setPayday(e.target.value)}
           />
@@ -563,7 +740,18 @@ export default function PayRecord({ pickerDate }) {
                 <span className="text-paper-soft"> · {categoriesById.get(r.categoryId)?.name} · {r.percent}% of net</span>
               </div>
               <div className="flex items-center gap-2">
-                <span>{formatCents(r.cents)}</span>
+                {reopening ? (
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    aria-label={`${r.name} amount`}
+                    className="w-28 rounded bg-ink px-2 py-1"
+                    value={retainAmounts[r.goalId] ?? ''}
+                    onChange={(e) => setRetainAmounts({ ...retainAmounts, [r.goalId]: e.target.value })}
+                  />
+                ) : (
+                  <span>{formatCents(r.cents)}</span>
+                )}
                 <button
                   type="button"
                   className="text-xs text-accent"
@@ -696,10 +884,10 @@ export default function PayRecord({ pickerDate }) {
       {/* 9. Everything else */}
       <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
         <legend className="px-1 font-medium">Everything else</legend>
-        {everythingElseCategories.length === 0 && (
+        {everythingElseList.length === 0 && archivedRows.length === 0 && (
           <p className="text-sm text-paper-soft">Nothing left without a goal.</p>
         )}
-        {everythingElseCategories.map((c) => (
+        {everythingElseList.map((c) => (
           <div key={c.id} className="flex items-end gap-2">
             <div className="flex-1 text-sm">
               <span>{c.name}</span>
@@ -721,13 +909,37 @@ export default function PayRecord({ pickerDate }) {
             </label>
           </div>
         ))}
+        {archivedRows.map((r) => (
+          <div key={r.categoryId} className="flex items-end gap-2 text-sm">
+            <div className="flex-1">
+              <span>{categoriesAllById.get(r.categoryId)?.name ?? `#${r.categoryId}`} (archived)</span>
+            </div>
+            <span className="w-28 px-2 py-1 text-paper-soft">{formatCents(r.cents)}</span>
+          </div>
+        ))}
       </fieldset>
 
       {/* 10. Short by */}
-      {leftover < 0 && (
+      {(leftover < 0 || coverRows.length > 0) && (
         <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
           <legend className="px-1 font-medium">Short by</legend>
-          {shortByRows.length === 0 ? (
+          {coverRows.map((r) => (
+            <div key={r.categoryId} className="flex items-end gap-2 text-sm">
+              <div className="flex-1">
+                <span>{categoriesById.get(r.categoryId)?.name}</span>
+                <span className="text-paper-soft"> · covered from this</span>
+              </div>
+              <input
+                type="text"
+                inputMode="decimal"
+                aria-label={`${categoriesById.get(r.categoryId)?.name} covered`}
+                className="w-28 rounded bg-ink px-2 py-1"
+                value={shortCovers[r.categoryId] ?? ''}
+                onChange={(e) => setShortCovers({ ...shortCovers, [r.categoryId]: e.target.value })}
+              />
+            </div>
+          ))}
+          {leftover < 0 && (shortByRows.length === 0 ? (
             <p className="text-sm text-paper-soft">No other category has money to cover this from.</p>
           ) : (
             shortByRows.map((r) => (
@@ -741,7 +953,7 @@ export default function PayRecord({ pickerDate }) {
                 </button>
               </div>
             ))
-          )}
+          ))}
         </fieldset>
       )}
 
@@ -752,15 +964,13 @@ export default function PayRecord({ pickerDate }) {
           <span className={`text-2xl font-semibold ${leftover < 0 ? 'text-bad' : ''}`}>{formatCents(leftover)}</span>
         </div>
         {leftover < 0 && <p className="text-sm text-bad">Assigned more than this paycheque brings in.</p>}
-        {existingTransaction ? (
-          <p className="text-sm text-paper-soft">
-            Already recorded. Delete this pay first if you need to redo it.
-          </p>
-        ) : (
-          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink">
-            Record
-          </button>
-        )}
+        <button
+          type="submit"
+          disabled={saving || !transactions || (reopening && !reopenReady)}
+          className="rounded bg-accent px-3 py-1 text-ink"
+        >
+          Record
+        </button>
         {existingTransaction && (
           <div className="pt-3 border-t border-ink space-y-2">
             <label className="flex items-center gap-2 text-sm">

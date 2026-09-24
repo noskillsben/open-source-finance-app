@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from './api.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 import PayeePicker from './PayeePicker.jsx'
@@ -206,7 +207,20 @@ export default function Transactions({ pickerDate }) {
                   className="cursor-pointer hover:bg-ink"
                   onClick={() => editTransaction(t)}
                 >
-                  <td className="py-1 align-top">{formatDate(t.date)}</td>
+                  <td className="py-1 align-top">
+                    {formatDate(t.date)}
+                    {t.income_stream_id != null && (
+                      <div>
+                        <Link
+                          className="text-xs text-accent"
+                          to={`/pay/${t.income_stream_id}/record?date=${t.date}`}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          Re-open pay
+                        </Link>
+                      </div>
+                    )}
+                  </td>
                   <td className="py-1 align-top">{t.memo || '—'}</td>
                   <td className="py-1 align-top">
                     {payees?.find((p) => p.id === t.payee_id)?.name ?? (t.payee_id ? `#${t.payee_id}` : '—')}
