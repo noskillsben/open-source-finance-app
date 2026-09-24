@@ -134,6 +134,7 @@ function DeductionFields({ deductions, categories, onChange }) {
 
 export default function Pay({ pickerDate }) {
   const [streams, setStreams] = useState(null)
+  const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
   const [accounts, setAccounts] = useState([])
   const [payees, setPayees] = useState([])
@@ -149,6 +150,7 @@ export default function Pay({ pickerDate }) {
 
   function refresh() {
     api.incomeStreams.list(pickerDate, showArchived).then(setStreams).catch((e) => setError(e.message))
+    api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
     api.categories.list(pickerDate).then(setCategories).catch((e) => setError(e.message))
     api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
     api.payees.list(pickerDate).then(setPayees).catch((e) => setError(e.message))
@@ -227,6 +229,9 @@ export default function Pay({ pickerDate }) {
       setRowError(err.message)
     }
   }
+
+  // A pay already recorded for its next payday is re-opened to correct it, not recorded again.
+  const isRecorded = (s) => transactions.some((t) => t.income_stream_id === s.id && t.date === s.next_payday)
 
   const shown = (streams ?? []).filter((s) => s.name.toLowerCase().includes(filter.trim().toLowerCase()))
 
@@ -401,7 +406,7 @@ export default function Pay({ pickerDate }) {
                   <td className="py-1 text-right space-x-3 whitespace-nowrap">
                     {!s.archived_on && (
                       <Link className="text-xs text-accent" to={`/pay/${s.id}/record`}>
-                        Record
+                        {isRecorded(s) ? 'Re-open' : 'Record'}
                       </Link>
                     )}
                     {!s.archived_on && (
