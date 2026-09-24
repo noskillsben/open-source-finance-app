@@ -417,36 +417,28 @@ export default function PayRecord({ pickerDate }) {
         category_lines: categoryLines,
       })
 
+      // The whole earmark batch in one call, so a failure never leaves half of it (DESIGN.md §
+      // Earmarks): income → each deduction category, income → ready to assign for the net, then
+      // ready to assign → each envelope. A move against ready to assign is one line.
+      const batch = []
       if (deductionsOn) {
         for (const d of deductions) {
           const cents = parseCents(d.amount)
           if (d.category.id == null || !cents) continue
-          await api.earmarkMoves.create({
-            date: payday, from_category_id: incomeCategoryId, to_category_id: d.category.id,
-            cents, transaction_id: txn.id,
-          })
+          batch.push({ category_id: incomeCategoryId, cents: -cents }, { category_id: d.category.id, cents })
         }
       }
-      if (net > 0) {
-        await api.earmarkMoves.create({
-          date: payday, from_category_id: incomeCategoryId, to_category_id: null,
-          cents: net, transaction_id: txn.id,
-        })
-      }
+      if (net > 0) batch.push({ category_id: incomeCategoryId, cents: -net })
       const goalMoves = [...retainRows, ...billRows, ...fundingRows, ...targetRows]
         .filter((r) => r.cents > 0)
         .map((r) => ({ category_id: r.categoryId, cents: r.cents }))
-      for (const move of [...goalMoves, ...rowsToMoves(oneOff), ...everythingElseMoves()]) {
-        await api.earmarkMoves.create({
-          date: payday, from_category_id: null, to_category_id: move.category_id,
-          cents: move.cents, transaction_id: txn.id,
-        })
-      }
+      batch.push(...goalMoves, ...rowsToMoves(oneOff), ...everythingElseMoves())
+      await api.payBatch.replace(txn.id, batch)
 
       navigate('/pay')
     } catch (err) {
       setFormError(err.message)
-      // For a named pay, a partial write (the transaction saved but a move 400'd) must be
+      // For a named pay, a partial write (the transaction saved but the batch 400'd) must be
       // recognized as `existingTransaction` before the form is usable again, so Record can't be
       // resubmitted blindly into a second transaction for the same payday.
       await refreshTransactions()
@@ -466,7 +458,7 @@ export default function PayRecord({ pickerDate }) {
     if (!window.confirm('Delete this pay? This cannot be undone.')) return
     setFormError(null)
     try {
-      if (removeBatchOnDelete) await api.earmarkMoves.removeForTransaction(existingTransaction.id)
+      if (removeBatchOnDelete) await api.payBatch.replace(existingTransaction.id, [])
       await api.transactions.remove(existingTransaction.id)
       navigate('/pay')
     } catch (err) {

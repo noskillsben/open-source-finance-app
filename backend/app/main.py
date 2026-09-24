@@ -33,6 +33,7 @@ from app.schemas import (
     DomainUpdate,
     EarmarkLineOut,
     EarmarkMoveIn,
+    PayBatchIn,
     GoalIn,
     GoalOut,
     GoalProgressOut,
@@ -81,11 +82,11 @@ from app.services.categories import (
 )
 from app.services.earmarks import (
     EarmarkError,
-    delete_earmark_moves_for_transaction,
-    earmark_moves_for_transaction,
     move_money,
+    pay_batch_lines,
     overspent_cents,
     ready_to_assign_cents,
+    replace_pay_batch,
     sweep_archived_category_balance,
 )
 from app.services.integrity import find_integrity_issues
@@ -445,6 +446,11 @@ def archive_category_goal(
 
 @app.post("/api/earmark-moves", response_model=list[EarmarkLineOut], status_code=201)
 def create_earmark_move(payload: EarmarkMoveIn, session: Session = Depends(get_session)) -> list[EarmarkLineOut]:
+    if payload.transaction_id is not None:
+        raise HTTPException(
+            status_code=400,
+            detail="A pay's money moves are saved whole through PUT /api/transactions/{id}/pay-batch.",
+        )
     try:
         lines = move_money(
             session,
@@ -452,26 +458,10 @@ def create_earmark_move(payload: EarmarkMoveIn, session: Session = Depends(get_s
             from_category_id=payload.from_category_id,
             to_category_id=payload.to_category_id,
             cents=payload.cents,
-            transaction_id=payload.transaction_id,
         )
     except EarmarkError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return [EarmarkLineOut.model_validate(line) for line in lines]
-
-
-@app.get("/api/earmark-moves", response_model=list[EarmarkLineOut])
-def list_earmark_moves(transaction_id: int, session: Session = Depends(get_session)) -> list[EarmarkLineOut]:
-    """The "move"-sourced earmark lines a pay batch wrote against a transaction — what "Delete
-    this pay" (DESIGN.md § Pay screen layout, block 11) shows before offering to remove them.
-    """
-    return [EarmarkLineOut.model_validate(line) for line in earmark_moves_for_transaction(session, transaction_id)]
-
-
-@app.delete("/api/earmark-moves", status_code=204)
-def delete_earmark_moves(transaction_id: int, session: Session = Depends(get_session)) -> None:
-    """Remove a pay batch's "move" lines — the separate, explicit half of "Delete this pay"
-    (DESIGN.md § Pay screen layout, block 11)."""
-    delete_earmark_moves_for_transaction(session, transaction_id)
 
 
 @app.get("/api/domains", response_model=list[DomainOut])
@@ -935,6 +925,32 @@ def re_save_transaction(transaction_id: int, session: Session = Depends(get_sess
     return _transaction_out(session, transaction)
 
 
+@app.get("/api/transactions/{transaction_id}/pay-batch", response_model=list[EarmarkLineOut])
+def get_pay_batch(transaction_id: int, session: Session = Depends(get_session)) -> list[EarmarkLineOut]:
+    """The pay-batch lines pointing at a transaction (DESIGN.md § Earmarks)."""
+    if session.get(Transaction, transaction_id) is None:
+        raise HTTPException(status_code=404, detail=f"No transaction with id {transaction_id}.")
+    return [EarmarkLineOut.model_validate(line) for line in pay_batch_lines(session, transaction_id)]
+
+
+@app.put("/api/transactions/{transaction_id}/pay-batch", response_model=list[EarmarkLineOut])
+def put_pay_batch(
+    transaction_id: int, payload: PayBatchIn, session: Session = Depends(get_session)
+) -> list[EarmarkLineOut]:
+    """Replace every pay-batch line for a transaction with the stated list, in this request's
+    one database transaction — all of them land or none do (DESIGN.md § Earmarks). An empty list
+    removes the batch ("Delete this pay", Pay screen layout block 11).
+    """
+    transaction = session.get(Transaction, transaction_id)
+    if transaction is None:
+        raise HTTPException(status_code=404, detail=f"No transaction with id {transaction_id}.")
+    try:
+        lines = replace_pay_batch(session, transaction, [line.model_dump() for line in payload.lines])
+    except EarmarkError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return [EarmarkLineOut.model_validate(line) for line in lines]
+
+
 @app.delete("/api/transactions/{transaction_id}", status_code=204)
 def delete_transaction(transaction_id: int, session: Session = Depends(get_session)) -> None:
     transaction = session.get(Transaction, transaction_id)
@@ -956,11 +972,11 @@ def delete_transaction(transaction_id: int, session: Session = Depends(get_sessi
             exclude_transaction_id=transaction.id,
         )
     clear_generated_earmarks(session, transaction.id)
-    # Any pay-batch "move" lines still pointing here are the user's decisions, not this
-    # transaction's to remove (DESIGN.md § Pay screen layout, block 11: removing the batch is a
-    # separate, offered action) — unlink them so deleting the transaction never fails on their
-    # reference; the lines and their money are untouched.
-    for line in earmark_moves_for_transaction(session, transaction.id):
+    # Any pay-batch lines still pointing here are the user's decisions, not this transaction's
+    # to remove (DESIGN.md § Pay screen layout, block 11: removing the batch is a separate,
+    # offered action — saving it empty) — unlink them so deleting the transaction never fails on
+    # their reference; the lines and their money are untouched.
+    for line in pay_batch_lines(session, transaction.id):
         line.transaction_id = None
     session.delete(transaction)
     session.flush()
