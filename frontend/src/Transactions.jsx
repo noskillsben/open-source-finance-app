@@ -148,7 +148,7 @@ export default function Transactions({ pickerDate }) {
     api.goals.dueDates(offeredGoalId).then((dates) => setBillDueDates({ goalId: offeredGoalId, dates })).catch(() => {})
   }, [offeredGoalId])
 
-  const dueOptions = billDueDates?.goalId === offeredGoalId ? billDueDates.dates : []
+  const dueOptions = billDueDates && billDueDates.goalId === offeredGoalId ? billDueDates.dates : []
   const dueOptionValues = dueOptions.map((d) => d.due_on)
   const offeredDue = billLink?.goal_due_on ?? dueOptions.find((d) => d.earliest_unpaid)?.due_on ?? ''
   const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
