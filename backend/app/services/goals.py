@@ -10,6 +10,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import Category, CategoryLine, Goal, IncomeStream, Transaction
+from app.services.accounts import dollars
 from app.services.cadence import CADENCES, step
 from app.services.categories import category_balance_cents
 from app.services.income_streams import next_payday
@@ -295,10 +296,5 @@ def last_paid_text(session: Session, goal: Goal, *, as_of: date) -> tuple[date, 
     if due_on is None:
         return None
     paid = paid_against(session, goal, due_on)
-    text = f"{_short_date(due_on, as_of=as_of)} paid · {_dollars(paid)} of {_dollars(goal.amount_cents)}"
+    text = f"{_short_date(due_on, as_of=as_of)} paid · {dollars(paid)} of {dollars(goal.amount_cents)}"
     return due_on, paid, text
-
-
-def _dollars(cents: int) -> str:
-    sign = "-" if cents < 0 else ""
-    return f"{sign}${abs(cents) // 100:,}.{abs(cents) % 100:02d}"
