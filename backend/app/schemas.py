@@ -508,3 +508,12 @@ class GoalProgressOut(BaseModel):
     # (DESIGN.md § Paying a bill). Null for any other kind.
     earliest_unpaid_due_on: date | None = None
     due_by_next_payday_cents: int | None
+    # A recurring bill's status ("overdue" / "due" / "next_due") and its wording, worded once on
+    # the server (DESIGN.md § Paying a bill); null for any other kind.
+    bill_status: str | None = None
+    bill_status_text: str | None = None
+    # The last due date a payment was linked to, what was paid against it and the wording
+    # "Oct 1 paid · $112.40 of $120.00"; null until a bill has a linked payment.
+    last_paid_due_on: date | None = None
+    last_paid_cents: int | None = None
+    last_paid_text: str | None = None

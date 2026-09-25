@@ -297,6 +297,7 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
 // Add / Withdraw box — the same earmark move as the row above, so progress and available stay one number.
 function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
   const { goal, balance_cents: balance, target_cents: target, owed_cents: owed, due_date: due, per_period_cents: perPeriod } = progress
+  const { bill_status: billStatus, bill_status_text: billStatusText, last_paid_text: lastPaidText } = progress
   return (
     <tr className="text-sm text-paper-soft">
       <td colSpan={6} className="pb-2" style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}>
@@ -304,7 +305,11 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
           <span className="text-paper">{goal.name}</span>
           <span>{target == null ? formatCents(balance) : `${formatCents(balance)} of ${formatCents(target)}`}</span>
           {goal.kind === 'recurring_bill' && owed > 0 && <span>{formatCents(owed)} still owed this cycle</span>}
-          {due && <span>{goal.kind === 'recurring_bill' ? 'due' : 'by'} {formatDate(due)}</span>}
+          {billStatusText && (
+            <span className={billStatus === 'overdue' ? 'text-bad' : undefined}>{billStatusText}</span>
+          )}
+          {lastPaidText && <span>{lastPaidText}</span>}
+          {due && goal.kind !== 'recurring_bill' && <span>by {formatDate(due)}</span>}
           {perPeriod != null && (
             <span>
               {formatCents(perPeriod)}

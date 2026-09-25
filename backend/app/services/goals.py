@@ -9,8 +9,8 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Category, Goal, IncomeStream, Transaction
-from app.services.cadence import CADENCES, roll_forward, step
+from app.models import Category, CategoryLine, Goal, IncomeStream, Transaction
+from app.services.cadence import CADENCES, step
 from app.services.categories import category_balance_cents
 from app.services.income_streams import next_payday
 
@@ -116,15 +116,17 @@ def contribution_cents(goal: Goal, balance_cents: int, *, as_of: date) -> int | 
     return -(-shortfall // max(periods, 1))
 
 
-def due_date(goal: Goal, *, as_of: date) -> date | None:
-    """The date shown for a goal. A recurring bill's rolls forward by its cadence to the first
-    one on or after `as_of`; a target's is its target date.
+def due_date(session: Session, goal: Goal) -> date | None:
+    """The date shown for a goal, and the one definition of "due" both Categories and the pay
+    screen read. A recurring bill's is its earliest unpaid due date — it does not roll past
+    `as_of`, so an unpaid bill stays due (and reads overdue) instead of becoming next month's;
+    a target's is its target date.
     """
     if goal.target_date is None:
         return None
     if goal.kind != "recurring_bill":
         return goal.target_date
-    return roll_forward(goal.cadence, goal.cadence_weeks, goal.target_date, as_of=as_of)
+    return earliest_unpaid_due_date(session, goal)
 
 
 @dataclass
@@ -149,7 +151,7 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
         balance_cents=balance,
         target_cents=target,
         owed_cents=None if target is None else max(target - balance, 0),
-        due_date=due_date(goal, as_of=as_of),
+        due_date=due_date(session, goal),
         per_period_cents=per_period,
     )
 
@@ -164,7 +166,7 @@ def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as
     Commitments have their own per-payday amount already, not a date to spread one over). No
     display consumer yet; the pay screen (#107) is what calls this.
     """
-    due = due_date(goal, as_of=as_of)
+    due = due_date(session, goal)
     if due is None:
         return None
     target = goal.amount_cents
@@ -235,3 +237,68 @@ def offered_due_dates(session: Session, goal: Goal, *, before: int = 3, after: i
 def goal_latest_linked_date(session: Session, goal_id: int) -> date | None:
     """The date of the latest transaction linked to a bill — what the archive guard checks."""
     return session.scalar(select(func.max(Transaction.date)).where(Transaction.goal_id == goal_id))
+
+
+def _short_date(day: date, *, as_of: date) -> str:
+    """"Oct 1", with the year only when it isn't the picker's year."""
+    text = f"{day:%b} {day.day}"
+    return text if day.year == as_of.year else f"{text}, {day.year}"
+
+
+def bill_status(
+    session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None
+) -> tuple[str, str] | None:
+    """A recurring bill's status and its wording, computed here so no component words it again:
+    "overdue" once `as_of` is past its earliest unpaid due date; "due" when that date falls on or
+    before the bound pay's next payday (or is `as_of` itself for a bill bound to no pay);
+    otherwise "next_due". None for any other kind of goal.
+    """
+    due = earliest_unpaid_due_date(session, goal)
+    if due is None:
+        return None
+    day = _short_date(due, as_of=as_of)
+    if due < as_of:
+        return "overdue", f"overdue since {day}"
+    horizon = as_of if stream is None else next_payday(stream, as_of=as_of)
+    if due <= horizon:
+        return "due", f"due {day} · not paid"
+    return "next_due", f"next due {day}"
+
+
+def last_paid_due_date(session: Session, goal: Goal) -> date | None:
+    """The latest of a bill's due dates that a transaction says it paid."""
+    return max(linked_due_dates(session, goal.id), default=None)
+
+
+def paid_against(session: Session, goal: Goal, due_on: date) -> int:
+    """Cents paid against one due date: the bill's own category lines (a payment's outflow is
+    negative, so the sign flips) on the transactions linked to that goal and date. Lines of other
+    categories on a split payment are not this bill's money.
+    """
+    total = session.scalar(
+        select(func.coalesce(func.sum(CategoryLine.cents), 0))
+        .join(Transaction, Transaction.id == CategoryLine.transaction_id)
+        .where(
+            Transaction.goal_id == goal.id,
+            Transaction.goal_due_on == due_on,
+            CategoryLine.category_id == goal.category_id,
+        )
+    )
+    return -int(total)
+
+
+def last_paid_text(session: Session, goal: Goal, *, as_of: date) -> tuple[date, int, str] | None:
+    """The last paid due date, what was paid against it, and its wording next to what the bill
+    expected: "Oct 1 paid · $112.40 of $120.00". None when nothing was paid yet.
+    """
+    due_on = last_paid_due_date(session, goal)
+    if due_on is None:
+        return None
+    paid = paid_against(session, goal, due_on)
+    text = f"{_short_date(due_on, as_of=as_of)} paid · {_dollars(paid)} of {_dollars(goal.amount_cents)}"
+    return due_on, paid, text
+
+
+def _dollars(cents: int) -> str:
+    sign = "-" if cents < 0 else ""
+    return f"{sign}${abs(cents) // 100:,}.{abs(cents) % 100:02d}"

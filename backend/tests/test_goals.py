@@ -81,19 +81,19 @@ def test_recurring_bill_progress_and_owed_this_cycle(client, db_session, categor
     assert row["per_period_cents"] is None
 
 
-def test_recurring_bill_due_date_rolls_forward(client, category):
+def test_recurring_bill_due_date_does_not_roll_past_the_picker(client, category):
     _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-01-31")
     (row,) = _progress(client)
-    assert row["due_date"] == "2026-03-31"  # Jan 31 -> Feb 28 (clamped) -> Mar 31, first on/after Mar 1
+    assert row["due_date"] == "2026-01-31"  # unpaid, so it stays the due date; the picker moving on doesn't skip it
     (row,) = _progress(client, datetime.date(2026, 4, 1))
-    assert row["due_date"] == "2026-04-30"
+    assert row["due_date"] == "2026-01-31"
 
 
 def test_recurring_bill_every_n_weeks(client, category):
     _set(client, category, kind="recurring_bill", amount_cents=5000, cadence="weeks", cadence_weeks=2,
          target_date="2026-02-20")
     (row,) = _progress(client)
-    assert row["due_date"] == "2026-03-06"  # Feb 20, Mar 6
+    assert row["due_date"] == "2026-02-20"  # earliest unpaid, not rolled to the picker
 
 
 def test_target_amount_only(client, db_session, category):
@@ -194,7 +194,7 @@ def test_recurring_bill_without_a_first_due_date_is_a_422(client, category, targ
 
 def test_editing_a_bills_first_due_date_restarts_its_cycles(client, category):
     _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-01-15")
-    assert _progress(client)[0]["due_date"] == "2026-03-15"
+    assert _progress(client)[0]["due_date"] == "2026-01-15"
     _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-05-10")
     assert _progress(client)[0]["due_date"] == "2026-05-10"  # no cycle exists before the new first date
 
