@@ -207,6 +207,21 @@ def _assert_9e2c7a41d3b6(session):
     assert session.get(Goal, 2).target_date is None  # a dateless target is still legal
 
 
+def _assert_a3d7f1c92e58(session):
+    from datetime import date
+
+    from app.models import Goal
+    from app.services.accounts import account_balance_cents
+    from app.services.goals import earliest_unpaid_due_date
+
+    payment = session.get(Transaction, 2)
+    assert payment.memo == "February rent"  # the existing payment survived
+    assert (payment.goal_id, payment.goal_due_on) == (None, None)  # the columns this revision adds, unset
+    assert account_balance_cents(session, 1) == 80000  # ledger untouched
+    # Nothing was backfilled, so the February payment marks nothing paid: old payments stay unlinked.
+    assert earliest_unpaid_due_date(session, session.get(Goal, 1)) == date(2026, 2, 1)
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -225,6 +240,7 @@ ASSERTIONS = {
     "b85e039f86ae": _assert_b85e039f86ae,
     "06817c6fe779": _assert_06817c6fe779,
     "9e2c7a41d3b6": _assert_9e2c7a41d3b6,
+    "a3d7f1c92e58": _assert_a3d7f1c92e58,
 }
 
 

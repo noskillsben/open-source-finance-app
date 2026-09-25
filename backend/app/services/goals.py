@@ -6,10 +6,10 @@ plus, for a Commitment's "add" flavour, `percent_of_net` as an alternative to a 
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Category, Goal, IncomeStream
+from app.models import Category, Goal, IncomeStream, Transaction
 from app.services.cadence import CADENCES, roll_forward, step
 from app.services.categories import category_balance_cents
 from app.services.income_streams import next_payday
@@ -177,3 +177,61 @@ def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as
     while step(stream.cadence, stream.cadence_weeks, pivot, periods) <= due:
         periods += 1
     return -(-shortfall // max(periods, 1))
+
+
+def is_bill_due_date(goal: Goal, day: date) -> bool:
+    """Whether `day` is one of a recurring bill's due dates: its first due date stepped forward
+    by whole cadence periods (DESIGN.md § Goals). Stepping from the first date each time, never
+    from the previous step, so a month-end clamp doesn't drift the later dates.
+    """
+    if goal.kind != "recurring_bill" or goal.target_date is None or day < goal.target_date:
+        return False
+    n = 0
+    while _step(goal, goal.target_date, n) < day:
+        n += 1
+    return _step(goal, goal.target_date, n) == day
+
+
+def linked_due_dates(session: Session, goal_id: int) -> set[date]:
+    """The due dates of a bill that at least one transaction says it paid."""
+    return set(session.scalars(
+        select(Transaction.goal_due_on).where(Transaction.goal_id == goal_id, Transaction.goal_due_on.is_not(None))
+    ))
+
+
+def earliest_unpaid_due_date(session: Session, goal: Goal) -> date | None:
+    """The first of a recurring bill's due dates with no linked transaction — computed at read
+    time, never stored, so an unpaid bill stays due instead of rolling on (DESIGN.md § Goals).
+    One linked payment marks a date paid whatever its amount. Links to dates no longer on the
+    bill's cycle (after its cadence or first date was edited) mark nothing paid.
+    """
+    if goal.kind != "recurring_bill" or goal.target_date is None:
+        return None
+    paid = linked_due_dates(session, goal.id)
+    n = 0
+    while _step(goal, goal.target_date, n) in paid:
+        n += 1
+    return _step(goal, goal.target_date, n)
+
+
+def offered_due_dates(session: Session, goal: Goal, *, before: int = 3, after: int = 8) -> list[tuple[date, bool]]:
+    """The due dates the Ledger form lets a payment pick from: the earliest unpaid one, a few
+    before it (a second payment against a date already paid) and a few after, each with whether
+    it already has a linked payment.
+    """
+    earliest = earliest_unpaid_due_date(session, goal)
+    if earliest is None:
+        return []
+    paid = linked_due_dates(session, goal.id)
+    index = 0
+    while _step(goal, goal.target_date, index) < earliest:
+        index += 1
+    return [
+        (day, day in paid)
+        for day in (_step(goal, goal.target_date, n) for n in range(max(index - before, 0), index + after + 1))
+    ]
+
+
+def goal_latest_linked_date(session: Session, goal_id: int) -> date | None:
+    """The date of the latest transaction linked to a bill — what the archive guard checks."""
+    return session.scalar(select(func.max(Transaction.date)).where(Transaction.goal_id == goal_id))

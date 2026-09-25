@@ -36,6 +36,7 @@ from app.schemas import (
     PayBatchIn,
     GoalIn,
     GoalOut,
+    BillDueDateOut,
     GoalProgressOut,
     Health,
     IncomeStreamIn,
@@ -70,7 +71,10 @@ from app.services.links import (
     set_category_links,
     suggest_split,
 )
-from app.services.goals import GoalError, apply_goal, due_by_next_payday, goal_progress, live_goal
+from app.services.goals import (
+    GoalError, apply_goal, due_by_next_payday, earliest_unpaid_due_date, goal_latest_linked_date,
+    goal_progress, live_goal, offered_due_dates,
+)
 from app.services.income_streams import IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import (
@@ -407,10 +411,27 @@ def list_goals(as_of: date, session: Session = Depends(get_session)) -> list[Goa
             GoalProgressOut(
                 goal=GoalOut.model_validate(g),
                 due_by_next_payday_cents=due_cents,
+                earliest_unpaid_due_on=earliest_unpaid_due_date(session, g),
                 **vars(goal_progress(session, g, as_of=as_of)),
             )
         )
     return out
+
+
+@app.get("/api/goals/{goal_id}/due-dates", response_model=list[BillDueDateOut])
+def list_bill_due_dates(goal_id: int, session: Session = Depends(get_session)) -> list[BillDueDateOut]:
+    """The due dates a payment can say it paid, earliest unpaid first among them (DESIGN.md §
+    Goals → Paying a bill): a few already-paid ones before it, a few coming after."""
+    goal = session.get(Goal, goal_id)
+    if goal is None:
+        raise HTTPException(status_code=404, detail=f"No goal with id {goal_id}.")
+    if goal.kind != "recurring_bill":
+        raise HTTPException(status_code=400, detail=f"{goal.name!r} is not a recurring bill.")
+    earliest = earliest_unpaid_due_date(session, goal)
+    return [
+        BillDueDateOut(due_on=day, paid=paid, earliest_unpaid=day == earliest)
+        for day, paid in offered_due_dates(session, goal)
+    ]
 
 
 @app.put("/api/categories/{category_id}/goal", response_model=GoalOut)
@@ -439,7 +460,14 @@ def archive_category_goal(
     goal = live_goal(session, category_id)
     if goal is None:
         raise HTTPException(status_code=404, detail=f"Category {category_id} has no goal.")
-    warnings = archive(Archivable(entity=goal, latest_ledger_date=None), payload.archived_on)
+    # A bill can't be archived on or before its latest linked payment (DESIGN.md § Paying a bill).
+    try:
+        warnings = archive(
+            Archivable(entity=goal, latest_ledger_date=goal_latest_linked_date(session, goal.id)),
+            payload.archived_on,
+        )
+    except ArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
     return ArchiveOut(id=goal.id, archived_on=goal.archived_on, warnings=warnings)
 
@@ -783,6 +811,13 @@ def _transaction_notes(session: Session, transaction: Transaction) -> list[str]:
                 f"{entity.name} was archived on {entity.archived_on}; "
                 "this transaction is dated after that."
             )
+    if transaction.goal_id is not None:
+        bill = session.get(Goal, transaction.goal_id)
+        if bill.category_id not in {line.category_id for line in transaction.category_lines}:
+            notes.append(
+                f"This is marked as paying {bill.name} (due {transaction.goal_due_on}), "
+                f"but it has no line on {session.get(Category, bill.category_id).name}."
+            )
     for line in transaction.account_lines:
         valuation = latest_valuation(session, line.account_id)
         if (
@@ -824,7 +859,7 @@ def _transaction_shape(t: Transaction, notes: list[str], deposits: list[dict] | 
     return TransactionOut(
         deposits=[DepositIn(**item) for item in deposits or []],
         id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id, valuation_id=t.valuation_id,
-        income_stream_id=t.income_stream_id,
+        income_stream_id=t.income_stream_id, goal_id=t.goal_id, goal_due_on=t.goal_due_on,
         account_lines=[
             AccountLineOut(id=l.id, account_id=l.account_id, cents=l.cents, budget_cents=l.budget_cents)
             for l in t.account_lines
@@ -861,6 +896,8 @@ def create_transaction(payload: TransactionCreate, session: Session = Depends(ge
             memo=payload.memo,
             payee_id=payload.payee_id,
             income_stream_id=payload.income_stream_id,
+            goal_id=payload.goal_id,
+            goal_due_on=payload.goal_due_on,
             account_lines=[line.model_dump() for line in payload.account_lines],
             category_lines=[line.model_dump() for line in payload.category_lines],
             deposits=[item.model_dump() for item in payload.deposits],
@@ -885,6 +922,8 @@ def update_transaction(
             txn_date=payload.date,
             memo=payload.memo,
             payee_id=payload.payee_id,
+            goal_id=payload.goal_id,
+            goal_due_on=payload.goal_due_on,
             account_lines=[line.model_dump() for line in payload.account_lines],
             category_lines=[line.model_dump() for line in payload.category_lines],
             deposits=[item.model_dump() for item in payload.deposits],
@@ -916,6 +955,8 @@ def re_save_transaction(transaction_id: int, session: Session = Depends(get_sess
             txn_date=transaction.date,
             memo=transaction.memo,
             payee_id=transaction.payee_id,
+            goal_id=transaction.goal_id,
+            goal_due_on=transaction.goal_due_on,
             account_lines=account_lines,
             category_lines=category_lines,
         )
