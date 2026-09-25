@@ -198,7 +198,7 @@ function GoalFields({ goal, onChange, streams }) {
         <>
           {moneyInput('Amount per bill', 'amount')}
           {cadenceInput('How often', false)}
-          {dateInput('Next due date (optional)')}
+          {dateInput('First due date')}
         </>
       )}
       {goal.kind === 'target' && (
@@ -418,6 +418,9 @@ export default function Categories({ pickerDate }) {
     if (!name) return setFormError('Name is required.')
     for (const [label, pick] of [['parent', form.parent], ['pool', form.pool], ['domain', form.domain]]) {
       if (unmatched(pick)) return setFormError(`"${pick.text}" is not an existing ${label}. Pick one from the list or clear the box.`)
+    }
+    if (goalForm.kind === 'recurring_bill' && !goalForm.date) {
+      return setFormError('A recurring bill needs a first due date.')
     }
     const settings = {
       name,

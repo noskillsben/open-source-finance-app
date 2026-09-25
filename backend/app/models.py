@@ -6,7 +6,7 @@ Import this module wherever Base.metadata must know every table (alembic/env.py 
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, Date, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, CheckConstraint, Date, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, NonLedger, Owned
@@ -165,6 +165,9 @@ class Goal(Base, Owned, NonLedger):
 
     __table_args__ = (
         Index("ix_goal_category_live", "category_id", unique=True, postgresql_where=text("archived_on IS NULL")),
+        # `target_date` is a recurring bill's first due date (#131). The column is shared with
+        # targets, which may be dateless, so the rule is a CHECK rather than a NOT NULL.
+        CheckConstraint("kind <> 'recurring_bill' OR target_date IS NOT NULL", name="ck_goal_recurring_bill_first_due"),
     )
 
 

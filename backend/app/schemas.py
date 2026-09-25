@@ -2,7 +2,7 @@
 from datetime import date
 from decimal import Decimal
 
-from pydantic import BaseModel, Field, field_serializer, field_validator
+from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from app.account_types import ACCOUNT_TYPES
 from app.need_levels import NEED_LEVELS
@@ -383,6 +383,14 @@ class GoalIn(BaseModel):
     level_cents: int | None = None
     income_stream_id: int | None = None
     percent_of_net: Decimal | None = None
+
+    @model_validator(mode="after")
+    def _bill_needs_first_due_date(self):
+        # A recurring bill's due dates are `target_date` stepped forward by cadence; no cycle
+        # exists before it (#131). Structural validation, so a 422.
+        if self.kind == "recurring_bill" and self.target_date is None:
+            raise ValueError("A recurring bill needs a first due date.")
+        return self
 
 
 class GoalOut(BaseModel):
