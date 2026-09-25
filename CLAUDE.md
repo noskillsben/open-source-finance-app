@@ -51,6 +51,7 @@ Work on a branch named `issue-N-<short-slug>`, push it, and open the pull reques
 - Works on a narrow phone, a desktop, and a foldable's inner screen.
 
 **Repo hygiene**
+- **Personal financial data is never committed.** Real replay scenarios, converters written against a real export, and the exports themselves live only in `frontend/replay/private/`, which is gitignored. The replay engine and its fictional sample scenario are committed (DESIGN.md § History replay).
 - No new Python dependency without `requirements.txt`; no new npm package without a stated reason in the PR.
 - This file records conventions, never build state. Build state lives in issues and the Projects board.
 - Terminology: "ready to assign", "balance check", "pay screen", "named pay". Never "reconcile", "waterfall", "run", "commit" in user-facing copy.
