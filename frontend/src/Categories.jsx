@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { api } from './api.js'
 import Domains from './Domains.jsx'
 import NamePicker from './NamePicker.jsx'
@@ -298,6 +299,7 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
 function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
   const { goal, balance_cents: balance, target_cents: target, owed_cents: owed, due_date: due, per_period_cents: perPeriod } = progress
   const { bill_status: billStatus, bill_status_text: billStatusText, last_paid_text: lastPaidText } = progress
+  const nextDue = progress.earliest_unpaid_due_on
   return (
     <tr className="text-sm text-paper-soft">
       <td colSpan={6} className="pb-2" style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}>
@@ -309,6 +311,23 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
             <span className={billStatus === 'overdue' ? 'text-bad' : undefined}>{billStatusText}</span>
           )}
           {lastPaidText && <span>{lastPaidText}</span>}
+          {/* DESIGN.md § Nothing posts itself: opens the Ledger form pre-filled and linked; the user saves it. */}
+          {!archived && goal.kind === 'recurring_bill' && nextDue && (
+            <Link
+              className="text-xs text-accent"
+              to="/ledger"
+              state={{
+                recordBill: {
+                  goal_id: goal.id,
+                  goal_due_on: nextDue,
+                  category_id: goal.category_id,
+                  amount_cents: goal.amount_cents,
+                },
+              }}
+            >
+              Record {formatDate(nextDue)}
+            </Link>
+          )}
           {due && goal.kind !== 'recurring_bill' && <span>by {formatDate(due)}</span>}
           {perPeriod != null && (
             <span>

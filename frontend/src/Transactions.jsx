@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 import PayeePicker from './PayeePicker.jsx'
@@ -9,6 +9,8 @@ const emptyCategoryLine = { category_id: '', cents: '' }
 const emptyDeposit = { category_id: '', cents: '', other_category_id: '' }
 
 export default function Transactions({ pickerDate }) {
+  const location = useLocation()
+  const navigate = useNavigate()
   const [accounts, setAccounts] = useState(null)
   const [categories, setCategories] = useState(null)
   const [payees, setPayees] = useState(null)
@@ -46,6 +48,28 @@ export default function Transactions({ pickerDate }) {
   }
 
   useEffect(refresh, [pickerDate])
+
+  // "Record" on a bill's row on Categories lands here with the bill, its due date and its expected
+  // amount in route state (DESIGN.md § Paying a bill): the form opens pre-filled and already linked,
+  // with the payee and account of the bill's last linked payment. The user still saves it.
+  const recordBill = location.state?.recordBill
+  useEffect(() => {
+    if (!recordBill) return
+    const cents = recordBill.amount_cents == null ? '' : String(-recordBill.amount_cents / 100)
+    setDate(pickerDate)
+    setCategoryLines([{ category_id: String(recordBill.category_id), cents }])
+    setAccountLines([{ account_id: '', cents }])
+    setBillLink({ goal_id: recordBill.goal_id, goal_due_on: recordBill.goal_due_on })
+    navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
+    Promise.all([api.goals.lastPayment(recordBill.goal_id), api.accounts.list()])
+      .then(([last, accountList]) => {
+        if (last.payee_id != null) setPayeeId(last.payee_id)
+        if (last.account_id != null && accountList.some((a) => a.id === last.account_id)) {
+          setAccountLines((lines) => lines.map((l, i) => (i === 0 ? { ...l, account_id: String(last.account_id) } : l)))
+        }
+      })
+      .catch((e) => setFormError(e.message))
+  }, [recordBill])
 
   function updateAccountLine(i, field, value) {
     setAccountLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))

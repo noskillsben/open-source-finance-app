@@ -6,7 +6,7 @@ import Transactions from './Transactions.jsx'
 // What the mocked backend already holds; a test sets these before rendering.
 let existingTransactions = []
 
-const calls = vi.hoisted(() => ({ create: vi.fn(), dueDates: vi.fn() }))
+const calls = vi.hoisted(() => ({ create: vi.fn(), dueDates: vi.fn(), lastPayment: vi.fn() }))
 
 const ACCOUNTS = [{ id: 1, name: 'Chequing', linked_category_ids: [] }]
 const CATEGORIES = [
@@ -37,13 +37,14 @@ vi.mock('./api.js', () => ({
     goals: {
       list: () => Promise.resolve([RENT_GOAL]),
       dueDates: calls.dueDates,
+      lastPayment: calls.lastPayment,
     },
   },
 }))
 
-function renderLedger() {
+function renderLedger(state) {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[{ pathname: '/ledger', state }]}>
       <Transactions pickerDate="2026-10-03" />
     </MemoryRouter>
   )
@@ -63,6 +64,8 @@ beforeEach(() => {
   calls.create.mockResolvedValue({ notes: [] })
   calls.dueDates.mockReset()
   calls.dueDates.mockResolvedValue(DUE_DATES)
+  calls.lastPayment.mockReset()
+  calls.lastPayment.mockResolvedValue({ payee_id: null, account_id: null })
 })
 
 describe('Ledger form: which bill and due date a payment paid', () => {
@@ -178,6 +181,45 @@ describe('Ledger form: which bill and due date a payment paid', () => {
     }]
     renderLedger()
     expect(await screen.findByText(/pays Rent, due/)).toHaveTextContent('pays Rent, due Oct 1, 2026')
+  })
+})
+
+describe("Ledger form: 'Record' from a bill's row on Categories", () => {
+  const RECORD_RENT = {
+    recordBill: { goal_id: 7, goal_due_on: '2026-10-01', category_id: 11, amount_cents: 120000 },
+  }
+
+  it('opens pre-filled and already confirmed: category, expected amount, bill link and the picker date', async () => {
+    renderLedger(RECORD_RENT)
+
+    expect(await screen.findByText(/Marked as paying/)).toHaveTextContent('Marked as paying Rent, due Oct 1, 2026.')
+    expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
+    expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
+    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200', '-1200'])
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
+    expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
+  })
+
+  it('copies the payee and account of the last linked payment, and saves the link', async () => {
+    calls.lastPayment.mockResolvedValue({ payee_id: 4, account_id: 1 })
+    renderLedger(RECORD_RENT)
+
+    await waitFor(() => expect(screen.getByRole('option', { name: 'Chequing' }).closest('select')).toHaveValue('1'))
+    fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
+
+    await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    expect(calls.create.mock.calls[0][0]).toMatchObject({
+      date: '2026-10-03', payee_id: 4, goal_id: 7, goal_due_on: '2026-10-01',
+      account_lines: [{ account_id: 1, cents: -120000 }],
+      category_lines: [{ category_id: 11, cents: -120000 }],
+    })
+  })
+
+  it('leaves payee and account empty on the first payment', async () => {
+    renderLedger(RECORD_RENT)
+    await screen.findByText(/Marked as paying/)
+    await waitFor(() => expect(calls.lastPayment).toHaveBeenCalledWith(7))
+    expect(screen.getByRole('option', { name: 'Chequing' }).closest('select')).toHaveValue('')
   })
 })
 
