@@ -9,9 +9,10 @@ from datetime import date
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Account, AccountLine, Category, CategoryAccountLink, CategoryLine, EarmarkLine, Payee, Transaction
+from app.models import Account, AccountLine, Category, CategoryAccountLink, CategoryLine, EarmarkLine, Goal, Payee, Transaction
 from app.services.accounts import backfill_opening_balance
 from app.services.categories import category_balance_cents, pool_chain
+from app.services.goals import is_bill_due_date
 from app.services.links import linked_category_ids
 
 
@@ -209,6 +210,25 @@ def _write_pool_draws(session: Session, transaction: Transaction) -> None:
             uncovered -= covered
 
 
+def _check_bill_link(session: Session, goal_id: int | None, goal_due_on: date | None) -> None:
+    """The shape of a bill link: both set or both null, the goal a recurring bill, the date one
+    of that bill's due dates. A refusal, because a link that says nothing true can't be stored.
+    Whether the transaction also has a line on the bill's category is only a warning, made on
+    the save's notes.
+    """
+    if (goal_id is None) != (goal_due_on is None):
+        raise TransactionError("A bill link needs both the bill and its due date, or neither.")
+    if goal_id is None:
+        return
+    goal = session.get(Goal, goal_id)
+    if goal is None:
+        raise TransactionError(f"Unknown bill id: {goal_id}")
+    if goal.kind != "recurring_bill":
+        raise TransactionError(f"{goal.name!r} is not a recurring bill, so it has no due dates to pay.")
+    if not is_bill_due_date(goal, goal_due_on):
+        raise TransactionError(f"{goal_due_on} is not one of {goal.name!r}'s due dates.")
+
+
 def write_transaction(
     session: Session,
     *,
@@ -220,6 +240,8 @@ def write_transaction(
     category_lines: list[dict],
     valuation_id: int | None = None,
     income_stream_id: int | None = None,
+    goal_id: int | None = None,
+    goal_due_on: date | None = None,
     deposits: list[dict] | None = None,
 ) -> Transaction:
     """Create (transaction=None) or edit (transaction=existing row) a transaction: recompute
@@ -233,7 +255,9 @@ def write_transaction(
 
     `valuation_id` and `income_stream_id` are only ever set on a new transaction — the balance
     check or named pay that produced it (DESIGN.md § Balance checks, § Income streams) — and are
-    never reassigned on an edit.
+    never reassigned on an edit. `goal_id` and `goal_due_on` (the bill this paid and which of its
+    due dates, DESIGN.md § Goals → Paying a bill) are the user's statement and so are replaced
+    on every write, an edit included; a caller that doesn't mean to change them passes them back.
     """
     if not account_lines:
         raise TransactionError("A transaction needs at least one account line.")
@@ -241,6 +265,8 @@ def write_transaction(
     payee = session.get(Payee, payee_id) if payee_id is not None else None
     if payee_id is not None and payee is None:
         raise TransactionError(f"Unknown payee id: {payee_id}")
+
+    _check_bill_link(session, goal_id, goal_due_on)
 
     exclude_id = transaction.id if transaction is not None else None
 
@@ -255,12 +281,15 @@ def write_transaction(
         transaction = Transaction(
             date=txn_date, memo=memo, payee_id=payee_id,
             valuation_id=valuation_id, income_stream_id=income_stream_id,
+            goal_id=goal_id, goal_due_on=goal_due_on,
         )
         session.add(transaction)
     else:
         transaction.date = txn_date
         transaction.memo = memo
         transaction.payee_id = payee_id
+        transaction.goal_id = goal_id
+        transaction.goal_due_on = goal_due_on
         transaction.account_lines.clear()
         transaction.category_lines.clear()
         clear_generated_earmarks(session, transaction.id, keep_deposits=deposits is None)

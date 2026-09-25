@@ -265,6 +265,10 @@ class Transaction(Base, Owned):
     income_stream_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("income_stream.id"), nullable=True, index=True
     )
+    # Which recurring bill this paid and which of its due dates (DESIGN.md § Goals → Paying a
+    # bill) — stated by the user, never inferred, and set together or not at all.
+    goal_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("goal.id"), nullable=True, index=True)
+    goal_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
 
     valuation: Mapped["Valuation | None"] = relationship()
     account_lines: Mapped[list["AccountLine"]] = relationship(

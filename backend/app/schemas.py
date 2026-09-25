@@ -303,10 +303,19 @@ class TransactionCreate(BaseModel):
     memo: str | None = None
     payee_id: int | None = None
     income_stream_id: int | None = None
+    goal_id: int | None = None
+    goal_due_on: date | None = None
     account_lines: list[AccountLineIn] = Field(min_length=1)
     category_lines: list[CategoryLineIn] = []
     # Omitted or empty: "already earmarked" — no deposit lines (DESIGN.md § Linked categories).
     deposits: list[DepositIn] = []
+
+    @model_validator(mode="after")
+    def _bill_link_is_paired(self):
+        # The bill and its due date are one statement (DESIGN.md § Paying a bill): a 422.
+        if (self.goal_id is None) != (self.goal_due_on is None):
+            raise ValueError("A bill link needs both the bill and its due date, or neither.")
+        return self
 
 
 class TransactionOut(BaseModel):
@@ -316,6 +325,8 @@ class TransactionOut(BaseModel):
     payee_id: int | None
     valuation_id: int | None
     income_stream_id: int | None
+    goal_id: int | None
+    goal_due_on: date | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
     deposits: list[DepositIn] = []
@@ -471,6 +482,15 @@ class IncomeStreamOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class BillDueDateOut(BaseModel):
+    """One due date of a recurring bill: whether a payment is already linked to it, and whether
+    it is the earliest that has none (the one the Ledger form offers first)."""
+
+    due_on: date
+    paid: bool
+    earliest_unpaid: bool
+
+
 class GoalProgressOut(BaseModel):
     """A goal with its progress on `as_of`. `target_cents` is what the balance is compared to
     (null for an "add" commitment, which has no target); `owed_cents` is the shortfall to it.
@@ -484,4 +504,7 @@ class GoalProgressOut(BaseModel):
     owed_cents: int | None
     due_date: date | None
     per_period_cents: int | None
+    # A recurring bill's earliest due date with no linked payment — what the Ledger form offers
+    # (DESIGN.md § Paying a bill). Null for any other kind.
+    earliest_unpaid_due_on: date | None = None
     due_by_next_payday_cents: int | None

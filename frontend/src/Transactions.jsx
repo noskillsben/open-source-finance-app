@@ -13,6 +13,7 @@ export default function Transactions({ pickerDate }) {
   const [categories, setCategories] = useState(null)
   const [payees, setPayees] = useState(null)
   const [transactions, setTransactions] = useState(null)
+  const [goals, setGoals] = useState(null)
   const [error, setError] = useState(null)
 
   const [date, setDate] = useState(pickerDate)
@@ -21,6 +22,10 @@ export default function Transactions({ pickerDate }) {
   const [accountLines, setAccountLines] = useState([{ ...emptyLine }])
   const [categoryLines, setCategoryLines] = useState([])
   const [deposits, setDeposits] = useState([])
+  // Which recurring bill this payment paid and which due date: stated, never inferred.
+  const [billLink, setBillLink] = useState(null)
+  const [declinedBills, setDeclinedBills] = useState([])
+  const [billDueDates, setBillDueDates] = useState(null)
   const [newCategoryName, setNewCategoryName] = useState('')
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -31,6 +36,7 @@ export default function Transactions({ pickerDate }) {
     api.categories.list(pickerDate).then(setCategories).catch((e) => setError(e.message))
     api.payees.list(pickerDate).then(setPayees).catch((e) => setError(e.message))
     api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
+    api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
   }
 
   async function addPayee(name) {
@@ -60,6 +66,8 @@ export default function Transactions({ pickerDate }) {
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])
     setDeposits([])
+    setBillLink(null)
+    setDeclinedBills([])
     setFormError(null)
   }
 
@@ -82,6 +90,8 @@ export default function Transactions({ pickerDate }) {
         other_category_id: d.other_category_id ? String(d.other_category_id) : '',
       }))
     )
+    setBillLink(t.goal_id != null ? { goal_id: t.goal_id, goal_due_on: t.goal_due_on } : null)
+    setDeclinedBills([])
     setFormError(null)
   }
 
@@ -120,6 +130,27 @@ export default function Transactions({ pickerDate }) {
     linkedNet += cents
     account.linked_category_ids.forEach((id) => linkedCategoryIds.add(id))
   }
+  // DESIGN.md § Goals → Paying a bill: a category line on a category with a live recurring bill
+  // offers "this pays Rent, due Oct 1"; the user confirms, picks another due date, or leaves it.
+  const billsByCategory = new Map(
+    (goals ?? []).filter((g) => g.goal.kind === 'recurring_bill').map((g) => [g.goal.category_id, g])
+  )
+  const linkedBill = billLink ? goals?.find((g) => g.goal.id === billLink.goal_id) : null
+  const lineBill = categoryLines
+    .map((l) => billsByCategory.get(Number(l.category_id)))
+    .find((b) => b && !declinedBills.includes(b.goal.id))
+  const offeredBill = billLink ? linkedBill : lineBill
+  const offeredGoalId = billLink ? billLink.goal_id : lineBill?.goal.id
+
+  useEffect(() => {
+    setBillDueDates(null)
+    if (offeredGoalId == null) return
+    api.goals.dueDates(offeredGoalId).then((dates) => setBillDueDates({ goalId: offeredGoalId, dates })).catch(() => {})
+  }, [offeredGoalId])
+
+  const dueOptions = billDueDates?.goalId === offeredGoalId ? billDueDates.dates : []
+  const dueOptionValues = dueOptions.map((d) => d.due_on)
+  const offeredDue = billLink?.goal_due_on ?? dueOptions.find((d) => d.earliest_unpaid)?.due_on ?? ''
   const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
   const depositTotal = deposits.reduce((sum, d) => sum + (parseCents(d.cents) ?? 0), 0)
 
@@ -164,6 +195,8 @@ export default function Transactions({ pickerDate }) {
       date,
       memo: memo.trim() || null,
       payee_id: payeeId,
+      goal_id: billLink?.goal_id ?? null,
+      goal_due_on: billLink?.goal_due_on ?? null,
       account_lines: parsedAccountLines,
       category_lines: parsedCategoryLines,
       deposits: parsedDeposits,
@@ -241,6 +274,12 @@ export default function Transactions({ pickerDate }) {
                         {formatCents(l.cents)}
                       </div>
                     ))}
+                    {t.goal_id != null && (
+                      <div className="text-xs text-paper-soft">
+                        pays {goals?.find((g) => g.goal.id === t.goal_id)?.goal.name ?? `bill #${t.goal_id}`}, due{' '}
+                        {formatDate(t.goal_due_on)}
+                      </div>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -354,6 +393,54 @@ export default function Transactions({ pickerDate }) {
               + add category line
             </button>
           </div>
+
+          {(offeredBill || billLink) && (
+            <div className="rounded bg-ink p-2 space-y-2 text-sm">
+              <p>
+                {billLink ? 'Marked as paying ' : 'This pays '}
+                <strong>{offeredBill?.goal.name ?? `bill #${billLink.goal_id}`}</strong>, due{' '}
+                {offeredDue ? formatDate(offeredDue) : '…'}.
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                {!billLink && (
+                  <button
+                    type="button"
+                    className="rounded bg-ink-soft px-2 py-1 text-accent"
+                    disabled={!offeredDue}
+                    onClick={() => setBillLink({ goal_id: offeredGoalId, goal_due_on: offeredDue })}
+                  >
+                    Confirm
+                  </button>
+                )}
+                <select
+                  className="rounded bg-ink-soft px-2 py-1"
+                  aria-label="Which due date"
+                  value={offeredDue}
+                  onChange={(e) => setBillLink({ goal_id: offeredGoalId, goal_due_on: e.target.value })}
+                >
+                  {offeredDue && !dueOptionValues.includes(offeredDue) && (
+                    <option value={offeredDue}>{formatDate(offeredDue)}</option>
+                  )}
+                  {dueOptions.map((d) => (
+                    <option key={d.due_on} value={d.due_on}>
+                      {formatDate(d.due_on)}
+                      {d.paid ? ' · already paid' : ''}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  className="text-accent"
+                  onClick={() => {
+                    if (billLink) setBillLink(null)
+                    setDeclinedBills((ids) => [...ids, offeredGoalId])
+                  }}
+                >
+                  {billLink ? 'Remove link' : 'Leave unlinked'}
+                </button>
+              </div>
+            </div>
+          )}
 
           {linkedNet !== 0 && (
             <div className="space-y-2">
