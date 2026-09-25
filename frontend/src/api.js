@@ -58,6 +58,7 @@ export const api = {
   goals: {
     list: (asOf) => request(`/api/goals?as_of=${asOf}`),
     dueDates: (goalId) => request(`/api/goals/${goalId}/due-dates`),
+    lastPayment: (goalId) => request(`/api/goals/${goalId}/last-payment`),
     set: (categoryId, goal) => request(`/api/categories/${categoryId}/goal`, { method: 'PUT', body: goal }),
     archive: (categoryId, archivedOn) => request(`/api/categories/${categoryId}/goal/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
   },

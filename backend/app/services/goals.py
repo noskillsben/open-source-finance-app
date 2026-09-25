@@ -9,7 +9,7 @@ from datetime import date
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import Category, CategoryLine, Goal, IncomeStream, Transaction
+from app.models import AccountLine, Category, CategoryLine, Goal, IncomeStream, Transaction
 from app.services.accounts import dollars
 from app.services.cadence import CADENCES, step
 from app.services.categories import category_balance_cents
@@ -238,6 +238,25 @@ def offered_due_dates(session: Session, goal: Goal, *, before: int = 3, after: i
 def goal_latest_linked_date(session: Session, goal_id: int) -> date | None:
     """The date of the latest transaction linked to a bill — what the archive guard checks."""
     return session.scalar(select(func.max(Transaction.date)).where(Transaction.goal_id == goal_id))
+
+
+def last_payment(session: Session, goal: Goal) -> tuple[int | None, int | None] | None:
+    """The payee and account of the latest transaction linked to a bill, read from the ledger and
+    never stored (DESIGN.md § Paying a bill): what "record now" pre-fills. The account is the one
+    the most money left (the first account line by id on a tie). None before any payment is linked.
+    """
+    latest = session.scalars(
+        select(Transaction).where(Transaction.goal_id == goal.id).order_by(Transaction.date.desc(), Transaction.id.desc())
+    ).first()
+    if latest is None:
+        return None
+    account_id = session.scalar(
+        select(AccountLine.account_id)
+        .where(AccountLine.transaction_id == latest.id)
+        .order_by(AccountLine.cents, AccountLine.id)
+        .limit(1)
+    )
+    return latest.payee_id, account_id
 
 
 def _short_date(day: date, *, as_of: date) -> str:

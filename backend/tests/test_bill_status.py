@@ -181,3 +181,51 @@ def test_a_split_payment_counts_only_the_bills_own_category(db_session, client, 
     })
     assert response.status_code == 201, response.text
     assert _row(client, goal, datetime.date(2026, 10, 2))["last_paid_cents"] == 120_000
+
+
+def test_record_now_reads_the_payee_and_account_of_the_last_linked_payment(db_session, client, chequing):
+    category, goal = _bill(db_session, datetime.date(2026, 9, 1))
+    assert client.get(f"/api/goals/{goal.id}/last-payment").json() == {"payee_id": None, "account_id": None}
+
+    landlord = client.post("/api/payees", json={"name": "Landlord", "created_on": "2026-09-01"}).json()
+    for day, due_on, payee_id in (("2026-09-02", "2026-09-01", None), ("2026-10-03", "2026-10-01", landlord["id"])):
+        response = client.post("/api/transactions", json={
+            "date": day, "payee_id": payee_id,
+            "account_lines": [{"account_id": chequing.id, "cents": -120_000}],
+            "category_lines": [{"category_id": category.id, "cents": -120_000}],
+            "goal_id": goal.id, "goal_due_on": due_on,
+        })
+        assert response.status_code == 201, response.text
+
+    assert client.get(f"/api/goals/{goal.id}/last-payment").json() == {
+        "payee_id": landlord["id"], "account_id": chequing.id,
+    }
+
+
+def test_the_last_payment_ignores_unlinked_spending_and_other_bills(db_session, client, chequing):
+    category, goal = _bill(db_session, datetime.date(2026, 9, 1))
+    client.post("/api/transactions", json={
+        "date": "2026-10-03",
+        "account_lines": [{"account_id": chequing.id, "cents": -5_000}],
+        "category_lines": [{"category_id": category.id, "cents": -5_000}],
+    })
+    assert client.get(f"/api/goals/{goal.id}/last-payment").json() == {"payee_id": None, "account_id": None}
+
+
+def test_the_last_payment_needs_a_recurring_bill(db_session, client):
+    category = Category(name="Holiday", created_on=DAY)
+    db_session.add(category)
+    db_session.flush()
+    target = Goal(category_id=category.id, name="Holiday", kind="target", amount_cents=100_000,
+                  target_date=datetime.date(2027, 1, 1), created_on=DAY)
+    db_session.add(target)
+    db_session.flush()
+    assert client.get(f"/api/goals/{target.id}/last-payment").status_code == 400
+    assert client.get("/api/goals/9999/last-payment").status_code == 404
+
+
+def test_the_button_names_the_next_due_date_once_one_is_paid(db_session, client, chequing):
+    category, goal = _bill(db_session, datetime.date(2026, 10, 1))
+    assert _row(client, goal, datetime.date(2026, 10, 3))["earliest_unpaid_due_on"] == "2026-10-01"
+    _pay(client, chequing, category, goal, "2026-10-01", cents=120_000)
+    assert _row(client, goal, datetime.date(2026, 10, 3))["earliest_unpaid_due_on"] == "2026-11-01"

@@ -491,6 +491,14 @@ class BillDueDateOut(BaseModel):
     earliest_unpaid: bool
 
 
+class BillLastPaymentOut(BaseModel):
+    """The payee and account "record now" pre-fills from a bill's last linked payment; both null
+    on a bill's first payment."""
+
+    payee_id: int | None = None
+    account_id: int | None = None
+
+
 class GoalProgressOut(BaseModel):
     """A goal with its progress on `as_of`. `target_cents` is what the balance is compared to
     (null for an "add" commitment, which has no target); `owed_cents` is the shortfall to it.

@@ -37,6 +37,7 @@ from app.schemas import (
     GoalIn,
     GoalOut,
     BillDueDateOut,
+    BillLastPaymentOut,
     GoalProgressOut,
     Health,
     IncomeStreamIn,
@@ -73,7 +74,7 @@ from app.services.links import (
 )
 from app.services.goals import (
     GoalError, apply_goal, bill_status, due_by_next_payday, earliest_unpaid_due_date, goal_latest_linked_date,
-    goal_progress, last_paid_text, live_goal, offered_due_dates,
+    goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
 )
 from app.services.income_streams import IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
@@ -438,6 +439,19 @@ def list_bill_due_dates(goal_id: int, session: Session = Depends(get_session)) -
         BillDueDateOut(due_on=day, paid=paid, earliest_unpaid=day == earliest)
         for day, paid in offered_due_dates(session, goal)
     ]
+
+
+@app.get("/api/goals/{goal_id}/last-payment", response_model=BillLastPaymentOut)
+def get_bill_last_payment(goal_id: int, session: Session = Depends(get_session)) -> BillLastPaymentOut:
+    """The payee and account of the bill's last linked payment, for "record now" to pre-fill
+    (DESIGN.md § Paying a bill); both null until a payment is linked."""
+    goal = session.get(Goal, goal_id)
+    if goal is None:
+        raise HTTPException(status_code=404, detail=f"No goal with id {goal_id}.")
+    if goal.kind != "recurring_bill":
+        raise HTTPException(status_code=400, detail=f"{goal.name!r} is not a recurring bill.")
+    payment = last_payment(session, goal)
+    return BillLastPaymentOut(payee_id=payment[0], account_id=payment[1]) if payment else BillLastPaymentOut()
 
 
 @app.put("/api/categories/{category_id}/goal", response_model=GoalOut)
