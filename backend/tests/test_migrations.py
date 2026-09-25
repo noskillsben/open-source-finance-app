@@ -195,6 +195,18 @@ def _assert_06817c6fe779(session):
     assert category_balance_cents(session, 3, as_of=date(2026, 12, 31)) == 9000
 
 
+def _assert_9e2c7a41d3b6(session):
+    from datetime import date
+
+    from app.models import Goal
+
+    bill = session.get(Goal, 1)
+    assert (bill.kind, bill.amount_cents, bill.cadence, bill.target_date) == (
+        "recurring_bill", 104800, "yearly", date(2026, 6, 15),
+    )  # the dated bill survived unchanged
+    assert session.get(Goal, 2).target_date is None  # a dateless target is still legal
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -212,6 +224,7 @@ ASSERTIONS = {
     "6c1b8e93f5a7": _assert_6c1b8e93f5a7,
     "b85e039f86ae": _assert_b85e039f86ae,
     "06817c6fe779": _assert_06817c6fe779,
+    "9e2c7a41d3b6": _assert_9e2c7a41d3b6,
 }
 
 
@@ -233,8 +246,8 @@ def _revisions_from_alembic() -> list[dict]:
 REVISIONS = _revisions_from_alembic()
 
 
-def _load_fixture(connection, revision: str) -> None:
-    sql = (FIXTURES_DIR / f"{revision}.sql").read_text()
+def _load_fixture(connection, name: str) -> None:
+    sql = (FIXTURES_DIR / f"{name}.sql").read_text()
     for statement in filter(None, (s.strip() for s in sql.split(";"))):
         connection.execute(text(statement))
 
@@ -264,5 +277,24 @@ def test_revision_survives_a_populated_database(throwaway_database, case):
         migrate(url, "head")  # second upgrade must be a no-op
         with Session() as session:
             case["assert_data"](session)
+    finally:
+        engine.dispose()
+
+
+def test_9e2c7a41d3b6_refuses_dateless_recurring_bills_live_or_archived(throwaway_database):
+    url = throwaway_database
+    migrate(url, "06817c6fe779")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            _load_fixture(connection, "9e2c7a41d3b6_dateless")
+
+        with pytest.raises(RuntimeError) as refusal:
+            migrate(url, "head")
+        assert "#1 'My part'" in str(refusal.value)
+        assert "#2 'Old rent'" in str(refusal.value)  # archived bills count too
+
+        with engine.connect() as connection:  # nothing was guessed or changed
+            assert connection.execute(text("SELECT count(*) FROM goal WHERE target_date IS NULL")).scalar() == 2
     finally:
         engine.dispose()

@@ -156,8 +156,8 @@ def test_progress_reads_the_picker_date(client, db_session, category):
 
 @pytest.mark.parametrize("fields, message", [
     ({"kind": "wish", "amount_cents": 1}, "Unknown goal kind"),
-    ({"kind": "recurring_bill", "amount_cents": 100}, "amount and a cadence"),
-    ({"kind": "recurring_bill", "cadence": "monthly"}, "amount and a cadence"),
+    ({"kind": "recurring_bill", "amount_cents": 100, "target_date": "2026-06-15"}, "amount and a cadence"),
+    ({"kind": "recurring_bill", "cadence": "monthly", "target_date": "2026-06-15"}, "amount and a cadence"),
     ({"kind": "target"}, "needs an amount"),
     ({"kind": "target", "amount_cents": 100, "cadence": "monthly"}, "needs a target date"),
     ({"kind": "target", "amount_cents": 100, "level_cents": 5}, "no level"),
@@ -166,11 +166,11 @@ def test_progress_reads_the_picker_date(client, db_session, category):
     ({"kind": "commitment", "amount_cents": 1, "level_cents": 2, "cadence": "monthly"}, "give exactly one"),
     ({"kind": "commitment", "amount_cents": 1}, "needs a cadence"),
     ({"kind": "commitment", "amount_cents": 1, "cadence": "monthly", "target_date": "2026-05-01"}, "no target date"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "weeks"}, "needs N"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "cadence_weeks": 2}, "only applies"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "daily"}, "Unknown cadence"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "weeks", "target_date": "2026-06-15"}, "needs N"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "cadence_weeks": 2, "target_date": "2026-06-15"}, "only applies"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "daily", "target_date": "2026-06-15"}, "Unknown cadence"),
     ({"kind": "target", "amount_cents": 100, "percent_of_net": "5"}, "no percentage"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "percent_of_net": "5"}, "no percentage"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "percent_of_net": "5", "target_date": "2026-06-15"}, "no percentage"),
     ({"kind": "commitment", "cadence": "monthly", "percent_of_net": "5"}, "needs a bound pay"),
     ({"kind": "target", "amount_cents": 100, "income_stream_id": 999}, "Unknown income stream id"),
 ])
@@ -179,6 +179,24 @@ def test_invalid_goals_are_refused_and_nothing_is_written(client, category, fiel
     assert response.status_code == 400
     assert message in response.json()["detail"]
     assert _progress(client) == []
+
+
+@pytest.mark.parametrize("target_date", [None, "missing"])
+def test_recurring_bill_without_a_first_due_date_is_a_422(client, category, target_date):
+    fields = {"kind": "recurring_bill", "amount_cents": 10000, "cadence": "monthly"}
+    if target_date is None:
+        fields["target_date"] = None  # stated as null
+    response = _set(client, category, **fields)  # or left out entirely
+    assert response.status_code == 422
+    assert "first due date" in response.text
+    assert _progress(client) == []
+
+
+def test_editing_a_bills_first_due_date_restarts_its_cycles(client, category):
+    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-01-15")
+    assert _progress(client)[0]["due_date"] == "2026-03-15"
+    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-05-10")
+    assert _progress(client)[0]["due_date"] == "2026-05-10"  # no cycle exists before the new first date
 
 
 def test_zero_is_a_stated_amount(client, category):
