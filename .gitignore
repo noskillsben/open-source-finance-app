@@ -25,3 +25,6 @@ pgdata/
 .DS_Store
 Thumbs.db
 *:Zone.Identifier
+
+# history replay: real scenarios, converters and exports (DESIGN.md § History replay)
+frontend/replay/private/
