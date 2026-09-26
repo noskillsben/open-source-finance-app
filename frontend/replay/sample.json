@@ -1,0 +1,168 @@
+{
+  "name": "Sample: Alex, five weeks (fictional)",
+  "start": "2026-08-01",
+  "as_of": "2026-09-04",
+  "setup": {
+    "domains": ["Savings"],
+    "payees": ["Acme Ltd", "Corner Grocer", "Northern Telecom", "Visa payment"],
+    "accounts": [
+      { "name": "Chequing", "type": "Chequing", "on_budget": true, "opening_cents": 200000, "credit_limit_cents": 0 },
+      { "name": "Visa", "type": "Credit card", "on_budget": true, "opening_cents": 0, "credit_limit_cents": 300000 },
+      { "name": "Brokerage", "type": "Investment", "on_budget": false, "opening_cents": 500000 }
+    ],
+    "categories": [
+      { "name": "Income" },
+      { "name": "Income tax", "domain": "Financial" },
+      { "name": "Pension", "domain": "Financial" },
+      { "name": "Food budget", "domain": "Food", "need_level": "need" },
+      { "name": "Groceries", "domain": "Food", "need_level": "need", "pool": "Food budget" },
+      { "name": "Rent", "domain": "Housing", "need_level": "need" },
+      { "name": "Phone", "domain": "Housing", "need_level": "need" },
+      { "name": "Investing", "domain": "Savings", "need_level": "should" }
+    ],
+    "income_streams": [
+      {
+        "name": "Acme pay",
+        "payee": "Acme Ltd",
+        "cadence": "weeks",
+        "cadence_weeks": 2,
+        "anchor_payday": "2026-08-07",
+        "expected_gross_cents": 200000,
+        "expected_net_low_cents": 150000,
+        "expected_net_high_cents": 160000,
+        "income_category": "Income",
+        "destination_account": "Chequing",
+        "deductions": [
+          { "category": "Income tax", "amount_cents": 35000 },
+          { "category": "Pension", "amount_cents": 10000 }
+        ]
+      }
+    ],
+    "goals": [
+      {
+        "category": "Phone",
+        "name": "Phone bill",
+        "kind": "recurring_bill",
+        "amount_cents": 6500,
+        "cadence": "monthly",
+        "target_date": "2026-08-15",
+        "income_stream": "Acme pay"
+      }
+    ]
+  },
+  "events": [
+    {
+      "kind": "pay",
+      "date": "2026-08-07",
+      "income_stream": "Acme pay",
+      "payee": "Acme Ltd",
+      "account": "Chequing",
+      "income_category": "Income",
+      "gross_cents": 200000,
+      "net_cents": 155000,
+      "deductions": [
+        { "category": "Income tax", "amount_cents": 35000 },
+        { "category": "Pension", "amount_cents": 10000 }
+      ],
+      "distribution": [
+        { "category": "Rent", "cents": 80000 },
+        { "category": "Phone", "cents": 6500 },
+        { "category": "Food budget", "cents": 30000 }
+      ]
+    },
+    {
+      "kind": "move",
+      "date": "2026-08-08",
+      "from": null,
+      "to": "Groceries",
+      "cents": 10000
+    },
+    {
+      "kind": "transaction",
+      "date": "2026-08-09",
+      "memo": "Weekly shop; more than Groceries holds, so the rest is drawn from Food budget",
+      "payee": "Corner Grocer",
+      "account_lines": [{ "account": "Visa", "cents": -14000 }],
+      "category_lines": [{ "category": "Groceries", "cents": -14000 }]
+    },
+    {
+      "kind": "transaction",
+      "date": "2026-08-15",
+      "memo": "Phone bill, due Aug 15",
+      "payee": "Northern Telecom",
+      "account_lines": [{ "account": "Chequing", "cents": -6500 }],
+      "category_lines": [{ "category": "Phone", "cents": -6500 }],
+      "bill": { "category": "Phone", "due_on": "2026-08-15" }
+    },
+    {
+      "kind": "pay",
+      "date": "2026-08-21",
+      "memo": "Recorded ahead, from the expected figures",
+      "income_stream": "Acme pay",
+      "payee": "Acme Ltd",
+      "account": "Chequing",
+      "income_category": "Income",
+      "gross_cents": 200000,
+      "net_cents": 155000,
+      "deductions": [
+        { "category": "Income tax", "amount_cents": 35000 },
+        { "category": "Pension", "amount_cents": 10000 }
+      ],
+      "distribution": [
+        { "category": "Rent", "cents": 80000 },
+        { "category": "Phone", "cents": 6500 }
+      ]
+    },
+    {
+      "kind": "reopen_pay",
+      "date": "2026-08-24",
+      "income_stream": "Acme pay",
+      "payday": "2026-08-21",
+      "gross_cents": 205000,
+      "deductions": [
+        { "category": "Income tax", "amount_cents": 37000 },
+        { "category": "Pension", "amount_cents": 10000 }
+      ]
+    },
+    {
+      "kind": "move",
+      "date": "2026-08-25",
+      "from": null,
+      "to": "Investing",
+      "cents": 50000
+    },
+    {
+      "kind": "transaction",
+      "date": "2026-08-26",
+      "memo": "Top up the brokerage; leaves the budget",
+      "account_lines": [
+        { "account": "Chequing", "cents": -50000 },
+        { "account": "Brokerage", "cents": 50000 }
+      ],
+      "category_lines": [{ "category": "Investing", "cents": -50000 }]
+    },
+    {
+      "kind": "transaction",
+      "date": "2026-08-30",
+      "memo": "Pay off the Visa",
+      "payee": "Visa payment",
+      "account_lines": [
+        { "account": "Chequing", "cents": -14000 },
+        { "account": "Visa", "cents": 14000 }
+      ],
+      "category_lines": []
+    },
+    {
+      "kind": "balance_check",
+      "date": "2026-09-02",
+      "account": "Chequing",
+      "stated_cents": 441250,
+      "expected_diff_cents": -1250
+    }
+  ],
+  "expected_final_balances": {
+    "Chequing": 441250,
+    "Visa": 0,
+    "Brokerage": 550000
+  }
+}
