@@ -509,28 +509,23 @@ export default function PayRecord({ pickerDate }) {
 
   const shortByRows = useMemo(() => {
     if (!readyToAssign) return []
+    // What a category still offers is its balance less what this screen already covers from it.
     return readyToAssign.categories
-      .filter((c) => c.available_cents > 0 && !fundedThisScreenCategoryIds.has(c.category_id))
       .map((c) => ({
         categoryId: c.category_id,
         name: categoriesById.get(c.category_id)?.name ?? '',
-        availableCents: c.available_cents,
+        availableCents: c.available_cents - (parseCents(shortCovers[c.category_id]) ?? 0),
       }))
+      .filter((r) => r.availableCents > 0 && !fundedThisScreenCategoryIds.has(r.categoryId))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [readyToAssign, fundedThisScreenCategoryIds, categoriesById])
+  }, [readyToAssign, fundedThisScreenCategoryIds, categoriesById, shortCovers])
 
-  async function coverFrom(row) {
+  // Nothing moves until Record: a cover is a line in the pay batch, held in shortCovers.
+  function coverFrom(row) {
     setFormError(null)
-    try {
-      await api.earmarkMoves.create({
-        date: payday,
-        cents: Math.min(-leftover, row.availableCents),
-        from_category_id: row.categoryId,
-      })
-      await refreshReadyToAssign()
-    } catch (err) {
-      setFormError(err.message)
-    }
+    const cents = Math.min(-leftover, row.availableCents)
+    const already = parseCents(shortCovers[row.categoryId]) ?? 0
+    setShortCovers({ ...shortCovers, [row.categoryId]: centsText(already + cents) })
   }
 
   if (error) return <p className="text-bad py-6">Could not reach the backend: {error}</p>
