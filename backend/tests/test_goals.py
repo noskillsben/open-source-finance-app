@@ -227,6 +227,23 @@ def test_archive_frees_the_category_for_a_new_goal(client, category):
     assert [r["goal"]["name"] for r in _progress(client, datetime.date(2026, 3, 10))] == ["Second"]
 
 
+def test_include_archived_returns_an_archived_goal(client, category):
+    # #142: the Ledger needs to label a transaction's bill "<name> (archived)" instead of
+    # `bill #id`, so `/api/goals` needs an archived-included lookup like the other list routes.
+    _set(client, category, kind="target", amount_cents=10000)
+    archived = client.post(f"/api/categories/{category.id}/goal/archive", json={"archived_on": "2026-03-05"})
+    assert archived.status_code == 200
+
+    on = datetime.date(2026, 3, 10)
+    assert _progress(client, on) == []  # the plain (live) lookup excludes it, as before
+
+    response = client.get("/api/goals", params={"as_of": on.isoformat(), "include_archived": "true"})
+    assert response.status_code == 200
+    (row,) = response.json()
+    assert row["goal"]["name"] == "My part"
+    assert row["goal"]["archived_on"] == "2026-03-05"
+
+
 def test_goal_binds_to_a_named_pay(client, category, stream):
     response = _set(client, category, kind="target", amount_cents=10000, income_stream_id=stream.id)
     assert response.status_code == 200

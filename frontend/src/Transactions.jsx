@@ -17,6 +17,12 @@ export default function Transactions({ pickerDate }) {
   const [transactions, setTransactions] = useState(null)
   const [goals, setGoals] = useState(null)
   const [error, setError] = useState(null)
+  // Ledger rows can name an archived entity (DESIGN.md § General concepts): these "all" lists
+  // include archived rows and feed only the ledger table's name lookups, never the form pickers.
+  const [accountsAll, setAccountsAll] = useState(null)
+  const [categoriesAll, setCategoriesAll] = useState(null)
+  const [payeesAll, setPayeesAll] = useState(null)
+  const [goalsAll, setGoalsAll] = useState(null)
 
   const [date, setDate] = useState(pickerDate)
   const [memo, setMemo] = useState('')
@@ -39,6 +45,10 @@ export default function Transactions({ pickerDate }) {
     api.payees.list(pickerDate).then(setPayees).catch((e) => setError(e.message))
     api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
     api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
+    api.accounts.list(pickerDate, true).then(setAccountsAll).catch((e) => setError(e.message))
+    api.categories.list(pickerDate, true).then(setCategoriesAll).catch((e) => setError(e.message))
+    api.payees.list(pickerDate, true).then(setPayeesAll).catch((e) => setError(e.message))
+    api.goals.list(pickerDate, true).then(setGoalsAll).catch((e) => setError(e.message))
   }
 
   async function addPayee(name) {
@@ -178,6 +188,21 @@ export default function Transactions({ pickerDate }) {
   const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
   const depositTotal = deposits.reduce((sum, d) => sum + (parseCents(d.cents) ?? 0), 0)
 
+  // Ledger name lookups: resolve from the "all" (archived-included) lists so a row that names an
+  // archived entity still shows its name, marked "(archived)", instead of falling back to `#id`
+  // (DESIGN.md § General concepts).
+  function entityLabel(list, id, fallback) {
+    if (id == null) return null
+    const match = list?.find((e) => e.id === id)
+    if (!match) return fallback
+    return match.archived_on ? `${match.name} (archived)` : match.name
+  }
+  function billLabel(goalId) {
+    const match = goalsAll?.find((g) => g.goal.id === goalId)
+    if (!match) return `bill #${goalId}`
+    return match.goal.archived_on ? `${match.goal.name} (archived)` : match.goal.name
+  }
+
   async function submit(e) {
     e.preventDefault()
     setFormError(null)
@@ -280,13 +305,12 @@ export default function Transactions({ pickerDate }) {
                   </td>
                   <td className="py-1 align-top">{t.memo || '—'}</td>
                   <td className="py-1 align-top">
-                    {payees?.find((p) => p.id === t.payee_id)?.name ?? (t.payee_id ? `#${t.payee_id}` : '—')}
+                    {t.payee_id != null ? entityLabel(payeesAll, t.payee_id, `#${t.payee_id}`) : '—'}
                   </td>
                   <td className="py-1 align-top">
                     {t.account_lines.map((l) => (
                       <div key={l.id}>
-                        {accounts?.find((a) => a.id === l.account_id)?.name ?? `#${l.account_id}`}:{' '}
-                        {formatCents(l.cents)}
+                        {entityLabel(accountsAll, l.account_id, `#${l.account_id}`)}: {formatCents(l.cents)}
                       </div>
                     ))}
                   </td>
@@ -294,14 +318,12 @@ export default function Transactions({ pickerDate }) {
                     {t.category_lines.length === 0 && <span className="text-paper-soft">unassigned</span>}
                     {t.category_lines.map((l) => (
                       <div key={l.id}>
-                        {categories?.find((c) => c.id === l.category_id)?.name ?? `#${l.category_id}`}:{' '}
-                        {formatCents(l.cents)}
+                        {entityLabel(categoriesAll, l.category_id, `#${l.category_id}`)}: {formatCents(l.cents)}
                       </div>
                     ))}
                     {t.goal_id != null && (
                       <div className="text-xs text-paper-soft">
-                        pays {goals?.find((g) => g.goal.id === t.goal_id)?.goal.name ?? `bill #${t.goal_id}`}, due{' '}
-                        {formatDate(t.goal_due_on)}
+                        pays {billLabel(t.goal_id)}, due {formatDate(t.goal_due_on)}
                       </div>
                     )}
                   </td>

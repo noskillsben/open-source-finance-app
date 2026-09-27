@@ -56,7 +56,7 @@ export const api = {
     unarchive: (id) => request(`/api/categories/${id}/unarchive`, { method: 'POST' }),
   },
   goals: {
-    list: (asOf) => request(`/api/goals?as_of=${asOf}`),
+    list: (asOf, includeArchived = false) => request(listPath('/api/goals', asOf, includeArchived)),
     dueDates: (goalId) => request(`/api/goals/${goalId}/due-dates`),
     lastPayment: (goalId) => request(`/api/goals/${goalId}/last-payment`),
     set: (categoryId, goal) => request(`/api/categories/${categoryId}/goal`, { method: 'PUT', body: goal }),
