@@ -296,17 +296,18 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
 
 // The goal row under a category: name, "$X of $Y", due date, per-period amount, and its own
 // Add / Withdraw box — the same earmark move as the row above, so progress and available stay one number.
-function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
-  const { goal, balance_cents: balance, target_cents: target, owed_cents: owed, due_date: due, per_period_cents: perPeriod } = progress
+function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams }) {
+  const { goal, balance_cents: balance, target_cents: target, due_date: due, per_period_cents: perPeriod } = progress
   const { bill_status: billStatus, bill_status_text: billStatusText, last_paid_text: lastPaidText } = progress
   const nextDue = progress.earliest_unpaid_due_on
+  const nextDueText = progress.earliest_unpaid_due_text
+  const streamName = streams.find((s) => s.id === goal.income_stream_id)?.name
   return (
     <tr className="text-sm text-paper-soft">
       <td colSpan={6} className="pb-2" style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span className="text-paper">{goal.name}</span>
           <span>{target == null ? formatCents(balance) : `${formatCents(balance)} of ${formatCents(target)}`}</span>
-          {goal.kind === 'recurring_bill' && owed > 0 && <span>{formatCents(owed)} still owed this cycle</span>}
           {billStatusText && (
             <span className={billStatus === 'overdue' ? 'text-bad' : undefined}>{billStatusText}</span>
           )}
@@ -325,15 +326,19 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived }) {
                 },
               }}
             >
-              Record {formatDate(nextDue)}
+              Record {nextDueText}
             </Link>
           )}
           {due && goal.kind !== 'recurring_bill' && <span>by {formatDate(due)}</span>}
-          {perPeriod != null && (
-            <span>
-              {formatCents(perPeriod)}
-              {goal.cadence ? ` ${cadenceText(goal)}` : ''}
-            </span>
+          {goal.percent_of_net != null ? (
+            <span>{goal.percent_of_net}% of net{streamName ? ` · ${streamName} pay` : ''}</span>
+          ) : (
+            perPeriod != null && (
+              <span>
+                {formatCents(perPeriod)}
+                {goal.cadence ? ` ${cadenceText(goal)}` : ''}
+              </span>
+            )
           )}
           {!archived && (
             <form
@@ -662,6 +667,7 @@ export default function Categories({ pickerDate }) {
         {!error && !categories && <p>Loading…</p>}
         {categories && categories.length === 0 && <p className="text-paper-soft">No categories yet.</p>}
         {rows.length > 0 && (
+          <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="text-left text-paper-soft">
@@ -750,12 +756,14 @@ export default function Categories({ pickerDate }) {
                     onAmount={(text) => setAmounts({ ...amounts, [`goal-${c.id}`]: text })}
                     onMove={(direction) => addOrWithdraw(c, direction, `goal-${c.id}`)}
                     archived={!!c.archived_on}
+                    streams={streams}
                   />
                 )}
                 </Fragment>
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </section>
 

@@ -73,8 +73,8 @@ from app.services.links import (
     suggest_split,
 )
 from app.services.goals import (
-    GoalError, apply_goal, bill_status, due_by_next_payday, earliest_unpaid_due_date, goal_latest_linked_date,
-    goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
+    GoalError, _short_date, apply_goal, bill_status, due_by_next_payday, earliest_unpaid_due_date,
+    goal_latest_linked_date, goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
 )
 from app.services.income_streams import IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
@@ -413,11 +413,13 @@ def list_goals(
             due_cents = due_by_next_payday(session, g, stream, as_of=as_of)
         status = bill_status(session, g, as_of=as_of, stream=stream)
         last_paid = last_paid_text(session, g, as_of=as_of) if g.kind == "recurring_bill" else None
+        earliest_unpaid = earliest_unpaid_due_date(session, g)
         out.append(
             GoalProgressOut(
                 goal=GoalOut.model_validate(g),
                 due_by_next_payday_cents=due_cents,
-                earliest_unpaid_due_on=earliest_unpaid_due_date(session, g),
+                earliest_unpaid_due_on=earliest_unpaid,
+                earliest_unpaid_due_text=_short_date(earliest_unpaid, as_of=as_of) if earliest_unpaid else None,
                 bill_status=status[0] if status else None,
                 bill_status_text=status[1] if status else None,
                 last_paid_due_on=last_paid[0] if last_paid else None,
