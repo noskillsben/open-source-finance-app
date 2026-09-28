@@ -515,6 +515,9 @@ class GoalProgressOut(BaseModel):
     # A recurring bill's earliest due date with no linked payment — what the Ledger form offers
     # (DESIGN.md § Paying a bill). Null for any other kind.
     earliest_unpaid_due_on: date | None = None
+    # Same date, worded with `_short_date` (year dropped in the picker's year) — what "Record"
+    # links to on the Categories goal row.
+    earliest_unpaid_due_text: str | None = None
     due_by_next_payday_cents: int | None
     # A recurring bill's status ("overdue" / "due" / "next_due") and its wording, worded once on
     # the server (DESIGN.md § Paying a bill); null for any other kind.

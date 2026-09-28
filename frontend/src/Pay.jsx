@@ -239,6 +239,79 @@ export default function Pay({ pickerDate }) {
     <div className="py-6 space-y-6">
       <h2 className="text-xl font-semibold">Pay</h2>
 
+      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
+        {error && <p className="text-bad">Could not reach the backend: {error}</p>}
+        {rowError && <p className="text-bad">{rowError}</p>}
+        {warnings.map((w) => (
+          <p key={w} className="text-sm text-bad">{w}</p>
+        ))}
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <input
+              className="rounded bg-ink px-2 py-1 text-sm"
+              placeholder="Search named pays"
+              aria-label="Search named pays"
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+            />
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              Show archived
+            </label>
+          </div>
+          <Link className="text-sm text-accent" to="/pay/one-off">
+            One-off income
+          </Link>
+        </div>
+        {!error && !streams && <p>Loading…</p>}
+        {streams && streams.length === 0 && <p className="text-paper-soft">No named pays yet.</p>}
+        {shown.length > 0 && (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-left text-paper-soft">
+                <th className="pb-1">Name</th>
+                <th className="pb-1">Cadence</th>
+                <th className="pb-1">Next payday</th>
+                <th className="pb-1"></th>
+              </tr>
+            </thead>
+            <tbody>
+              {shown.map((s) => (
+                <tr key={s.id}>
+                  <td className="py-1">
+                    {s.name}
+                    {s.archived_on && (
+                      <div className="text-xs text-paper-soft">archived {formatDate(s.archived_on)}</div>
+                    )}
+                  </td>
+                  <td className="py-1">{cadenceText(s)}</td>
+                  <td className="py-1">{formatDate(s.next_payday)}</td>
+                  <td className="py-1 text-right space-x-3 whitespace-nowrap">
+                    {!s.archived_on && (
+                      <Link className="text-xs text-accent" to={`/pay/${s.id}/record`}>
+                        {isRecorded(s) ? 'Re-open' : 'Record'}
+                      </Link>
+                    )}
+                    {!s.archived_on && (
+                      <button type="button" className="text-xs text-accent" onClick={() => startEdit(s)}>
+                        Edit
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="text-xs text-accent"
+                      onClick={() => (s.archived_on ? unarchiveStream(s) : archiveStream(s))}
+                    >
+                      {s.archived_on ? 'Unarchive' : 'Archive'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
+
       <form key={formKey} onSubmit={submit} className="rounded-lg bg-ink-soft p-4 space-y-3">
         <h3 className="font-medium">{editing ? `Edit ${editing.name}` : 'Add a named pay'}</h3>
         <p className="text-sm text-paper-soft">
@@ -355,79 +428,6 @@ export default function Pay({ pickerDate }) {
           )}
         </div>
       </form>
-
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        {error && <p className="text-bad">Could not reach the backend: {error}</p>}
-        {rowError && <p className="text-bad">{rowError}</p>}
-        {warnings.map((w) => (
-          <p key={w} className="text-sm text-bad">{w}</p>
-        ))}
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              className="rounded bg-ink px-2 py-1 text-sm"
-              placeholder="Search named pays"
-              aria-label="Search named pays"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
-            <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-              Show archived
-            </label>
-          </div>
-          <Link className="text-sm text-accent" to="/pay/one-off">
-            One-off income
-          </Link>
-        </div>
-        {!error && !streams && <p>Loading…</p>}
-        {streams && streams.length === 0 && <p className="text-paper-soft">No named pays yet.</p>}
-        {shown.length > 0 && (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-paper-soft">
-                <th className="pb-1">Name</th>
-                <th className="pb-1">Cadence</th>
-                <th className="pb-1">Next payday</th>
-                <th className="pb-1"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((s) => (
-                <tr key={s.id}>
-                  <td className="py-1">
-                    {s.name}
-                    {s.archived_on && (
-                      <div className="text-xs text-paper-soft">archived {formatDate(s.archived_on)}</div>
-                    )}
-                  </td>
-                  <td className="py-1">{cadenceText(s)}</td>
-                  <td className="py-1">{formatDate(s.next_payday)}</td>
-                  <td className="py-1 text-right space-x-3 whitespace-nowrap">
-                    {!s.archived_on && (
-                      <Link className="text-xs text-accent" to={`/pay/${s.id}/record`}>
-                        {isRecorded(s) ? 'Re-open' : 'Record'}
-                      </Link>
-                    )}
-                    {!s.archived_on && (
-                      <button type="button" className="text-xs text-accent" onClick={() => startEdit(s)}>
-                        Edit
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="text-xs text-accent"
-                      onClick={() => (s.archived_on ? unarchiveStream(s) : archiveStream(s))}
-                    >
-                      {s.archived_on ? 'Unarchive' : 'Archive'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        )}
-      </section>
     </div>
   )
 }

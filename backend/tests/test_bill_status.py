@@ -229,3 +229,17 @@ def test_the_button_names_the_next_due_date_once_one_is_paid(db_session, client,
     assert _row(client, goal, datetime.date(2026, 10, 3))["earliest_unpaid_due_on"] == "2026-10-01"
     _pay(client, chequing, category, goal, "2026-10-01", cents=120_000)
     assert _row(client, goal, datetime.date(2026, 10, 3))["earliest_unpaid_due_on"] == "2026-11-01"
+
+
+def test_the_record_link_text_drops_the_year_only_in_the_pickers_own_year(db_session, client):
+    """#148: the "Record" link on the Categories goal row reads the due date with `_short_date`
+    (DESIGN.md § Goals), the same wording the bill's status line already uses — the year shows
+    only when the due date falls outside the picker's year.
+    """
+    _, goal = _bill(db_session, datetime.date(2026, 10, 1))
+    same_year = _row(client, goal, datetime.date(2026, 9, 1))
+    assert same_year["earliest_unpaid_due_text"] == "Oct 1"
+
+    _, goal = _bill(db_session, datetime.date(2027, 1, 1), name="Insurance")
+    other_year = _row(client, goal, datetime.date(2026, 9, 1))
+    assert other_year["earliest_unpaid_due_text"] == "Jan 1, 2027"

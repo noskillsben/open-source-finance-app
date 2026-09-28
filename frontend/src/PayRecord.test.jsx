@@ -87,6 +87,10 @@ describe('PayRecord with no named pay behind it', () => {
 
     expect(await screen.findByRole('heading', { level: 2, name: 'One-off income' })).toBeInTheDocument()
 
+    // #148: the header shows the date alone — no upcoming/recorded pill on a one-off.
+    expect(screen.queryByText('upcoming')).not.toBeInTheDocument()
+    expect(screen.queryByText('recorded')).not.toBeInTheDocument()
+
     // Blocks 4, 6, 7, 8: nothing binds to a one-off, so none of them render.
     expect(screen.queryByText('Retain income')).not.toBeInTheDocument()
     expect(screen.queryByText('Bills')).not.toBeInTheDocument()
@@ -119,6 +123,8 @@ describe('PayRecord with no named pay behind it', () => {
       expect(screen.queryByText(/set actual/i)).not.toBeInTheDocument()
       expect(screen.queryByText(/delete this pay/i)).not.toBeInTheDocument()
       expect(screen.queryByText('recorded')).not.toBeInTheDocument()
+      // #148: a one-off's header shows the date alone, never an upcoming/recorded pill.
+      expect(screen.queryByText('upcoming')).not.toBeInTheDocument()
       unmount()
     }
   })

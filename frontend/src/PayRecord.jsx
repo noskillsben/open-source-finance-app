@@ -643,9 +643,11 @@ export default function PayRecord({ pickerDate }) {
       <div className="rounded-lg bg-ink-soft p-4 space-y-1">
         <div className="flex items-center justify-between">
           <h2 className="text-xl font-semibold">{isOneOff ? 'One-off income' : stream.name}</h2>
-          <span className="rounded bg-ink px-2 py-0.5 text-xs uppercase text-paper-soft">
-            {existingTransaction ? 'recorded' : 'upcoming'}
-          </span>
+          {!isOneOff && (
+            <span className="rounded bg-ink px-2 py-0.5 text-xs uppercase text-paper-soft">
+              {existingTransaction ? 'recorded' : 'upcoming'}
+            </span>
+          )}
         </div>
         <label className="block text-sm">
           <span className="text-paper-soft">{isOneOff ? 'Date' : 'Payday'}</span>
