@@ -99,13 +99,39 @@ def test_status_without_a_bound_pay_compares_to_the_picker_date(db_session, clie
     [
         (datetime.date(2026, 8, 30), "overdue"),
         (datetime.date(2026, 9, 1), "due"),       # the picker date itself, before the next payday
-        (datetime.date(2026, 9, 4), "due"),       # on the next payday
+        (datetime.date(2026, 9, 4), "next_due"),  # on the next payday — waits for that payday
         (datetime.date(2026, 9, 5), "next_due"),  # the day after it
     ],
 )
 def test_status_with_a_bound_pay_compares_to_its_next_payday(db_session, client, salary, first_due, status):
     _, goal = _bill(db_session, first_due, stream=salary)
     assert _row(client, goal, DAY)["bill_status"] == status
+
+
+@pytest.mark.parametrize(
+    "as_of, status",
+    [
+        (datetime.date(2026, 9, 3), "next_due"),
+        (datetime.date(2026, 9, 4), "due"),       # payday: horizon becomes the next payday, Sep 18
+        (datetime.date(2026, 9, 17), "due"),
+        (datetime.date(2026, 9, 18), "overdue"),  # payday, still unpaid
+    ],
+)
+def test_status_on_payday_itself_uses_the_following_payday_as_the_horizon(db_session, client, salary, as_of, status):
+    _, goal = _bill(db_session, datetime.date(2026, 9, 17), stream=salary)
+    assert _row(client, goal, as_of)["bill_status"] == status
+
+
+@pytest.mark.parametrize(
+    "as_of, status",
+    [
+        (datetime.date(2026, 9, 17), "next_due"),
+        (datetime.date(2026, 9, 18), "due"),  # due exactly on a payday: waits for that payday
+    ],
+)
+def test_a_bill_due_exactly_on_a_payday_waits_for_that_payday(db_session, client, salary, as_of, status):
+    _, goal = _bill(db_session, datetime.date(2026, 9, 18), stream=salary)
+    assert _row(client, goal, as_of)["bill_status"] == status
 
 
 def test_an_overdue_bill_keeps_its_due_date_on_both_surfaces(db_session, client, salary):
