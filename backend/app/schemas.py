@@ -524,6 +524,11 @@ class GoalProgressOut(BaseModel):
     # A fixed Commitment's context line on the pay screen, worded once on the server: "each
     # payday" or "$100.00 of $200.00 due Oct 31"; null for any other goal or with no bound pay.
     commitment_context_text: str | None = None
+    # A fixed Commitment's goal-row lines, worded once on the server: "$200.00 monthly · next due
+    # Oct 31" / "$50.00 each payday", and "$140.00 of $200.00 this month" (null for each payday and
+    # for any other goal).
+    commitment_cadence_text: str | None = None
+    commitment_progress_text: str | None = None
     # A recurring bill's status ("overdue" / "due" / "next_due") and its wording, worded once on
     # the server (DESIGN.md § Paying a bill); null for any other kind.
     bill_status: str | None = None

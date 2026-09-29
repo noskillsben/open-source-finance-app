@@ -514,3 +514,102 @@ def test_context_text_is_null_for_a_refill_commitment(client, category, stream):
     _set(client, category, kind="commitment", level_cents=60000, income_stream_id=stream.id)
     (row,) = _progress(client)
     assert row["commitment_context_text"] is None
+
+
+# --- #158: a fixed Commitment's goal row wording -----------------------------------------------
+
+def _row(db_session, goal, as_of=DAY):
+    from app.services.goals import commitment_row_text
+    return commitment_row_text(db_session, goal, as_of=as_of)
+
+
+@pytest.mark.parametrize("cadence, first_due, label, period", [
+    ("monthly", datetime.date(2026, 3, 31), "monthly", "this month"),
+    ("quarterly", datetime.date(2026, 3, 31), "quarterly", "this quarter"),
+    ("semiannual", datetime.date(2026, 3, 31), "every 6 months", "this 6-month period"),
+    ("yearly", datetime.date(2026, 3, 31), "yearly", "this year"),
+])
+def test_commitment_row_wording_for_each_cadence(db_session, category, stream, cadence, first_due, label, period):
+    goal = _commitment(db_session, category, stream, cadence=cadence, first_due_on=first_due)
+    _fund(db_session, category, 14000, on=DAY)
+    assert _row(db_session, goal) == {
+        "commitment_cadence_text": f"$200.00 {label} · next due Mar 31",
+        "commitment_progress_text": f"$140.00 of $200.00 {period}",
+    }
+
+
+def test_commitment_row_each_payday_has_no_period(db_session, category, stream):
+    goal = _commitment(db_session, category, stream, cadence=None, first_due_on=None, amount=5000)
+    assert _row(db_session, goal) == {
+        "commitment_cadence_text": "$50.00 each payday", "commitment_progress_text": None,
+    }
+
+
+def test_commitment_row_needs_no_bound_pay(db_session, category):
+    goal = Goal(
+        category_id=category.id, name="Vacation", kind="commitment", amount_cents=20000, cadence="monthly",
+        first_due_on=datetime.date(2026, 3, 31), created_on=DAY,
+    )
+    db_session.add(goal)
+    db_session.flush()
+    _fund(db_session, category, 5000, on=DAY)
+    assert _row(db_session, goal)["commitment_progress_text"] == "$50.00 of $200.00 this month"
+
+
+def test_commitment_row_steps_to_the_month_end(db_session, category, stream):
+    goal = _commitment(db_session, category, stream, first_due_on=datetime.date(2026, 11, 30))
+    text = _row(db_session, goal, as_of=datetime.date(2026, 12, 1))["commitment_cadence_text"]
+    assert text == "$200.00 monthly · next due Dec 31"
+    # The first period reaches back one step: Feb 28 is the period Jan 1 – Jan 31's successor.
+    goal.first_due_on = datetime.date(2027, 1, 31)
+    text = _row(db_session, goal, as_of=datetime.date(2027, 2, 1))["commitment_cadence_text"]
+    assert text == "$200.00 monthly · next due Feb 28"
+
+
+def test_commitment_row_progress_ignores_spending(db_session, category, stream):
+    account = create_account_with_opening_valuation(
+        db_session, name="Cash", created_on=DAY, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=100000,
+    )
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 10000, on=datetime.date(2026, 3, 2))
+    write_transaction(
+        db_session, transaction=None, txn_date=datetime.date(2026, 3, 3), memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -9000}],
+        category_lines=[{"category_id": category.id, "cents": -9000}],
+    )
+    assert _row(db_session, goal, as_of=datetime.date(2026, 3, 5))["commitment_progress_text"] == "$100.00 of $200.00 this month"
+
+
+def test_commitment_row_progress_is_capped_at_the_amount_and_floored_at_zero(db_session, category, stream):
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 25000, on=DAY)
+    assert _row(db_session, goal)["commitment_progress_text"] == "$200.00 of $200.00 this month"
+    move_money(db_session, move_date=datetime.date(2026, 3, 3), from_category_id=category.id, to_category_id=None, cents=40000)
+    assert _row(db_session, goal, as_of=datetime.date(2026, 3, 4))["commitment_progress_text"] == "$0.00 of $200.00 this month"
+
+
+def test_commitment_row_measures_from_the_period_start_at_the_picker_date(db_session, category, stream):
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 8000, on=datetime.date(2026, 2, 28))  # the previous period
+    _fund(db_session, category, 3000, on=datetime.date(2026, 3, 10))
+    assert _row(db_session, goal, as_of=datetime.date(2026, 3, 5))["commitment_progress_text"] == "$0.00 of $200.00 this month"
+    assert _row(db_session, goal, as_of=datetime.date(2026, 3, 10))["commitment_progress_text"] == "$30.00 of $200.00 this month"
+
+
+def test_commitment_row_text_is_null_for_refill_and_percent_of_net(client, category, stream):
+    _set(client, category, kind="commitment", level_cents=60000, income_stream_id=stream.id)
+    (row,) = _progress(client)
+    assert row["commitment_cadence_text"] is None and row["commitment_progress_text"] is None
+    _set(client, category, kind="commitment", percent_of_net=5, income_stream_id=stream.id)
+    (row,) = _progress(client)
+    assert row["commitment_cadence_text"] is None and row["commitment_progress_text"] is None
+
+
+def test_commitment_row_text_on_the_goals_api(client, db_session, category):
+    _set(client, category, kind="commitment", amount_cents=20000, cadence="monthly", first_due_on="2026-03-31")
+    _fund(db_session, category, 14000, on=DAY)
+    (row,) = _progress(client)
+    assert row["commitment_cadence_text"] == "$200.00 monthly · next due Mar 31"
+    assert row["commitment_progress_text"] == "$140.00 of $200.00 this month"
+    assert row["commitment_context_text"] is None  # no bound pay: the pay screen's line is unchanged

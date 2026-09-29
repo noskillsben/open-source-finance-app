@@ -112,6 +112,49 @@ it('shows a percent-of-net Commitment\'s per-period text as a percentage, not $0
   expect(await screen.findByText('5% of net · GOC pay')).toBeInTheDocument()
 })
 
+// #158: a fixed Commitment's goal row shows the wording the backend built, and no cadence of its own.
+describe("a Commitment's goal row (#158)", () => {
+  const commitmentRow = (goalFields, lines) => rentRow({
+    goal: {
+      id: 9, category_id: 11, name: 'Vacation', kind: 'commitment', amount_cents: 20000, cadence: 'monthly',
+      archived_on: null, percent_of_net: null, income_stream_id: null, ...goalFields,
+    },
+    balance_cents: 90000, target_cents: null, owed_cents: null, due_date: null, per_period_cents: 20000,
+    earliest_unpaid_due_on: null, earliest_unpaid_due_text: null, bill_status: null, bill_status_text: null,
+    ...lines,
+  })
+
+  it('shows the cadence and progress lines as given', async () => {
+    goals = [commitmentRow({}, {
+      commitment_cadence_text: '$200.00 monthly · next due Oct 31',
+      commitment_progress_text: '$140.00 of $200.00 this month',
+    })]
+    renderCategories()
+    expect(await screen.findByText('$200.00 monthly · next due Oct 31')).toBeInTheDocument()
+    expect(screen.getByText('$140.00 of $200.00 this month')).toBeInTheDocument()
+    expect(screen.queryByText('$200.00 monthly')).not.toBeInTheDocument()
+  })
+
+  it('shows only "each payday" for a Commitment with no period, keeping the balance as before', async () => {
+    goals = [commitmentRow({ amount_cents: 5000, cadence: null }, {
+      commitment_cadence_text: '$50.00 each payday', commitment_progress_text: null, per_period_cents: 5000,
+    })]
+    renderCategories()
+    expect(await screen.findByText('$50.00 each payday')).toBeInTheDocument()
+    expect(screen.getByText('$900.00')).toBeInTheDocument()
+  })
+
+  it('shows no cadence for a refill Commitment', async () => {
+    goals = [commitmentRow({ amount_cents: null, cadence: null, level_cents: 60000 }, {
+      target_cents: 60000, owed_cents: 0, per_period_cents: null,
+      commitment_cadence_text: null, commitment_progress_text: null,
+    })]
+    renderCategories()
+    expect(await screen.findByText('$900.00 of $600.00')).toBeInTheDocument()
+    expect(screen.queryByText(/payday|monthly/i)).not.toBeInTheDocument()
+  })
+})
+
 describe("a Commitment's cadence (#156)", () => {
   async function openCommitmentForm() {
     goals = []

@@ -152,6 +152,11 @@ class Progress:
     owed_cents: int | None
     due_date: date | None
     per_period_cents: int | None
+    # A fixed Commitment's goal-row wording, worded once here (DESIGN.md § Goals): "$200.00 monthly
+    # · next due Oct 31" / "$50.00 each payday", and "$140.00 of $200.00 this month" (none for each
+    # payday, which has no period). Null for any other goal.
+    commitment_cadence_text: str | None = None
+    commitment_progress_text: str | None = None
 
 
 def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
@@ -169,6 +174,7 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
         owed_cents=None if target is None else max(target - balance, 0),
         due_date=due_date(session, goal),
         per_period_cents=per_period,
+        **commitment_row_text(session, goal, as_of=as_of),
     )
 
 
@@ -180,6 +186,27 @@ def _commitment_due(goal: Goal, n: int) -> date:
     """A fixed Commitment's nth due date: the first due month stepped by the cadence, always that
     month's last day (a bill's clamp would drift Nov 30 to Dec 30; a Commitment's never does)."""
     return _month_end(_step(goal, goal.first_due_on, n))
+
+
+def _commitment_period(goal: Goal, day: date) -> tuple[date, date]:
+    """The period of a Commitment with a cadence that `day` falls in: (start, due). Due is the
+    earliest due date on or after `day`; the period starts the day after the previous due date, the
+    first period included (one cadence step before the first due month). The one calculation both
+    `commitment_ask` (at the payday) and the goal row (at the picker date) use.
+    """
+    n = 0
+    while _commitment_due(goal, n) < day:
+        n += 1
+    return _commitment_due(goal, n - 1) + timedelta(days=1), _commitment_due(goal, n)
+
+
+def _assigned_cents(session: Session, category_id: int, start: date, through: date) -> int:
+    """Signed earmark lines to the category from `start` to `through` — spending never counts."""
+    return int(session.scalar(
+        select(func.coalesce(func.sum(EarmarkLine.cents), 0)).where(
+            EarmarkLine.category_id == category_id, EarmarkLine.date >= start, EarmarkLine.date <= through
+        )
+    ))
 
 
 def _periods_left(stream: IncomeStream, pivot: date, due: date) -> int:
@@ -208,19 +235,35 @@ def commitment_ask(session: Session, goal: Goal, stream: IncomeStream, *, as_of:
     if goal.kind != "commitment" or goal.amount_cents is None or goal.cadence is None or goal.first_due_on is None:
         return None
     pivot = next_payday(stream, as_of=as_of)
-    n = 0
-    while _commitment_due(goal, n) < pivot:
-        n += 1
-    due = _commitment_due(goal, n)
-    start = _commitment_due(goal, n - 1) + timedelta(days=1)
-    assigned = int(session.scalar(
-        select(func.coalesce(func.sum(EarmarkLine.cents), 0)).where(
-            EarmarkLine.category_id == goal.category_id, EarmarkLine.date >= start, EarmarkLine.date <= pivot
-        )
-    ))
+    start, due = _commitment_period(goal, pivot)
+    assigned = _assigned_cents(session, goal.category_id, start, pivot)
     missing = min(max(goal.amount_cents - assigned, 0), goal.amount_cents)
     instalment = -(-missing // _periods_left(stream, pivot, due))
     return CommitmentAsk(instalment, assigned, due)
+
+
+_PERIOD_LABELS = {"monthly": "this month", "quarterly": "this quarter", "semiannual": "this 6-month period", "yearly": "this year"}
+_CADENCE_LABELS = {"monthly": "monthly", "quarterly": "quarterly", "semiannual": "every 6 months", "yearly": "yearly"}
+
+
+def commitment_row_text(session: Session, goal: Goal, *, as_of: date) -> dict[str, str | None]:
+    """A fixed Commitment's two goal-row lines, measured at the picker date and needing no bound
+    pay: "$200.00 monthly · next due Oct 31" and "$140.00 of $200.00 this month" (assigned since the
+    period began, capped at the amount). Each payday has no period, so it gets only "$50.00 each
+    payday". Refill and percent-of-net carry no cadence, so both lines are null.
+    """
+    none = {"commitment_cadence_text": None, "commitment_progress_text": None}
+    if goal.kind != "commitment" or goal.amount_cents is None:
+        return none
+    amount = dollars(goal.amount_cents)
+    if goal.cadence is None or goal.first_due_on is None:
+        return {"commitment_cadence_text": f"{amount} each payday", "commitment_progress_text": None}
+    start, due = _commitment_period(goal, as_of)
+    assigned = min(max(_assigned_cents(session, goal.category_id, start, as_of), 0), goal.amount_cents)
+    return {
+        "commitment_cadence_text": f"{amount} {_CADENCE_LABELS[goal.cadence]} · next due {_short_date(due, as_of=as_of)}",
+        "commitment_progress_text": f"{dollars(assigned)} of {amount} {_PERIOD_LABELS[goal.cadence]}",
+    }
 
 
 def commitment_context(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> str | None:
