@@ -343,6 +343,7 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
 function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams }) {
   const { goal, balance_cents: balance, target_cents: target, due_date: due, per_period_cents: perPeriod } = progress
   const { bill_status: billStatus, bill_status_text: billStatusText, last_paid_text: lastPaidText } = progress
+  const { commitment_cadence_text: cadenceLine, commitment_progress_text: progressLine } = progress
   const nextDue = progress.earliest_unpaid_due_on
   const nextDueText = progress.earliest_unpaid_due_text
   const streamName = streams.find((s) => s.id === goal.income_stream_id)?.name
@@ -351,7 +352,7 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
       <td colSpan={6} className="pb-2" style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}>
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
           <span className="text-paper">{goal.name}</span>
-          <span>{target == null ? formatCents(balance) : `${formatCents(balance)} of ${formatCents(target)}`}</span>
+          <span>{progressLine ?? (target == null ? formatCents(balance) : `${formatCents(balance)} of ${formatCents(target)}`)}</span>
           {billStatusText && (
             <span className={billStatus === 'overdue' ? 'text-bad' : undefined}>{billStatusText}</span>
           )}
@@ -374,10 +375,12 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
             </Link>
           )}
           {due && goal.kind !== 'recurring_bill' && <span>by {formatDate(due)}</span>}
-          {goal.percent_of_net != null ? (
+          {cadenceLine ? (
+            <span>{cadenceLine}</span>
+          ) : goal.percent_of_net != null ? (
             <span>{goal.percent_of_net}% of net{streamName ? ` · ${streamName} pay` : ''}</span>
           ) : (
-            perPeriod != null && (
+            perPeriod != null && goal.kind !== 'commitment' && (
               <span>
                 {formatCents(perPeriod)}
                 {goal.cadence ? ` ${cadenceText(goal)}` : ''}
