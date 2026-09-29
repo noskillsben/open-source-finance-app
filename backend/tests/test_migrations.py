@@ -222,6 +222,24 @@ def _assert_a3d7f1c92e58(session):
     assert earliest_unpaid_due_date(session, session.get(Goal, 1)) == date(2026, 2, 1)
 
 
+def _assert_c5a1e8d37b42(session):
+    from app.models import Goal
+
+    def terms(goal_id):
+        goal = session.get(Goal, goal_id)
+        return goal.kind, goal.cadence, goal.cadence_weeks, goal.first_due_on
+
+    assert terms(1) == ("commitment", None, None, None)  # refill: cadence cleared
+    assert terms(2) == ("commitment", None, None, None)  # percent of net: cadence and weeks cleared
+    assert terms(3) == ("commitment", None, None, None)  # fixed on weeks: each payday, weeks dropped
+    assert terms(4) == ("commitment", None, None, None)  # an archived refill is cleared too
+    assert session.get(Goal, 4).archived_on == datetime.date(2026, 6, 1)
+    assert terms(5) == ("recurring_bill", "weeks", 4, None)  # bills keep weeks
+    assert terms(6) == ("target", "monthly", None, None)  # targets untouched
+    assert session.get(Goal, 3).amount_cents == 5000 and session.get(Goal, 1).level_cents == 60000
+    assert str(session.get(Goal, 2).percent_of_net) == "5.0000"
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -241,6 +259,7 @@ ASSERTIONS = {
     "06817c6fe779": _assert_06817c6fe779,
     "9e2c7a41d3b6": _assert_9e2c7a41d3b6,
     "a3d7f1c92e58": _assert_a3d7f1c92e58,
+    "c5a1e8d37b42": _assert_c5a1e8d37b42,
 }
 
 
@@ -312,5 +331,30 @@ def test_9e2c7a41d3b6_refuses_dateless_recurring_bills_live_or_archived(throwawa
 
         with engine.connect() as connection:  # nothing was guessed or changed
             assert connection.execute(text("SELECT count(*) FROM goal WHERE target_date IS NULL")).scalar() == 2
+    finally:
+        engine.dispose()
+
+
+def test_c5a1e8d37b42_refuses_undated_fixed_commitments_and_changes_nothing(throwaway_database):
+    url = throwaway_database
+    migrate(url, "a3d7f1c92e58")
+    engine = create_engine(url)
+    try:
+        with engine.begin() as connection:
+            _load_fixture(connection, "c5a1e8d37b42_undated")
+
+        with pytest.raises(RuntimeError) as refusal:
+            migrate(url, "head")
+        message = str(refusal.value)
+        for named in ("#1 '200 a month'", "#2 'Yearly gifts'", "#5 'Old quarterly'"):  # archived counts
+            assert named in message
+        assert "Fun every fortnight" not in message and "Groceries level" not in message
+
+        with engine.connect() as connection:  # nothing changed, the column was not added
+            rows = connection.execute(text("SELECT id, cadence, cadence_weeks FROM goal ORDER BY id")).all()
+            assert rows == [(1, "monthly", None), (2, "yearly", None), (3, "weeks", 2), (4, "monthly", None), (5, "quarterly", None)]
+            columns = {r[0] for r in connection.execute(text(
+                "SELECT column_name FROM information_schema.columns WHERE table_name = 'goal'"))}
+            assert "first_due_on" not in columns
     finally:
         engine.dispose()

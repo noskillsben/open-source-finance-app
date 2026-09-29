@@ -3,6 +3,7 @@ balance compared to the rule. A goal binds to a named pay (#21) that funds it: `
 plus, for a Commitment's "add" flavour, `percent_of_net` as an alternative to a fixed
 `amount_cents` — resolved against the pay's net, never gross, and never stored as cents.
 """
+import calendar
 from dataclasses import dataclass
 from datetime import date, timedelta
 
@@ -30,7 +31,7 @@ def apply_goal(
     session: Session, category: Category, goal: Goal | None, *, on: date, name: str, kind: str,
     amount_cents: int | None, cadence: str | None, cadence_weeks: int | None,
     target_date: date | None, level_cents: int | None,
-    income_stream_id: int | None = None, percent_of_net=None,
+    income_stream_id: int | None = None, percent_of_net=None, first_due_on: date | None = None,
 ) -> Goal:
     """The one write path for a goal, shared by create and edit. Validates everything before
     touching the row; a field the kind doesn't use must be left empty (null, never zero).
@@ -39,6 +40,10 @@ def apply_goal(
         raise GoalError(f"Unknown goal kind {kind!r}.")
     if cadence is not None and cadence not in CADENCES:
         raise GoalError(f"Unknown cadence {cadence!r}.")
+    if kind == "commitment" and (cadence == "weeks" or cadence_weeks is not None):
+        raise GoalError("A commitment has no every-N-weeks cadence; that stays on bills.")
+    if kind != "commitment" and first_due_on is not None:
+        raise GoalError("Only a commitment has a first due month.")
     if cadence == "weeks":
         if cadence_weeks is None or cadence_weeks < 1:
             raise GoalError("'Every N weeks' needs N, at least 1.")
@@ -72,14 +77,23 @@ def apply_goal(
     else:
         if target_date is not None:
             raise GoalError("A commitment has no target date.")
-        if cadence is None:
-            raise GoalError("A commitment needs a cadence.")
         flavours = [v for v in (amount_cents, level_cents, percent_of_net) if v is not None]
         if len(flavours) != 1:
             raise GoalError(
                 "A commitment adds a fixed amount, adds a percentage of net, or refills to a "
                 "level — give exactly one, not more."
             )
+        # Refill and percent-of-net are always per payday, so they carry no cadence. Only a fixed
+        # amount may have one, and then it names the first month it is due (a month's last day).
+        if cadence is not None and amount_cents is None:
+            raise GoalError("Only a fixed-amount commitment has a cadence; the others are per payday.")
+        if cadence is None and first_due_on is not None:
+            raise GoalError("A commitment with no cadence has no first due month.")
+        if cadence is not None:
+            if first_due_on is None:
+                raise GoalError("A commitment with a cadence needs its first due month.")
+            if first_due_on.day != calendar.monthrange(first_due_on.year, first_due_on.month)[1]:
+                raise GoalError("A commitment's first due month is stored as that month's last day.")
 
     if percent_of_net is not None and income_stream_id is None:
         raise GoalError("A percentage of net needs a bound pay.")
@@ -92,6 +106,7 @@ def apply_goal(
     goal.amount_cents = amount_cents
     goal.cadence = cadence
     goal.cadence_weeks = cadence_weeks
+    goal.first_due_on = first_due_on
     goal.target_date = target_date
     goal.level_cents = level_cents
     goal.income_stream_id = income_stream_id

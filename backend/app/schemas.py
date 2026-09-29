@@ -390,6 +390,7 @@ class GoalIn(BaseModel):
     amount_cents: int | None = None
     cadence: str | None = None
     cadence_weeks: int | None = None
+    first_due_on: date | None = None
     target_date: date | None = None
     level_cents: int | None = None
     income_stream_id: int | None = None
@@ -412,6 +413,7 @@ class GoalOut(BaseModel):
     amount_cents: int | None
     cadence: str | None
     cadence_weeks: int | None
+    first_due_on: date | None
     target_date: date | None
     level_cents: int | None
     income_stream_id: int | None
