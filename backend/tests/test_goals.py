@@ -410,25 +410,25 @@ def test_commitment_spreads_the_amount_over_the_paydays_left(db_session, categor
     assert _ask(db_session, goal, stream) == 10000  # $200 over Mar 6 and Mar 20
 
 
-def test_commitment_first_period_starts_the_month_before_a_monthly_first_due_month(db_session, category, stream):
+def test_commitment_first_period_starts_the_day_after_the_previous_month_end(db_session, category, stream):
     goal = _commitment(db_session, category, stream)
-    _fund(db_session, category, 5000, on=datetime.date(2026, 1, 31))  # before the period: ignored
+    _fund(db_session, category, 20000, on=datetime.date(2026, 2, 28))  # all of February: not this period
     assert _ask(db_session, goal, stream) == 10000
-    _fund(db_session, category, 5000, on=datetime.date(2026, 2, 1))  # first day of the period
+    _fund(db_session, category, 5000, on=datetime.date(2026, 3, 1))  # first day of the period
     assert _ask(db_session, goal, stream) == 7500
 
 
 def test_commitment_first_period_for_quarterly(db_session, category, stream):
     goal = _commitment(db_session, category, stream, cadence="quarterly")
-    _fund(db_session, category, 4000, on=datetime.date(2025, 11, 30))  # before the period: ignored
-    _fund(db_session, category, 4000, on=datetime.date(2025, 12, 1))
+    _fund(db_session, category, 4000, on=datetime.date(2025, 12, 31))  # before the period: ignored
+    _fund(db_session, category, 4000, on=datetime.date(2026, 1, 1))
     assert _ask(db_session, goal, stream) == 8000  # $160 missing over 2 paydays
 
 
 def test_commitment_first_period_for_yearly(db_session, category, stream):
     goal = _commitment(db_session, category, stream, cadence="yearly")
-    _fund(db_session, category, 4000, on=datetime.date(2025, 2, 28))  # before the period: ignored
-    _fund(db_session, category, 6000, on=datetime.date(2025, 3, 1))
+    _fund(db_session, category, 4000, on=datetime.date(2025, 3, 31))  # before the period: ignored
+    _fund(db_session, category, 6000, on=datetime.date(2025, 4, 1))
     assert _ask(db_session, goal, stream) == 7000  # $140 missing over 2 paydays
 
 

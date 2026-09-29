@@ -202,8 +202,8 @@ def commitment_ask(session: Session, goal: Goal, stream: IncomeStream, *, as_of:
     Goals). Due: the earliest due date on or after the payday the screen is open for. Still
     missing: the amount less the signed earmark lines to the category from the period's start to
     that payday — spending never counts — floored at 0 and never above the amount. The period
-    starts the day after the previous due date; the first period, on the first day of the month one
-    cadence step before the first due month. None for a Commitment with no cadence (each payday).
+    starts the day after the previous due date, the first period included (one cadence step before
+    the first due month). None for a Commitment with no cadence (each payday).
     """
     if goal.kind != "commitment" or goal.amount_cents is None or goal.cadence is None or goal.first_due_on is None:
         return None
@@ -212,10 +212,7 @@ def commitment_ask(session: Session, goal: Goal, stream: IncomeStream, *, as_of:
     while _commitment_due(goal, n) < pivot:
         n += 1
     due = _commitment_due(goal, n)
-    if n > 0:
-        start = _commitment_due(goal, n - 1) + timedelta(days=1)
-    else:
-        start = _step(goal, goal.first_due_on, -1).replace(day=1)
+    start = _commitment_due(goal, n - 1) + timedelta(days=1)
     assigned = int(session.scalar(
         select(func.coalesce(func.sum(EarmarkLine.cents), 0)).where(
             EarmarkLine.category_id == goal.category_id, EarmarkLine.date >= start, EarmarkLine.date <= pivot
