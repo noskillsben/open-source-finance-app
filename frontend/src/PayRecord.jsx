@@ -431,7 +431,7 @@ export default function PayRecord({ pickerDate }) {
   const categoriesAllById = useMemo(() => new Map(categoriesAll.map((c) => [c.id, c])), [categoriesAll])
 
   // Everything else on a recorded pay also holds the rows the batch put in categories this list
-  // leaves out (a deduction's category, or one whose goal has since been re-bound to this pay).
+  // leaves out (a deduction's category).
   const everythingElseList = useMemo(() => {
     if (reopenExtraIds.size === 0) return everythingElseCategories
     const have = new Set(everythingElseCategories.map((c) => c.id))
