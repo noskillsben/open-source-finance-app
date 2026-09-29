@@ -91,7 +91,7 @@ function goalBody(g, pickerDate) {
   const refill = g.kind === 'commitment' && g.flavour === 'refill'
   const percentFlavour = g.kind === 'commitment' && g.flavour === 'add' && g.addFlavour === 'percent'
   // Only a fixed-amount Commitment has a cadence, and then it needs its first due month.
-  const commitmentCadence = g.kind === 'commitment' && !refill && !percentFlavour && g.cadence ? g.cadence : null
+  const commitmentCadence = g.kind === 'commitment' && !refill && !percentFlavour && COMMITMENT_CADENCES.some((c) => c.value && c.value === g.cadence) ? g.cadence : null
   const cadence = g.kind === 'commitment' ? commitmentCadence : g.cadence || null
   return {
     on: pickerDate,

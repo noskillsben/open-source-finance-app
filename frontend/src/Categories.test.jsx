@@ -151,6 +151,20 @@ describe("a Commitment's cadence (#156)", () => {
     expect(setGoal.mock.calls[0][1]).toMatchObject({ cadence: null, cadence_weeks: null, first_due_on: null })
   })
 
+  it('never sends a cadence carried over from a bill on every N weeks', async () => {
+    await openCommitmentForm()
+    fireEvent.change(screen.getByLabelText('Amount to add'), { target: { value: '50.00' } })
+    // The form state a bill on "every N weeks" leaves behind when the kind is switched.
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'recurring_bill' } })
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'weeks' } })
+    fireEvent.change(screen.getByLabelText('Number of weeks'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'commitment' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ kind: 'commitment', cadence: null, cadence_weeks: null, first_due_on: null })
+  })
+
   it('does not ask a refill Commitment for a cadence', async () => {
     await openCommitmentForm()
     fireEvent.change(screen.getByLabelText('Rule'), { target: { value: 'refill' } })
