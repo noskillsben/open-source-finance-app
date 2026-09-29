@@ -1,13 +1,13 @@
 """The cadence shape shared by goals and named pays (DESIGN.md § Goals, § Income streams):
-monthly, quarterly, yearly, or every N weeks. "Due" or "next payday" is a stated date rolled
+monthly, quarterly, every 6 months, yearly, or every N weeks. "Due" or "next payday" is a stated date rolled
 forward by the cadence to the first one on or after a picker date, at read time, never stored —
 one mechanism, so a goal's due date and a named pay's next payday can't drift apart.
 """
 import calendar
 from datetime import date, timedelta
 
-CADENCES = ("monthly", "quarterly", "yearly", "weeks")
-_MONTHS = {"monthly": 1, "quarterly": 3, "yearly": 12}
+CADENCES = ("monthly", "quarterly", "semiannual", "yearly", "weeks")
+_MONTHS = {"monthly": 1, "quarterly": 3, "semiannual": 6, "yearly": 12}
 
 
 def add_months(day: date, months: int) -> date:

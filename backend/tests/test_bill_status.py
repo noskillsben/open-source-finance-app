@@ -269,3 +269,14 @@ def test_the_record_link_text_drops_the_year_only_in_the_pickers_own_year(db_ses
     _, goal = _bill(db_session, datetime.date(2027, 1, 1), name="Insurance")
     other_year = _row(client, goal, datetime.date(2026, 9, 1))
     assert other_year["earliest_unpaid_due_text"] == "Jan 1, 2027"
+
+
+def test_an_every_6_months_bill_moves_on_six_months_from_its_first_due_date(db_session, client, chequing):
+    category, goal = _bill(db_session, datetime.date(2026, 8, 31))
+    goal.cadence = "semiannual"
+    db_session.flush()
+    assert _row(client, goal, DAY)["due_date"] == "2026-08-31"
+    _pay(client, chequing, category, goal, "2026-08-31", cents=120_000, day="2026-09-01")
+    assert _row(client, goal, DAY)["due_date"] == "2027-02-28"  # month-end clamps
+    _pay(client, chequing, category, goal, "2027-02-28", cents=120_000, day="2027-02-28")
+    assert _row(client, goal, datetime.date(2027, 3, 1))["due_date"] == "2027-08-31"

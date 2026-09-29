@@ -212,3 +212,16 @@ def test_database_refuses_a_second_live_stream_with_the_same_name(db_session, ca
         ))
     with pytest.raises(IntegrityError):
         db_session.flush()
+
+
+@pytest.mark.parametrize("fields, as_of, expected", [
+    ({"cadence": "semiannual", "anchor_payday": "2026-03-06"}, "2026-03-06", "2026-03-06"),
+    ({"cadence": "semiannual", "anchor_payday": "2026-03-06"}, "2026-03-07", "2026-09-06"),
+    ({"cadence": "semiannual", "anchor_payday": "2025-02-28"}, "2026-03-01", "2026-08-28"),
+    ({"cadence": "semiannual", "anchor_payday": "2025-08-31"}, "2026-03-01", "2026-08-31"),
+])
+def test_next_payday_every_6_months(client, category, account, fields, as_of, expected):
+    created = _create(client, category, account, **fields).json()
+    (row,) = _list(client, on=datetime.date.fromisoformat(as_of))
+    assert row["id"] == created["id"]
+    assert row["next_payday"] == expected

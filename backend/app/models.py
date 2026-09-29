@@ -184,7 +184,7 @@ class IncomeStream(Base, Owned, NonLedger):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String, nullable=False)
     payee_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("payee.id"), nullable=True, index=True)
-    # monthly / quarterly / yearly / weeks (app/services/cadence.py); cadence_weeks is N for
+    # monthly / quarterly / semiannual / yearly / weeks (app/services/cadence.py); cadence_weeks is N for
     # "every N weeks" and set only when cadence is "weeks" — the same shape goals use, not a copy.
     cadence: Mapped[str] = mapped_column(String, nullable=False)
     cadence_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
