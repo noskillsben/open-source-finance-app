@@ -10,7 +10,7 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AccountLine, Category, CategoryLine, Goal, IncomeStream, Transaction
+from app.models import AccountLine, Category, CategoryLine, EarmarkLine, Goal, IncomeStream, Transaction
 from app.services.accounts import dollars
 from app.services.cadence import CADENCES, step
 from app.services.categories import category_balance_cents
@@ -172,16 +172,86 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
     )
 
 
+def _month_end(day: date) -> date:
+    return day.replace(day=calendar.monthrange(day.year, day.month)[1])
+
+
+def _commitment_due(goal: Goal, n: int) -> date:
+    """A fixed Commitment's nth due date: the first due month stepped by the cadence, always that
+    month's last day (a bill's clamp would drift Nov 30 to Dec 30; a Commitment's never does)."""
+    return _month_end(_step(goal, goal.first_due_on, n))
+
+
+def _periods_left(stream: IncomeStream, pivot: date, due: date) -> int:
+    """Paydays of the stream from `pivot` (the pay being recorded, counted) up to `due`, at least 1."""
+    periods = 0
+    while step(stream.cadence, stream.cadence_weeks, pivot, periods) <= due:
+        periods += 1
+    return max(periods, 1)
+
+
+@dataclass
+class CommitmentAsk:
+    instalment_cents: int
+    assigned_cents: int
+    due_on: date
+
+
+def commitment_ask(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> CommitmentAsk | None:
+    """A fixed Commitment with a cadence, spread over the paydays before its due date (DESIGN.md §
+    Goals). Due: the earliest due date on or after the payday the screen is open for. Still
+    missing: the amount less the signed earmark lines to the category from the period's start to
+    that payday — spending never counts — floored at 0 and never above the amount. The period
+    starts the day after the previous due date; the first period, on the first day of the month one
+    cadence step before the first due month. None for a Commitment with no cadence (each payday).
+    """
+    if goal.kind != "commitment" or goal.amount_cents is None or goal.cadence is None or goal.first_due_on is None:
+        return None
+    pivot = next_payday(stream, as_of=as_of)
+    n = 0
+    while _commitment_due(goal, n) < pivot:
+        n += 1
+    due = _commitment_due(goal, n)
+    if n > 0:
+        start = _commitment_due(goal, n - 1) + timedelta(days=1)
+    else:
+        start = _step(goal, goal.first_due_on, -1).replace(day=1)
+    assigned = int(session.scalar(
+        select(func.coalesce(func.sum(EarmarkLine.cents), 0)).where(
+            EarmarkLine.category_id == goal.category_id, EarmarkLine.date >= start, EarmarkLine.date <= pivot
+        )
+    ))
+    missing = min(max(goal.amount_cents - assigned, 0), goal.amount_cents)
+    instalment = -(-missing // _periods_left(stream, pivot, due))
+    return CommitmentAsk(instalment, assigned, due)
+
+
+def commitment_context(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> str | None:
+    """The pay screen's context line for a fixed Commitment, worded once here: "each payday", or
+    "$100.00 of $200.00 due Oct 31" ($100.00 assigned so far this period). None for any other."""
+    if goal.kind != "commitment" or goal.amount_cents is None:
+        return None
+    ask = commitment_ask(session, goal, stream, as_of=as_of)
+    if ask is None:
+        return "each payday"
+    assigned = min(max(ask.assigned_cents, 0), goal.amount_cents)
+    return f"{dollars(assigned)} of {dollars(goal.amount_cents)} due {_short_date(ask.due_on, as_of=as_of)}"
+
+
 def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> int | None:
     """What a bound goal wants at its very next payday (DESIGN.md § Goals): the shortfall to the
     goal's amount, spread over the STREAM's paydays remaining up to the goal's due date — the
     $1,200 quarterly bill with $400 saved and two Salary paydays left wants $400 now. Counts the
     stream's cadence, not the goal's own (a quarterly bill still wants an instalment at each of
     its biweekly paydays), so it is not `contribution_cents`, which spreads a target's shortfall
-    over its own cadence. None for a goal with no due date (a dateless Target, or any Commitment —
-    Commitments have their own per-payday amount already, not a date to spread one over). No
-    display consumer yet; the pay screen (#107) is what calls this.
+    over its own cadence. A fixed Commitment with a cadence is the same spread, its "missing"
+    being what was assigned this period rather than the balance (`commitment_ask`). None for a
+    goal with no due date (a dateless Target, or a Commitment with no cadence — each payday is
+    just its full amount).
     """
+    if goal.kind == "commitment":
+        ask = commitment_ask(session, goal, stream, as_of=as_of)
+        return None if ask is None else ask.instalment_cents
     due = due_date(session, goal)
     if due is None:
         return None
@@ -190,11 +260,7 @@ def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as
         return None
     balance = int(category_balance_cents(session, goal.category_id, as_of=as_of))
     shortfall = max(target - balance, 0)
-    pivot = next_payday(stream, as_of=as_of)
-    periods = 0
-    while step(stream.cadence, stream.cadence_weeks, pivot, periods) <= due:
-        periods += 1
-    return -(-shortfall // max(periods, 1))
+    return -(-shortfall // _periods_left(stream, next_payday(stream, as_of=as_of), due))
 
 
 def is_bill_due_date(goal: Goal, day: date) -> bool:

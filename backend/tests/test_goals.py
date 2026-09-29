@@ -11,7 +11,9 @@ from app.db import get_session
 from app.main import app
 from app.models import Category, Goal, IncomeStream
 from app.services.earmarks import move_money
-from app.services.goals import due_by_next_payday
+from app.services.accounts import create_account_with_opening_valuation
+from app.services.goals import commitment_context, due_by_next_payday
+from app.services.transactions import write_transaction
 
 DAY = datetime.date(2026, 3, 1)
 
@@ -383,3 +385,132 @@ def test_bills_keep_every_n_weeks(client, category):
                     target_date="2026-02-20")
     assert response.status_code == 200
     assert (response.json()["cadence"], response.json()["cadence_weeks"], response.json()["first_due_on"]) == ("weeks", 2, None)
+
+
+# --- #157: a fixed Commitment with a cadence spreads over the paydays left --------------------
+# The stream pays every 2 weeks from Mar 6, so at DAY (Mar 1) the payday is Mar 6 and Mar 20 is the
+# only other one before a Mar 31 due date.
+
+def _commitment(db_session, category, stream, *, cadence="monthly", first_due_on=datetime.date(2026, 3, 31), amount=20000):
+    goal = Goal(
+        category_id=category.id, name="Vacation", kind="commitment", amount_cents=amount, cadence=cadence,
+        first_due_on=first_due_on, income_stream_id=stream.id, created_on=DAY,
+    )
+    db_session.add(goal)
+    db_session.flush()
+    return goal
+
+
+def _ask(db_session, goal, stream, as_of=DAY):
+    return due_by_next_payday(db_session, goal, stream, as_of=as_of)
+
+
+def test_commitment_spreads_the_amount_over_the_paydays_left(db_session, category, stream):
+    goal = _commitment(db_session, category, stream)
+    assert _ask(db_session, goal, stream) == 10000  # $200 over Mar 6 and Mar 20
+
+
+def test_commitment_first_period_starts_the_month_before_a_monthly_first_due_month(db_session, category, stream):
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 5000, on=datetime.date(2026, 1, 31))  # before the period: ignored
+    assert _ask(db_session, goal, stream) == 10000
+    _fund(db_session, category, 5000, on=datetime.date(2026, 2, 1))  # first day of the period
+    assert _ask(db_session, goal, stream) == 7500
+
+
+def test_commitment_first_period_for_quarterly(db_session, category, stream):
+    goal = _commitment(db_session, category, stream, cadence="quarterly")
+    _fund(db_session, category, 4000, on=datetime.date(2025, 11, 30))  # before the period: ignored
+    _fund(db_session, category, 4000, on=datetime.date(2025, 12, 1))
+    assert _ask(db_session, goal, stream) == 8000  # $160 missing over 2 paydays
+
+
+def test_commitment_first_period_for_yearly(db_session, category, stream):
+    goal = _commitment(db_session, category, stream, cadence="yearly")
+    _fund(db_session, category, 4000, on=datetime.date(2025, 2, 28))  # before the period: ignored
+    _fund(db_session, category, 6000, on=datetime.date(2025, 3, 1))
+    assert _ask(db_session, goal, stream) == 7000  # $140 missing over 2 paydays
+
+
+def test_commitment_period_begins_the_day_after_the_previous_due_date(db_session, category, stream):
+    # First due Jan 31 monthly: the third due date is Mar 31, so the period began Mar 1.
+    goal = _commitment(db_session, category, stream, first_due_on=datetime.date(2026, 1, 31))
+    _fund(db_session, category, 8000, on=datetime.date(2026, 2, 28))  # the previous period
+    assert _ask(db_session, goal, stream) == 10000
+    _fund(db_session, category, 4000, on=datetime.date(2026, 3, 2))
+    assert _ask(db_session, goal, stream) == 8000
+
+
+def test_commitment_due_date_in_february_is_the_month_end(db_session, category, stream):
+    # 2027: paydays Feb 5 and Feb 19 fall before the Feb 28 due date (a month end, not "Jan 31 + 1 month").
+    goal = _commitment(db_session, category, stream, first_due_on=datetime.date(2027, 1, 31))
+    _fund(db_session, category, 4000, on=datetime.date(2027, 1, 31))  # the previous period
+    _fund(db_session, category, 4000, on=datetime.date(2027, 2, 1))
+    feb = datetime.date(2027, 2, 1)
+    assert _ask(db_session, goal, stream, as_of=feb) == 8000  # $160 missing over 2 paydays
+    assert commitment_context(db_session, goal, stream, as_of=feb) == "$40.00 of $200.00 due Feb 28"
+
+
+def test_commitment_november_thirtieth_first_due_steps_to_december_thirty_first(db_session, category, stream):
+    goal = _commitment(db_session, category, stream, first_due_on=datetime.date(2026, 11, 30))
+    text = commitment_context(db_session, goal, stream, as_of=datetime.date(2026, 12, 1))
+    assert text == "$0.00 of $200.00 due Dec 31"
+
+
+def test_commitment_spending_never_raises_the_ask(db_session, category, stream):
+    account = create_account_with_opening_valuation(
+        db_session, name="Cash", created_on=DAY, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=100000,
+    )
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 10000, on=datetime.date(2026, 3, 2))
+    write_transaction(
+        db_session, transaction=None, txn_date=datetime.date(2026, 3, 3), memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -9000}],
+        category_lines=[{"category_id": category.id, "cents": -9000}],
+    )
+    assert _ask(db_session, goal, stream) == 5000  # $100 still missing over 2 paydays; the spend is ignored
+
+
+def test_commitment_never_asks_for_more_than_the_amount(db_session, category, stream):
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 3000, on=datetime.date(2026, 3, 2))
+    move_money(db_session, move_date=datetime.date(2026, 3, 3), from_category_id=category.id, to_category_id=None, cents=9000)
+    # Net assigned is -$60, so "missing" would be $260; it is capped at the $200 amount.
+    assert _ask(db_session, goal, stream) == 10000
+
+
+def test_commitment_asks_for_nothing_once_fully_assigned(db_session, category, stream):
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 25000, on=datetime.date(2026, 3, 2))
+    assert _ask(db_session, goal, stream) == 0
+
+
+def test_commitment_asks_the_whole_missing_amount_on_the_last_payday_before_due(db_session, category, stream):
+    goal = _commitment(db_session, category, stream)
+    _fund(db_session, category, 5000, on=datetime.date(2026, 3, 2))
+    # The Mar 20 payday is the last one on or before Mar 31.
+    assert _ask(db_session, goal, stream, as_of=datetime.date(2026, 3, 7)) == 15000
+
+
+def test_commitment_each_payday_stays_the_full_amount(client, category, stream):
+    response = _set(client, category, kind="commitment", amount_cents=5000, income_stream_id=stream.id)
+    assert response.status_code == 200
+    (row,) = _progress(client)
+    assert row["due_by_next_payday_cents"] is None  # the pay screen pre-fills the full amount
+    assert row["commitment_context_text"] == "each payday"
+
+
+def test_commitment_context_text_on_the_goals_api(client, db_session, category, stream):
+    _set(client, category, kind="commitment", amount_cents=20000, cadence="monthly",
+         first_due_on="2026-03-31", income_stream_id=stream.id)
+    _fund(db_session, category, 10000, on=datetime.date(2026, 3, 2))
+    (row,) = _progress(client)
+    assert row["due_by_next_payday_cents"] == 5000
+    assert row["commitment_context_text"] == "$100.00 of $200.00 due Mar 31"
+
+
+def test_context_text_is_null_for_a_refill_commitment(client, category, stream):
+    _set(client, category, kind="commitment", level_cents=60000, income_stream_id=stream.id)
+    (row,) = _progress(client)
+    assert row["commitment_context_text"] is None
