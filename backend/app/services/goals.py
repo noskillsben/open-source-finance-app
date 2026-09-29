@@ -3,9 +3,8 @@ balance compared to the rule. A goal binds to a named pay (#21) that funds it: `
 plus, for a Commitment's "add" flavour, `percent_of_net` as an alternative to a fixed
 `amount_cents` — resolved against the pay's net, never gross, and never stored as cents.
 """
-import datetime
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -287,7 +286,7 @@ def bill_status(
         if due <= horizon:
             return "due", f"due {day} · not paid"
     else:
-        horizon = next_payday(stream, as_of=as_of + datetime.timedelta(days=1))
+        horizon = next_payday(stream, as_of=as_of + timedelta(days=1))
         if due < horizon:
             return "due", f"due {day} · not paid"
     return "next_due", f"next due {day}"
