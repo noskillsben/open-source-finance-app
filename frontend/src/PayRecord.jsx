@@ -379,18 +379,27 @@ export default function PayRecord({ pickerDate }) {
     ? (oneOffDestinationAccount.id ?? null)
     : (existingTransaction?.account_lines[0]?.account_id ?? stream?.destination_account_id ?? null)
 
-  const liveGoalCategoryIds = useMemo(() => new Set(goals.map((g) => g.goal.category_id)), [goals])
+  // Only goals bound to this pay have a block of their own; a goal bound elsewhere, or to none,
+  // lists under Everything else (on a one-off streamGoals is empty, so every goal category does).
+  const streamGoalCategoryIds = useMemo(() => new Set(streamGoals.map((g) => g.goal.category_id)), [streamGoals])
+  const goalByCategoryId = useMemo(() => {
+    const byCategory = new Map()
+    for (const g of goals) if (!byCategory.has(g.goal.category_id)) byCategory.set(g.goal.category_id, g)
+    return byCategory
+  }, [goals])
   const deductionCategoryIds = useMemo(
     () => new Set(deductions.map((d) => d.category.id).filter((id) => id != null)),
     [deductions]
   )
   const everythingElseCategories = useMemo(() => {
+    // Wait for the goals so a goal bound here doesn't flash in and out of this block.
+    if (!goalsLoaded) return []
     return categories
       .filter((c) => !c.archived_on)
-      .filter((c) => !liveGoalCategoryIds.has(c.id))
+      .filter((c) => !streamGoalCategoryIds.has(c.id))
       .filter((c) => c.id !== incomeCategoryId && !deductionCategoryIds.has(c.id))
       .sort((a, b) => a.name.localeCompare(b.name))
-  }, [categories, liveGoalCategoryIds, deductionCategoryIds, incomeCategoryId])
+  }, [categories, goalsLoaded, streamGoalCategoryIds, deductionCategoryIds, incomeCategoryId])
 
   // Last period's actual for a named pay, last calendar month's for a one-off — there is no pay
   // period to compare a one-off against (DESIGN.md § "A one-off on the pay screen").
@@ -422,7 +431,7 @@ export default function PayRecord({ pickerDate }) {
   const categoriesAllById = useMemo(() => new Map(categoriesAll.map((c) => [c.id, c])), [categoriesAll])
 
   // Everything else on a recorded pay also holds the rows the batch put in categories this list
-  // leaves out (a goal bound to another pay, or none the named pay's blocks show).
+  // leaves out (a deduction's category).
   const everythingElseList = useMemo(() => {
     if (reopenExtraIds.size === 0) return everythingElseCategories
     const have = new Set(everythingElseCategories.map((c) => c.id))
@@ -881,8 +890,8 @@ export default function PayRecord({ pickerDate }) {
       {/* 9. Everything else */}
       <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
         <legend className="px-1 font-medium">Everything else</legend>
-        {everythingElseList.length === 0 && archivedRows.length === 0 && (
-          <p className="text-sm text-paper-soft">Nothing left without a goal.</p>
+        {goalsLoaded && everythingElseList.length === 0 && archivedRows.length === 0 && (
+          <p className="text-sm text-paper-soft">No other categories.</p>
         )}
         {everythingElseList.map((c) => (
           <div key={c.id} className="flex items-end gap-2">
@@ -891,6 +900,12 @@ export default function PayRecord({ pickerDate }) {
               {lastPeriodActuals[c.id] > 0 && (
                 <span className="text-paper-soft">
                   {' '}· {isOneOff ? 'last month' : 'last period'} {formatCents(lastPeriodActuals[c.id])}
+                </span>
+              )}
+              {goalByCategoryId.has(c.id) && (
+                <span className="text-paper-soft">
+                  {' '}· {goalByCategoryId.get(c.id).goal.name}
+                  {goalByCategoryId.get(c.id).due_date && <> · due {formatDate(goalByCategoryId.get(c.id).due_date)}</>}
                 </span>
               )}
             </div>

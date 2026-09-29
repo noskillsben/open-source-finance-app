@@ -320,3 +320,77 @@ describe('PayRecord re-opens a recorded pay', () => {
     expect(writes.replaceBatch).toHaveBeenCalledTimes(2)
   })
 })
+
+describe('PayRecord lists goal categories under Everything else', () => {
+  const goal = (id, categoryId, streamId, name) => ({
+    goal: { id, kind: 'target', category_id: categoryId, income_stream_id: streamId, name, amount_cents: 100000, percent_of_net: null },
+    due_date: null, due_by_next_payday_cents: null,
+  })
+  const withDue = (g, due) => ({ ...g, due_date: due })
+
+  const CATS = [
+    ...CATEGORIES,
+    { id: 5, name: 'Vacation', archived_on: null },
+    { id: 6, name: 'Roof', archived_on: null },
+    { id: 7, name: 'Car', archived_on: null },
+  ]
+
+  const elseBlock = async () => (await screen.findByText('Everything else')).closest('fieldset')
+
+  it('a named pay lists a goal bound elsewhere or to none, unfilled with context; not one bound here', async () => {
+    streams = [SALARY]
+    categories = CATS
+    goals = [
+      withDue(goal(21, 5, 8, 'Trip fund'), '2026-12-01'),
+      goal(22, 6, null, 'New roof'),
+      goal(23, 7, 3, 'Car repair'),
+    ]
+    renderSalary()
+
+    const block = await elseBlock()
+    await waitFor(() => expect(within(block).getByText('Vacation')).toBeInTheDocument())
+    const vacation = within(block).getByText('Vacation').closest('div').parentElement
+    expect(vacation).toHaveTextContent('Trip fund · due')
+    expect(within(vacation).getByRole('textbox')).toHaveValue('')
+    const roof = within(block).getByText('Roof').closest('div').parentElement
+    expect(roof).toHaveTextContent('New roof')
+    expect(roof).not.toHaveTextContent('due')
+    expect(within(roof).getByRole('textbox')).toHaveValue('')
+    expect(within(block).queryByText('Car')).not.toBeInTheDocument()
+  })
+
+  it('a one-off lists every goal category', async () => {
+    categories = CATS
+    goals = [goal(21, 5, 8, 'Trip fund'), goal(23, 7, 3, 'Car repair')]
+    renderOneOff()
+
+    const block = await elseBlock()
+    await waitFor(() => expect(within(block).getByText('Vacation')).toBeInTheDocument())
+    expect(within(block).getByText('Car')).toBeInTheDocument()
+  })
+
+  it('a recorded row on a goal bound elsewhere appears once', async () => {
+    streams = [SALARY]
+    categories = CATS
+    goals = [goal(21, 5, 8, 'Trip fund')]
+    existingTransactions = [{
+      id: 42, date: '2026-09-25', memo: '', payee_id: null, income_stream_id: 3, deposits: [],
+      account_lines: [{ id: 1, account_id: 1, cents: 300000 }],
+      category_lines: [
+        { id: 1, category_id: 1, cents: 400000, need_level: null },
+        { id: 2, category_id: 2, cents: -100000, need_level: null },
+      ],
+    }]
+    recordedBatch = [
+      { category_id: 1, cents: -100000 },
+      { category_id: 2, cents: 100000 },
+      { category_id: 1, cents: -300000 },
+      { category_id: 5, cents: 25000 },
+    ]
+    renderSalary()
+
+    const block = await elseBlock()
+    await waitFor(() => expect(within(block).getByText('Vacation').closest('div').parentElement.querySelector('input')).toHaveValue('250.00'))
+    expect(within(block).getAllByText('Vacation')).toHaveLength(1)
+  })
+})
