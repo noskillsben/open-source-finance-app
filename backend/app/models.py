@@ -156,6 +156,9 @@ class Goal(Base, Owned, NonLedger):
     amount_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     cadence: Mapped[str | None] = mapped_column(String, nullable=True)
     cadence_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # A fixed-amount commitment's first due month, as that month's last day; set exactly when it
+    # has a cadence (app/services/goals.py). Later due dates step from it via cadence.step.
+    first_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     level_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     income_stream_id: Mapped[int | None] = mapped_column(

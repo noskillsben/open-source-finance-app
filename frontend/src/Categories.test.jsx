@@ -1,22 +1,26 @@
-import { fireEvent, render, screen } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import Categories from './Categories.jsx'
 
 let goals = []
 let streams = []
+const { setGoal } = vi.hoisted(() => ({ setGoal: vi.fn(() => Promise.resolve({})) }))
 
 vi.mock('./api.js', () => ({
   api: {
-    categories: { list: () => Promise.resolve([{
-      id: 11, name: 'Rent', parent_id: null, archived_on: null, need_level: null, linked_accounts: [], pool_id: null,
-    }]) },
+    categories: {
+      list: () => Promise.resolve([{
+        id: 11, name: 'Rent', parent_id: null, archived_on: null, need_level: null, linked_accounts: [], pool_id: null,
+      }]),
+      update: () => Promise.resolve({}),
+    },
     domains: { list: () => Promise.resolve([]) },
     readyToAssign: () => Promise.resolve({
       ready_to_assign_cents: 0, overspent_cents: 0,
       categories: [{ category_id: 11, available_cents: 0, pool_available_cents: 0 }],
     }),
-    goals: { list: () => Promise.resolve(goals) },
+    goals: { list: () => Promise.resolve(goals), set: setGoal, archive: () => Promise.resolve({}) },
     accounts: { list: () => Promise.resolve([]) },
     incomeStreams: { list: () => Promise.resolve(streams) },
   },
@@ -106,4 +110,69 @@ it('shows a percent-of-net Commitment\'s per-period text as a percentage, not $0
   })]
   renderCategories()
   expect(await screen.findByText('5% of net · GOC pay')).toBeInTheDocument()
+})
+
+describe("a Commitment's cadence (#156)", () => {
+  async function openCommitmentForm() {
+    goals = []
+    setGoal.mockClear()
+    renderCategories()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.change(await screen.findByLabelText('Kind'), { target: { value: 'commitment' } })
+    fireEvent.change(screen.getByLabelText('Goal name'), { target: { value: 'Vacation fund' } })
+  }
+
+  it('offers Each payday, Monthly, Quarterly, Every 6 months, Yearly in that order and no weeks', async () => {
+    await openCommitmentForm()
+    const options = [...screen.getByLabelText('How often').querySelectorAll('option')].map((o) => o.textContent)
+    expect(options).toEqual(['Each payday', 'Monthly', 'Quarterly', 'Every 6 months', 'Yearly'])
+    expect(screen.queryByLabelText('First month it is due')).not.toBeInTheDocument()
+  })
+
+  it('asks for the first due month once a cadence is chosen and sends the month end', async () => {
+    await openCommitmentForm()
+    fireEvent.change(screen.getByLabelText('Amount to add'), { target: { value: '200.00' } })
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'quarterly' } })
+    fireEvent.change(screen.getByLabelText('First month it is due'), { target: { value: '2028-02' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({
+      kind: 'commitment', amount_cents: 20000, cadence: 'quarterly', cadence_weeks: null, first_due_on: '2028-02-29',
+    })
+  })
+
+  it('sends an empty cadence and no month for Each payday', async () => {
+    await openCommitmentForm()
+    fireEvent.change(screen.getByLabelText('Amount to add'), { target: { value: '50.00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ cadence: null, cadence_weeks: null, first_due_on: null })
+  })
+
+  it('never sends a cadence carried over from a bill on every N weeks', async () => {
+    await openCommitmentForm()
+    fireEvent.change(screen.getByLabelText('Amount to add'), { target: { value: '50.00' } })
+    // The form state a bill on "every N weeks" leaves behind when the kind is switched.
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'recurring_bill' } })
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'weeks' } })
+    fireEvent.change(screen.getByLabelText('Number of weeks'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'commitment' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ kind: 'commitment', cadence: null, cadence_weeks: null, first_due_on: null })
+  })
+
+  it('does not ask a refill Commitment for a cadence', async () => {
+    await openCommitmentForm()
+    fireEvent.change(screen.getByLabelText('Rule'), { target: { value: 'refill' } })
+    expect(screen.queryByLabelText('How often')).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Level to refill to'), { target: { value: '600.00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ level_cents: 60000, cadence: null, first_due_on: null })
+  })
 })

@@ -470,7 +470,8 @@ def set_category_goal(category_id: int, payload: GoalIn, session: Session = Depe
         goal = apply_goal(
             session, category, live_goal(session, category_id), on=payload.on, name=payload.name,
             kind=payload.kind, amount_cents=payload.amount_cents, cadence=payload.cadence,
-            cadence_weeks=payload.cadence_weeks, target_date=payload.target_date, level_cents=payload.level_cents,
+            cadence_weeks=payload.cadence_weeks, first_due_on=payload.first_due_on,
+            target_date=payload.target_date, level_cents=payload.level_cents,
             income_stream_id=payload.income_stream_id, percent_of_net=payload.percent_of_net,
         )
     except GoalError as exc:

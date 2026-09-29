@@ -48,9 +48,21 @@ const CADENCES = [
   { value: 'yearly', label: 'Yearly' },
   { value: 'weeks', label: 'Every N weeks' },
 ]
+// A fixed-amount Commitment's cadence, in this order; "Each payday" is the empty cadence, and there
+// is no every-N-weeks (that stays on bills).
+const COMMITMENT_CADENCES = [
+  { value: '', label: 'Each payday' },
+  ...CADENCES.filter((c) => c.value !== 'weeks'),
+]
 const EMPTY_GOAL = {
   kind: '', name: '', flavour: 'add', addFlavour: 'fixed', amount: '', level: '', percent: '',
-  cadence: '', weeks: '', date: '', incomeStreamId: null,
+  cadence: '', weeks: '', date: '', firstDueMonth: '', incomeStreamId: null,
+}
+
+// "2026-10" -> the month's last day, "2026-10-31". Day 0 of the next month, in UTC.
+const monthEnd = (month) => {
+  const [y, m] = month.split('-').map(Number)
+  return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
 }
 
 const centsText = (cents) => (cents == null ? '' : (cents / 100).toFixed(2))
@@ -68,6 +80,7 @@ function goalToForm(goal) {
     cadence: goal.cadence ?? '',
     weeks: goal.cadence_weeks ?? '',
     date: goal.target_date ?? '',
+    firstDueMonth: goal.first_due_on ? goal.first_due_on.slice(0, 7) : '',
     incomeStreamId: goal.income_stream_id ?? null,
   }
 }
@@ -77,6 +90,9 @@ function goalBody(g, pickerDate) {
   const cents = (text) => (String(text).trim() === '' ? null : parseCents(text))
   const refill = g.kind === 'commitment' && g.flavour === 'refill'
   const percentFlavour = g.kind === 'commitment' && g.flavour === 'add' && g.addFlavour === 'percent'
+  // Only a fixed-amount Commitment has a cadence, and then it needs its first due month.
+  const commitmentCadence = g.kind === 'commitment' && !refill && !percentFlavour && COMMITMENT_CADENCES.some((c) => c.value && c.value === g.cadence) ? g.cadence : null
+  const cadence = g.kind === 'commitment' ? commitmentCadence : g.cadence || null
   return {
     on: pickerDate,
     name: g.name.trim(),
@@ -84,8 +100,9 @@ function goalBody(g, pickerDate) {
     amount_cents: refill || percentFlavour ? null : cents(g.amount),
     level_cents: refill ? cents(g.level) : null,
     percent_of_net: percentFlavour && String(g.percent).trim() !== '' ? g.percent : null,
-    cadence: g.cadence || null,
-    cadence_weeks: g.cadence === 'weeks' && g.weeks !== '' ? Number(g.weeks) : null,
+    cadence,
+    cadence_weeks: cadence === 'weeks' && g.weeks !== '' ? Number(g.weeks) : null,
+    first_due_on: commitmentCadence && g.firstDueMonth ? monthEnd(g.firstDueMonth) : null,
     target_date: g.kind !== 'commitment' && g.date ? g.date : null,
     income_stream_id: g.incomeStreamId ?? null,
   }
@@ -242,7 +259,33 @@ function GoalFields({ goal, onChange, streams }) {
                 : moneyInput('Amount to add', 'amount')}
             </>
           )}
-          {cadenceInput('How often', false)}
+          {goal.flavour === 'add' && goal.addFlavour === 'fixed' && (
+            <>
+              <label className="block text-sm">
+                <span className="text-paper-soft">How often</span>
+                <select
+                  className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+                  value={goal.cadence}
+                  onChange={(e) => set({ cadence: e.target.value, firstDueMonth: e.target.value ? goal.firstDueMonth : '' })}
+                >
+                  {COMMITMENT_CADENCES.map((c) => (
+                    <option key={c.value} value={c.value}>{c.label}</option>
+                  ))}
+                </select>
+              </label>
+              {goal.cadence && (
+                <label className="block text-sm">
+                  <span className="text-paper-soft">First month it is due</span>
+                  <input
+                    type="month"
+                    className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+                    value={goal.firstDueMonth}
+                    onChange={(e) => set({ firstDueMonth: e.target.value })}
+                  />
+                </label>
+              )}
+            </>
+          )}
         </>
       )}
     </fieldset>

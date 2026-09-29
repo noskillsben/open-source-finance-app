@@ -134,7 +134,7 @@ def test_target_contribution_zero_when_reached_and_whole_shortfall_when_past(cli
 
 def test_commitment_add_has_no_target(client, db_session, category):
     _fund(db_session, category, 3000)
-    _set(client, category, kind="commitment", amount_cents=5000, cadence="weeks", cadence_weeks=2)
+    _set(client, category, kind="commitment", amount_cents=5000)
     (row,) = _progress(client)
     assert (row["balance_cents"], row["target_cents"], row["owed_cents"], row["per_period_cents"]) == (
         3000, None, None, 5000)
@@ -142,7 +142,7 @@ def test_commitment_add_has_no_target(client, db_session, category):
 
 def test_commitment_refill_to_level(client, db_session, category):
     _fund(db_session, category, 45000)
-    _set(client, category, kind="commitment", level_cents=60000, cadence="monthly")
+    _set(client, category, kind="commitment", level_cents=60000)
     (row,) = _progress(client)
     assert (row["target_cents"], row["owed_cents"], row["per_period_cents"]) == (60000, 15000, None)
 
@@ -162,16 +162,26 @@ def test_progress_reads_the_picker_date(client, db_session, category):
     ({"kind": "target", "amount_cents": 100, "cadence": "monthly"}, "needs a target date"),
     ({"kind": "target", "amount_cents": 100, "level_cents": 5}, "no level"),
     ({"kind": "target", "amount_cents": -1}, "negative"),
-    ({"kind": "commitment", "cadence": "monthly"}, "give exactly one"),
-    ({"kind": "commitment", "amount_cents": 1, "level_cents": 2, "cadence": "monthly"}, "give exactly one"),
-    ({"kind": "commitment", "amount_cents": 1}, "needs a cadence"),
-    ({"kind": "commitment", "amount_cents": 1, "cadence": "monthly", "target_date": "2026-05-01"}, "no target date"),
+    ({"kind": "commitment", "cadence": "monthly", "first_due_on": "2026-10-31"}, "give exactly one"),
+    ({"kind": "commitment", "amount_cents": 1, "level_cents": 2}, "give exactly one"),
+    ({"kind": "commitment", "amount_cents": 1, "cadence": "monthly", "first_due_on": "2026-10-31", "target_date": "2026-05-01"}, "no target date"),
+    ({"kind": "commitment", "amount_cents": 1, "cadence": "weeks", "cadence_weeks": 2}, "no every-N-weeks"),
+    ({"kind": "commitment", "amount_cents": 1, "cadence": "weeks"}, "no every-N-weeks"),
+    ({"kind": "commitment", "amount_cents": 1, "cadence_weeks": 2}, "no every-N-weeks"),
+    ({"kind": "commitment", "amount_cents": 1, "cadence": "monthly"}, "needs its first due month"),
+    ({"kind": "commitment", "amount_cents": 1, "first_due_on": "2026-10-31"}, "no cadence has no first due month"),
+    ({"kind": "commitment", "amount_cents": 1, "cadence": "monthly", "first_due_on": "2026-10-15"}, "last day"),
+    ({"kind": "commitment", "level_cents": 5, "cadence": "monthly", "first_due_on": "2026-10-31"}, "Only a fixed-amount"),
+    ({"kind": "commitment", "level_cents": 5, "first_due_on": "2026-10-31"}, "no cadence has no first due month"),
+    ({"kind": "commitment", "percent_of_net": "5", "cadence": "monthly", "first_due_on": "2026-10-31"}, "Only a fixed-amount"),
+    ({"kind": "target", "amount_cents": 100, "first_due_on": "2026-10-31"}, "Only a commitment"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "target_date": "2026-06-15", "first_due_on": "2026-10-31"}, "Only a commitment"),
     ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "weeks", "target_date": "2026-06-15"}, "needs N"),
     ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "cadence_weeks": 2, "target_date": "2026-06-15"}, "only applies"),
     ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "daily", "target_date": "2026-06-15"}, "Unknown cadence"),
     ({"kind": "target", "amount_cents": 100, "percent_of_net": "5"}, "no percentage"),
     ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "percent_of_net": "5", "target_date": "2026-06-15"}, "no percentage"),
-    ({"kind": "commitment", "cadence": "monthly", "percent_of_net": "5"}, "needs a bound pay"),
+    ({"kind": "commitment", "percent_of_net": "5"}, "needs a bound pay"),
     ({"kind": "target", "amount_cents": 100, "income_stream_id": 999}, "Unknown income stream id"),
 ])
 def test_invalid_goals_are_refused_and_nothing_is_written(client, category, fields, message):
@@ -206,7 +216,7 @@ def test_zero_is_a_stated_amount(client, category):
 
 def test_one_goal_per_category_put_replaces_it(client, category):
     first = _set(client, category, kind="target", amount_cents=10000).json()
-    second = _set(client, category, name="Renamed", kind="commitment", level_cents=500, cadence="monthly").json()
+    second = _set(client, category, name="Renamed", kind="commitment", level_cents=500).json()
     assert second["id"] == first["id"]
     (row,) = _progress(client)
     assert (row["goal"]["name"], row["goal"]["kind"], row["goal"]["amount_cents"]) == ("Renamed", "commitment", None)
@@ -254,7 +264,7 @@ def test_goal_binds_to_a_named_pay(client, category, stream):
 
 def test_commitment_percent_of_net_bound_to_a_pay(client, category, stream):
     response = _set(
-        client, category, kind="commitment", cadence="monthly",
+        client, category, kind="commitment",
         percent_of_net="5.5", income_stream_id=stream.id,
     )
     assert response.status_code == 200
@@ -267,7 +277,7 @@ def test_commitment_percent_of_net_bound_to_a_pay(client, category, stream):
 
 def test_commitment_percent_and_fixed_amount_are_mutually_exclusive(client, category, stream):
     response = _set(
-        client, category, kind="commitment", cadence="monthly",
+        client, category, kind="commitment",
         amount_cents=5000, percent_of_net="5", income_stream_id=stream.id,
     )
     assert response.status_code == 400
@@ -309,7 +319,7 @@ def test_due_by_next_payday_none_without_a_due_date(db_session, category, stream
 def test_due_by_next_payday_none_for_a_commitment(db_session, category, stream):
     goal = Goal(
         category_id=category.id, name="Fun money", kind="commitment", amount_cents=5000,
-        cadence="weeks", cadence_weeks=2, income_stream_id=stream.id, created_on=DAY,
+        income_stream_id=stream.id, created_on=DAY,
     )
     db_session.add(goal)
     db_session.flush()
@@ -340,3 +350,36 @@ def test_database_refuses_a_second_live_goal_on_a_category(db_session, category)
         db_session.add(Goal(category_id=category.id, name=name, kind="target", amount_cents=1, created_on=DAY))
     with pytest.raises(IntegrityError):
         db_session.flush()
+
+
+@pytest.mark.parametrize("cadence", ["monthly", "quarterly", "semiannual", "yearly"])
+def test_fixed_commitment_cadence_round_trips_with_its_first_due_month(client, category, cadence):
+    response = _set(client, category, kind="commitment", amount_cents=20000, cadence=cadence, first_due_on="2026-10-31")
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["cadence"], body["cadence_weeks"], body["first_due_on"]) == (cadence, None, "2026-10-31")
+    (row,) = _progress(client)
+    assert (row["goal"]["cadence"], row["goal"]["first_due_on"]) == (cadence, "2026-10-31")
+    assert row["due_date"] is None  # #156 stores the month; nothing here reads it as a due date yet
+
+
+def test_each_payday_commitment_is_an_empty_cadence(client, category):
+    body = _set(client, category, kind="commitment", amount_cents=5000).json()
+    assert (body["cadence"], body["cadence_weeks"], body["first_due_on"]) == (None, None, None)
+
+
+def test_editing_a_commitment_back_to_each_payday_clears_its_first_due_month(client, category):
+    _set(client, category, kind="commitment", amount_cents=20000, cadence="monthly", first_due_on="2026-10-31")
+    body = _set(client, category, kind="commitment", amount_cents=20000).json()
+    assert (body["cadence"], body["first_due_on"]) == (None, None)
+
+
+def test_a_commitment_first_due_month_may_be_a_leap_february_end(client, category):
+    assert _set(client, category, kind="commitment", amount_cents=1, cadence="yearly", first_due_on="2028-02-29").status_code == 200
+
+
+def test_bills_keep_every_n_weeks(client, category):
+    response = _set(client, category, kind="recurring_bill", amount_cents=5000, cadence="weeks", cadence_weeks=2,
+                    target_date="2026-02-20")
+    assert response.status_code == 200
+    assert (response.json()["cadence"], response.json()["cadence_weeks"], response.json()["first_due_on"]) == ("weeks", 2, None)
