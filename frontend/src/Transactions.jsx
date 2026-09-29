@@ -38,6 +38,9 @@ export default function Transactions({ pickerDate }) {
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
   const [predatesCheckNotes, setPredatesCheckNotes] = useState([])
+  // Delete confirmation, opened in place of window.confirm (DESIGN.md § Earmarks): null when
+  // closed, otherwise { hasBatchLines, removeBatch } for the transaction being deleted.
+  const [deleteConfirm, setDeleteConfirm] = useState(null)
 
   function refresh() {
     api.accounts.list().then(setAccounts).catch((e) => setError(e.message))
@@ -103,10 +106,12 @@ export default function Transactions({ pickerDate }) {
     setBillLink(null)
     setDeclinedBills([])
     setFormError(null)
+    setDeleteConfirm(null)
   }
 
   function editTransaction(t) {
     setPredatesCheckNotes([])
+    setDeleteConfirm(null)
     setEditingId(t.id)
     setDate(t.date)
     setMemo(t.memo || '')
@@ -129,10 +134,23 @@ export default function Transactions({ pickerDate }) {
     setFormError(null)
   }
 
-  async function deleteTransaction() {
+  async function openDeleteConfirm() {
     if (!editingId) return
-    if (!window.confirm('Delete this transaction? This cannot be undone.')) return
+    setFormError(null)
     try {
+      const lines = await api.payBatch.get(editingId)
+      setDeleteConfirm({ hasBatchLines: lines.length > 0, removeBatch: true })
+    } catch (err) {
+      setFormError(err.message)
+    }
+  }
+
+  async function confirmDelete() {
+    if (!editingId || !deleteConfirm) return
+    try {
+      if (deleteConfirm.hasBatchLines && deleteConfirm.removeBatch) {
+        await api.payBatch.replace(editingId, [])
+      }
       await api.transactions.remove(editingId)
       resetForm()
       refresh()
@@ -571,13 +589,46 @@ export default function Transactions({ pickerDate }) {
                 <button
                   type="button"
                   className="rounded bg-bad px-3 py-1.5 text-sm font-medium"
-                  onClick={deleteTransaction}
+                  onClick={openDeleteConfirm}
                 >
                   Delete
                 </button>
               </>
             )}
           </div>
+          {deleteConfirm && (
+            <div className="rounded bg-ink p-2 space-y-2 text-sm">
+              <p>Delete this transaction? This cannot be undone.</p>
+              {deleteConfirm.hasBatchLines && (
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={deleteConfirm.removeBatch}
+                    onChange={(e) =>
+                      setDeleteConfirm((c) => ({ ...c, removeBatch: e.target.checked }))
+                    }
+                  />
+                  Also remove the money moves this pay assigned
+                </label>
+              )}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className="rounded bg-bad px-3 py-1.5 text-sm font-medium"
+                  onClick={confirmDelete}
+                >
+                  Confirm delete
+                </button>
+                <button
+                  type="button"
+                  className="rounded bg-ink-soft px-3 py-1.5 text-sm"
+                  onClick={() => setDeleteConfirm(null)}
+                >
+                  Never mind
+                </button>
+              </div>
+            </div>
+          )}
         </form>
 
         <form className="flex gap-2 pt-2" onSubmit={addCategory}>

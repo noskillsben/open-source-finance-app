@@ -6,7 +6,14 @@ import Transactions from './Transactions.jsx'
 // What the mocked backend already holds; a test sets these before rendering.
 let existingTransactions = []
 
-const calls = vi.hoisted(() => ({ create: vi.fn(), dueDates: vi.fn(), lastPayment: vi.fn() }))
+const calls = vi.hoisted(() => ({
+  create: vi.fn(),
+  dueDates: vi.fn(),
+  lastPayment: vi.fn(),
+  remove: vi.fn(),
+  payBatchGet: vi.fn(),
+  payBatchReplace: vi.fn(),
+}))
 
 const ACCOUNTS = [{ id: 1, name: 'Chequing', linked_category_ids: [] }]
 const CATEGORIES = [
@@ -32,12 +39,16 @@ vi.mock('./api.js', () => ({
       list: () => Promise.resolve(existingTransactions),
       create: calls.create,
       update: vi.fn(),
-      remove: vi.fn(),
+      remove: calls.remove,
     },
     goals: {
       list: () => Promise.resolve([RENT_GOAL]),
       dueDates: calls.dueDates,
       lastPayment: calls.lastPayment,
+    },
+    payBatch: {
+      get: calls.payBatchGet,
+      replace: calls.payBatchReplace,
     },
   },
 }))
@@ -66,6 +77,12 @@ beforeEach(() => {
   calls.dueDates.mockResolvedValue(DUE_DATES)
   calls.lastPayment.mockReset()
   calls.lastPayment.mockResolvedValue({ payee_id: null, account_id: null })
+  calls.remove.mockReset()
+  calls.remove.mockResolvedValue({})
+  calls.payBatchGet.mockReset()
+  calls.payBatchGet.mockResolvedValue([])
+  calls.payBatchReplace.mockReset()
+  calls.payBatchReplace.mockResolvedValue({})
 })
 
 describe('Ledger form: which bill and due date a payment paid', () => {
@@ -220,6 +237,95 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
     await screen.findByText(/Marked as paying/)
     await waitFor(() => expect(calls.lastPayment).toHaveBeenCalledWith(7))
     expect(screen.getByRole('option', { name: 'Chequing' }).closest('select')).toHaveValue('')
+  })
+})
+
+describe('Ledger form: deleting a transaction', () => {
+  const EXISTING = {
+    id: 5, date: '2026-10-03', memo: 'October rent', payee_id: null, valuation_id: null,
+    income_stream_id: null, goal_id: null, goal_due_on: null,
+    account_lines: [{ id: 1, account_id: 1, cents: -120000, budget_cents: -120000 }],
+    category_lines: [{ id: 1, category_id: 11, cents: -120000, need_level: null }],
+    deposits: [],
+  }
+
+  beforeEach(() => {
+    existingTransactions = [EXISTING]
+  })
+
+  it('shows a checked checkbox when the batch has lines', async () => {
+    calls.payBatchGet.mockResolvedValue([{ category_id: 10, cents: -500 }])
+    renderLedger()
+    fireEvent.click(await screen.findByText('October rent'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    expect(calls.payBatchGet).toHaveBeenCalledWith(5)
+    const checkbox = await screen.findByRole('checkbox', { name: /Also remove the money moves/ })
+    expect(checkbox).toBeChecked()
+  })
+
+  it('hides the checkbox when the batch is empty', async () => {
+    calls.payBatchGet.mockResolvedValue([])
+    renderLedger()
+    fireEvent.click(await screen.findByText('October rent'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+
+    await screen.findByText('Delete this transaction? This cannot be undone.')
+    expect(screen.queryByRole('checkbox', { name: /Also remove the money moves/ })).not.toBeInTheDocument()
+  })
+
+  it('checked confirm replaces the batch empty before removing the transaction', async () => {
+    calls.payBatchGet.mockResolvedValue([{ category_id: 10, cents: -500 }])
+    renderLedger()
+    fireEvent.click(await screen.findByText('October rent'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    await screen.findByRole('checkbox', { name: /Also remove the money moves/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+
+    await waitFor(() => expect(calls.remove).toHaveBeenCalledWith(5))
+    expect(calls.payBatchReplace).toHaveBeenCalledWith(5, [])
+    const replaceOrder = calls.payBatchReplace.mock.invocationCallOrder[0]
+    const removeOrder = calls.remove.mock.invocationCallOrder[0]
+    expect(replaceOrder).toBeLessThan(removeOrder)
+  })
+
+  it('unchecked confirm only removes the transaction', async () => {
+    calls.payBatchGet.mockResolvedValue([{ category_id: 10, cents: -500 }])
+    renderLedger()
+    fireEvent.click(await screen.findByText('October rent'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    const checkbox = await screen.findByRole('checkbox', { name: /Also remove the money moves/ })
+    fireEvent.click(checkbox)
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+
+    await waitFor(() => expect(calls.remove).toHaveBeenCalledWith(5))
+    expect(calls.payBatchReplace).not.toHaveBeenCalled()
+  })
+
+  it('cancel deletes nothing', async () => {
+    calls.payBatchGet.mockResolvedValue([{ category_id: 10, cents: -500 }])
+    renderLedger()
+    fireEvent.click(await screen.findByText('October rent'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    await screen.findByRole('checkbox', { name: /Also remove the money moves/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Never mind' }))
+
+    expect(screen.queryByText('Delete this transaction? This cannot be undone.')).not.toBeInTheDocument()
+    expect(calls.remove).not.toHaveBeenCalled()
+    expect(calls.payBatchReplace).not.toHaveBeenCalled()
+  })
+
+  it('replace failing shows the error and does not remove the transaction', async () => {
+    calls.payBatchGet.mockResolvedValue([{ category_id: 10, cents: -500 }])
+    calls.payBatchReplace.mockRejectedValue(new Error('boom'))
+    renderLedger()
+    fireEvent.click(await screen.findByText('October rent'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    await screen.findByRole('checkbox', { name: /Also remove the money moves/ })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm delete' }))
+
+    expect(await screen.findByText('boom')).toBeInTheDocument()
+    expect(calls.remove).not.toHaveBeenCalled()
   })
 })
 
