@@ -73,7 +73,7 @@ from app.services.links import (
     suggest_split,
 )
 from app.services.goals import (
-    GoalError, _short_date, apply_goal, bill_status, due_by_next_payday, earliest_unpaid_due_date,
+    GoalError, _short_date, apply_goal, bill_status, commitment_context, due_by_next_payday, earliest_unpaid_due_date,
     goal_latest_linked_date, goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
 )
 from app.services.income_streams import IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday
@@ -408,9 +408,11 @@ def list_goals(
     out = []
     for g in goals:
         due_cents = None
+        context_text = None
         stream = session.get(IncomeStream, g.income_stream_id) if g.income_stream_id is not None else None
         if stream is not None:
             due_cents = due_by_next_payday(session, g, stream, as_of=as_of)
+            context_text = commitment_context(session, g, stream, as_of=as_of)
         status = bill_status(session, g, as_of=as_of, stream=stream)
         last_paid = last_paid_text(session, g, as_of=as_of) if g.kind == "recurring_bill" else None
         earliest_unpaid = earliest_unpaid_due_date(session, g)
@@ -418,6 +420,7 @@ def list_goals(
             GoalProgressOut(
                 goal=GoalOut.model_validate(g),
                 due_by_next_payday_cents=due_cents,
+                commitment_context_text=context_text,
                 earliest_unpaid_due_on=earliest_unpaid,
                 earliest_unpaid_due_text=_short_date(earliest_unpaid, as_of=as_of) if earliest_unpaid else None,
                 bill_status=status[0] if status else None,

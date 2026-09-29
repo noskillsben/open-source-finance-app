@@ -521,6 +521,9 @@ class GoalProgressOut(BaseModel):
     # links to on the Categories goal row.
     earliest_unpaid_due_text: str | None = None
     due_by_next_payday_cents: int | None
+    # A fixed Commitment's context line on the pay screen, worded once on the server: "each
+    # payday" or "$100.00 of $200.00 due Oct 31"; null for any other goal or with no bound pay.
+    commitment_context_text: str | None = None
     # A recurring bill's status ("overdue" / "due" / "next_due") and its wording, worded once on
     # the server (DESIGN.md § Paying a bill); null for any other kind.
     bill_status: str | None = None

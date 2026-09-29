@@ -251,7 +251,10 @@ export default function PayRecord({ pickerDate }) {
     )
     setFundingAmounts(
       Object.fromEntries(
-        fundingGoals.map((g) => [g.goal.id, ((g.goal.amount_cents ?? g.owed_cents ?? 0) / 100).toFixed(2)])
+        fundingGoals.map((g) => [
+          g.goal.id,
+          ((g.due_by_next_payday_cents ?? g.goal.amount_cents ?? g.owed_cents ?? 0) / 100).toFixed(2),
+        ])
       )
     )
   }, [stream, categories, seeded, reopening, goalsLoaded, billGoals, targetGoals, fundingGoals])
@@ -817,6 +820,7 @@ export default function PayRecord({ pickerDate }) {
               level: g.goal.level_cents != null,
               shortfallCents: g.owed_cents,
               levelCents: g.goal.level_cents,
+              contextText: g.commitment_context_text,
             })),
             categoriesById,
             leftover
@@ -840,7 +844,7 @@ export default function PayRecord({ pickerDate }) {
                     {categoriesById.get(r.categoryId)?.name} ·{' '}
                     {r.level
                       ? `${formatCents(r.shortfallCents)} short of ${formatCents(r.levelCents)} level`
-                      : 'fixed'}
+                      : (r.contextText ?? 'fixed')}
                   </div>
                 </span>
               </label>

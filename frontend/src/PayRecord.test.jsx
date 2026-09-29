@@ -394,3 +394,28 @@ describe('PayRecord lists goal categories under Everything else', () => {
     expect(within(block).getAllByText('Vacation')).toHaveLength(1)
   })
 })
+
+describe('PayRecord funding rules for a fixed Commitment', () => {
+  const fixed = (id, categoryId, name, cents, context, due) => ({
+    goal: { id, kind: 'commitment', category_id: categoryId, income_stream_id: 3, name, amount_cents: cents, level_cents: null, percent_of_net: null },
+    due_date: null, due_by_next_payday_cents: due, commitment_context_text: context, owed_cents: null,
+  })
+
+  it('pre-fills the instalment with the server wording, and each payday with the full amount', async () => {
+    streams = [SALARY]
+    categories = [...CATEGORIES, { id: 5, name: 'Vacation', archived_on: null }, { id: 6, name: 'Fun money', archived_on: null }]
+    goals = [
+      fixed(31, 5, 'Trip', 20000, '$100.00 of $200.00 due Oct 31', 5000),
+      fixed(32, 6, 'Fun', 5000, 'each payday', null),
+    ]
+    renderSalary()
+
+    const block = (await screen.findByText('Funding rules')).closest('fieldset')
+    const trip = within(block).getByText('Trip').closest('.justify-between')
+    expect(trip).toHaveTextContent('Vacation · $100.00 of $200.00 due Oct 31')
+    await waitFor(() => expect(within(trip).getByRole('textbox')).toHaveValue('50.00'))
+    const fun = within(block).getByText('Fun').closest('.justify-between')
+    expect(fun).toHaveTextContent('Fun money · each payday')
+    expect(within(fun).getByRole('textbox')).toHaveValue('50.00')
+  })
+})
