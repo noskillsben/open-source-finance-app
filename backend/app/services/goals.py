@@ -3,6 +3,7 @@ balance compared to the rule. A goal binds to a named pay (#21) that funds it: `
 plus, for a Commitment's "add" flavour, `percent_of_net` as an alternative to a fixed
 `amount_cents` — resolved against the pay's net, never gross, and never stored as cents.
 """
+import datetime
 from dataclasses import dataclass
 from datetime import date
 
@@ -269,9 +270,11 @@ def bill_status(
     session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None
 ) -> tuple[str, str] | None:
     """A recurring bill's status and its wording, computed here so no component words it again:
-    "overdue" once `as_of` is past its earliest unpaid due date; "due" when that date falls on or
-    before the bound pay's next payday (or is `as_of` itself for a bill bound to no pay);
-    otherwise "next_due". None for any other kind of goal.
+    "overdue" once `as_of` is past its earliest unpaid due date; "due" when that date falls
+    strictly before the bound pay's next payday — the first payday strictly after `as_of`, so on
+    payday itself the horizon is the payday still to come, not today (or is `as_of` itself for a
+    bill bound to no pay); otherwise "next_due", including a bill due exactly on that next
+    payday, which waits for that payday to arrive. None for any other kind of goal.
     """
     due = earliest_unpaid_due_date(session, goal)
     if due is None:
@@ -279,9 +282,14 @@ def bill_status(
     day = _short_date(due, as_of=as_of)
     if due < as_of:
         return "overdue", f"overdue since {day}"
-    horizon = as_of if stream is None else next_payday(stream, as_of=as_of)
-    if due <= horizon:
-        return "due", f"due {day} · not paid"
+    if stream is None:
+        horizon = as_of
+        if due <= horizon:
+            return "due", f"due {day} · not paid"
+    else:
+        horizon = next_payday(stream, as_of=as_of + datetime.timedelta(days=1))
+        if due < horizon:
+            return "due", f"due {day} · not paid"
     return "next_due", f"next due {day}"
 
 
