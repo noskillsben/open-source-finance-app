@@ -44,6 +44,7 @@ const GOAL_KINDS = [
 const CADENCES = [
   { value: 'monthly', label: 'Monthly' },
   { value: 'quarterly', label: 'Quarterly' },
+  { value: 'semiannual', label: 'Every 6 months' },
   { value: 'yearly', label: 'Yearly' },
   { value: 'weeks', label: 'Every N weeks' },
 ]
@@ -90,7 +91,7 @@ function goalBody(g, pickerDate) {
   }
 }
 
-const cadenceText = (goal) => (goal.cadence === 'weeks' ? `every ${goal.cadence_weeks} weeks` : goal.cadence)
+const cadenceText = (goal) => (goal.cadence === 'weeks' ? `every ${goal.cadence_weeks} weeks` : (CADENCES.find((c) => c.value === goal.cadence)?.label ?? goal.cadence).toLowerCase())
 
 // The goal section of the category's settings form. The kind decides which fields show; "No goal"
 // removes (archives) the goal on save.

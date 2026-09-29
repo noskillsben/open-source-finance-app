@@ -21,7 +21,7 @@ function stepDate(cadence, cadenceWeeks, iso, n) {
     dt.setUTCDate(dt.getUTCDate() + cadenceWeeks * 7 * n)
     return dt.toISOString().slice(0, 10)
   }
-  const months = { monthly: 1, quarterly: 3, yearly: 12 }[cadence] ?? 1
+  const months = { monthly: 1, quarterly: 3, semiannual: 6, yearly: 12 }[cadence] ?? 1
   return addMonths(iso, months * n)
 }
 
