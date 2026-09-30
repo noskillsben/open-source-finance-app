@@ -134,6 +134,7 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
         linked_category_ids=linked_category_ids(session, account.id), drift_cents=drift,
         checked_on=valuation.date if valuation is not None else None,
         checked_valuation_id=valuation.id if valuation is not None else None,
+        checked_is_opening=valuation is not None and valuation is _opening_valuation(session, account),
         entries_added_since_check=(
             entries_added_since_check(session, account.id, valuation) if valuation is not None else 0
         ),

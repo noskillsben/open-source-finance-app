@@ -90,6 +90,8 @@ class AccountOut(BaseModel):
     drift_cents: int | None = None
     checked_on: date | None = None
     checked_valuation_id: int | None = None
+    # True when the latest check is the account's opening balance — the one check that can't be undone.
+    checked_is_opening: bool = False
     entries_added_since_check: int = 0
     notes: list[str] = []
     terms: DebtTerms = DebtTerms()
