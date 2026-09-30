@@ -247,7 +247,8 @@ export default function Accounts({ pickerDate }) {
           terms: { ...accounts.find((a) => a.id === editingId).terms, credit_limit_cents: creditLimitCents },
         })
       } else {
-        const openingBalanceCents = parseCents(form.opening_balance_cents)
+        // Blank matches the field's 0.00 placeholder; typed text that isn't a number is still refused.
+        const openingBalanceCents = form.opening_balance_cents.trim() === '' ? 0 : parseCents(form.opening_balance_cents)
         if (!form.created_on) return setFormError('Opening balance date is required.')
         if (openingBalanceCents === null) return setFormError('Opening balance must be a number.')
         await api.accounts.create({

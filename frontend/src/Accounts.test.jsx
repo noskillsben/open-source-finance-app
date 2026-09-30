@@ -2,7 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Accounts from './Accounts.jsx'
 
-const { checkBalance } = vi.hoisted(() => ({ checkBalance: vi.fn() }))
+const { checkBalance, createAccount } = vi.hoisted(() => ({ checkBalance: vi.fn(), createAccount: vi.fn() }))
 
 const account = (overrides) => ({
   id: 1, name: 'Chequing', type: 'Chequing', on_budget: true, on_budget_floor_cents: 0,
@@ -18,6 +18,7 @@ vi.mock('./api.js', () => ({
     accounts: {
       list: () => Promise.resolve(accounts),
       checkBalance,
+      create: createAccount,
       checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: [] }),
     },
     categories: { list: () => Promise.resolve([{ id: 11, name: 'Rent' }]) },
@@ -87,5 +88,32 @@ describe('undo check link', () => {
 
     expect(await screen.findAllByText(/balance checked/)).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Undo check' })).toHaveLength(1)
+  })
+})
+
+describe('add an account: opening balance', () => {
+  beforeEach(() => {
+    createAccount.mockReset()
+    createAccount.mockResolvedValue({})
+    accounts = []
+  })
+
+  async function fillAndSave(openingBalance) {
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Wallet' } })
+    fireEvent.change(screen.getByLabelText('Opening balance'), { target: { value: openingBalance } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+  }
+
+  it('saves a blank opening balance as 0 cents', async () => {
+    await fillAndSave('')
+    await waitFor(() => expect(createAccount).toHaveBeenCalledTimes(1))
+    expect(createAccount.mock.calls[0][0].opening_balance_cents).toBe(0)
+  })
+
+  it('still refuses text that is not a number', async () => {
+    await fillAndSave('abc')
+    expect(await screen.findByText('Opening balance must be a number.')).toBeTruthy()
+    expect(createAccount).not.toHaveBeenCalled()
   })
 })
