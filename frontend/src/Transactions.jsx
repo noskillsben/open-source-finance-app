@@ -62,6 +62,12 @@ export default function Transactions({ pickerDate }) {
 
   useEffect(refresh, [pickerDate])
 
+  // The picker pre-fills the Record form (DESIGN.md § One clock): moving it replaces the date, even one
+  // typed by hand, but an open edit keeps the date of the transaction being edited.
+  useEffect(() => {
+    if (editingId == null) setDate(pickerDate)
+  }, [pickerDate])
+
   // "Record" on a bill's row on Categories lands here with the bill, its due date and its expected
   // amount in route state (DESIGN.md § Paying a bill): the form opens pre-filled and already linked,
   // with the payee and account of the bill's last linked payment. The user still saves it.

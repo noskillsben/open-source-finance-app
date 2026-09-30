@@ -53,12 +53,14 @@ vi.mock('./api.js', () => ({
   },
 }))
 
-function renderLedger(state) {
-  return render(
+function renderLedger(state, pickerDate = '2026-10-03') {
+  const page = (date) => (
     <MemoryRouter initialEntries={[{ pathname: '/ledger', state }]}>
-      <Transactions pickerDate="2026-10-03" />
+      <Transactions pickerDate={date} />
     </MemoryRouter>
   )
+  const view = render(page(pickerDate))
+  return { ...view, setPickerDate: (date) => view.rerender(page(date)) }
 }
 
 async function addCategoryLine(name) {
@@ -326,6 +328,36 @@ describe('Ledger form: deleting a transaction', () => {
 
     expect(await screen.findByText('boom')).toBeInTheDocument()
     expect(calls.remove).not.toHaveBeenCalled()
+  })
+})
+
+describe('Ledger form: the date follows the Show as of picker', () => {
+  it('replaces the form date when the picker changes, even one typed by hand', async () => {
+    const { setPickerDate } = renderLedger()
+    const dateInput = await screen.findByLabelText('Date')
+    expect(dateInput).toHaveValue('2026-10-03')
+
+    fireEvent.change(dateInput, { target: { value: '2026-09-15' } })
+    setPickerDate('2026-10-20')
+
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-10-20'))
+  })
+
+  it('keeps the date of a transaction being edited when the picker changes', async () => {
+    existingTransactions = [{
+      id: 5, date: '2026-09-01', memo: 'September rent', payee_id: null, valuation_id: null,
+      income_stream_id: null, goal_id: null, goal_due_on: null,
+      account_lines: [{ id: 1, account_id: 1, cents: -120000, budget_cents: -120000 }],
+      category_lines: [{ id: 1, category_id: 11, cents: -120000, need_level: null }],
+      deposits: [],
+    }]
+    const { setPickerDate } = renderLedger()
+    fireEvent.click(await screen.findByText('September rent'))
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-09-01'))
+
+    setPickerDate('2026-10-20')
+
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-09-01'))
   })
 })
 
