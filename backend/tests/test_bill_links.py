@@ -235,3 +235,10 @@ def test_an_unlinked_payment_does_not_hold_the_bill_back(client, chequing, rent)
     _pay(client, chequing, category, day="2026-10-03")  # spending on the category, no link
     response = client.post(f"/api/categories/{category.id}/goal/archive", json={"archived_on": "2026-10-01"})
     assert response.status_code == 200
+
+
+def test_any_date_lists_a_goal_created_after_the_picker_date(client, rent):
+    before = {"as_of": "2026-08-01"}
+    assert client.get("/api/goals", params=before).json() == []
+    listed = client.get("/api/goals", params={**before, "any_date": "true"}).json()
+    assert [g["goal"]["id"] for g in listed] == [rent[1].id]
