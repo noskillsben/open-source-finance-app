@@ -9,7 +9,7 @@ from sqlalchemy import event, select
 
 from app.db import get_session
 from app.main import app
-from app.models import AccountLine, Category, EarmarkLine, Payee, Transaction, Valuation
+from app.models import Account, AccountLine, Category, EarmarkLine, Payee, Transaction, Valuation
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.categories import category_balance_cents
 from app.services.transactions import write_transaction
@@ -1007,3 +1007,80 @@ def test_list_transactions_query_count_does_not_grow_with_the_ledger(db_session)
     assert len(body) == openings + 20
     assert all(t["notes"] == [] for t in body)
     assert twenty == one
+
+
+def _listed_account(db_session, account_id):
+    client = _client(db_session)
+    try:
+        resp = client.get("/api/accounts")
+    finally:
+        app.dependency_overrides.clear()
+    assert resp.status_code == 200
+    return next(a for a in resp.json() if a["id"] == account_id)
+
+
+def test_checked_is_opening_true_for_a_new_account(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+
+    assert _listed_account(db_session, account.id)["checked_is_opening"] is True
+
+
+def test_checked_is_opening_false_after_a_later_check_and_true_after_undo(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+    valuation, _, _ = check_balance(
+        db_session, account_id=account.id, check_date=LATER,
+        stated_balance_cents=520_00, category_id=None,
+    )
+    db_session.flush()
+
+    assert _listed_account(db_session, account.id)["checked_is_opening"] is False
+
+    client = _client(db_session)
+    try:
+        assert client.delete(f"/api/valuations/{valuation.id}").status_code == 204
+    finally:
+        app.dependency_overrides.clear()
+
+    assert _listed_account(db_session, account.id)["checked_is_opening"] is True
+
+
+def test_checked_is_opening_false_with_no_check(db_session):
+    account = Account(name="Bare", created_on=EARLIER, type="Chequing", on_budget=True, on_budget_floor_cents=0)
+    db_session.add(account)
+    db_session.flush()
+
+    listed = _listed_account(db_session, account.id)
+    assert listed["checked_valuation_id"] is None
+    assert listed["checked_is_opening"] is False
+
+
+def test_checked_is_opening_survives_a_backfill_that_moves_created_on(db_session):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    db_session.flush()
+    # A check on the opening date is a second valuation sharing it; the backfill then moves the
+    # opening valuation's date and created_on, which a date-based guess would get wrong.
+    check_balance(
+        db_session, account_id=account.id, check_date=EARLIER,
+        stated_balance_cents=520_00, category_id=None,
+    )
+    db_session.flush()
+    write_transaction(
+        db_session, transaction=None, txn_date=EARLIER - datetime.timedelta(days=5), memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -30_00}], category_lines=[],
+    )
+    db_session.flush()
+    db_session.refresh(account)
+    assert account.created_on == EARLIER - datetime.timedelta(days=5)
+
+    assert _listed_account(db_session, account.id)["checked_is_opening"] is False

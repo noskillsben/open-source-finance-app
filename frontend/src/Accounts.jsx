@@ -305,14 +305,18 @@ export default function Accounts({ pickerDate }) {
                         {VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'} {formatDate(a.checked_on)}
                         {a.entries_added_since_check > 0 &&
                           ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
-                        {' — '}
-                        <button
-                          type="button"
-                          className="text-accent underline"
-                          onClick={(e) => undoCheck(e, a)}
-                        >
-                          Undo check
-                        </button>
+                        {!a.checked_is_opening && (
+                          <>
+                            {' — '}
+                            <button
+                              type="button"
+                              className="text-accent underline"
+                              onClick={(e) => undoCheck(e, a)}
+                            >
+                              Undo check
+                            </button>
+                          </>
+                        )}
                       </div>
                     )}
                     {a.notes.map((note) => (
