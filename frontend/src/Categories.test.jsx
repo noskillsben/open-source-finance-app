@@ -219,3 +219,20 @@ describe("a Commitment's cadence (#156)", () => {
     expect(setGoal.mock.calls[0][1]).toMatchObject({ level_cents: 60000, cadence: null, first_due_on: null })
   })
 })
+
+describe('Edit (#168)', () => {
+  it('scrolls the form into view', async () => {
+    goals = []
+    const scrollIntoView = vi.fn()
+    Element.prototype.scrollIntoView = scrollIntoView
+    try {
+      renderCategories()
+      fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+      await screen.findByText('Edit Rent')
+      expect(scrollIntoView).toHaveBeenCalled()
+      expect(scrollIntoView.mock.contexts.at(-1).tagName).toBe('FORM')
+    } finally {
+      delete Element.prototype.scrollIntoView
+    }
+  })
+})

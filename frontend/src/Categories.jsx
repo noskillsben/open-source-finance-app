@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
 import Domains from './Domains.jsx'
@@ -462,6 +462,13 @@ export default function Categories({ pickerDate }) {
 
   useEffect(refresh, [pickerDate, showArchived])
 
+  // Edit opens the form above a long table; bring it into view. The form remounts on every
+  // start, so this runs after each Edit click. jsdom has no scrollIntoView, hence the guard.
+  const formRef = useRef(null)
+  useEffect(() => {
+    if (editing) formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
+  }, [formKey])
+
   function startEdit(category) {
     setFormKey((k) => k + 1)
     setEditing(category)
@@ -610,6 +617,7 @@ export default function Categories({ pickerDate }) {
 
       <form
         key={formKey}
+        ref={formRef}
         onSubmit={submit}
         className="rounded-lg bg-ink-soft p-4 space-y-3"
       >

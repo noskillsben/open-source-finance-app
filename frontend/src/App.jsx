@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Navigate, Route, Routes, useLocation } from 'react-router-dom'
 import Accounts from './Accounts.jsx'
 import Categories from './Categories.jsx'
 import Domains from './Domains.jsx'
@@ -12,6 +12,13 @@ import Transactions from './Transactions.jsx'
 import { api } from './api.js'
 import { todayIso } from './utils/format.js'
 
+// Categories carries a wide table, so it gets room on a desktop; every other page stays narrow.
+function Layout({ children }) {
+  const { pathname } = useLocation()
+  const width = pathname === '/categories' ? 'max-w-xl lg:max-w-6xl' : 'max-w-xl'
+  return <div className={`mx-auto ${width} px-6`}>{children}</div>
+}
+
 export default function App() {
   const [health, setHealth] = useState(null)
   const [error, setError] = useState(null)
@@ -23,7 +30,7 @@ export default function App() {
 
   return (
     <BrowserRouter>
-      <div className="mx-auto max-w-xl px-6">
+      <Layout>
         <header className="pt-6 flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold">Open Source Finance App</h1>
@@ -63,7 +70,7 @@ export default function App() {
           <Route path="/domains" element={<Domains pickerDate={pickerDate} />} />
           <Route path="/settings/data-check" element={<IntegrityCheck />} />
         </Routes>
-      </div>
+      </Layout>
     </BrowserRouter>
   )
 }
