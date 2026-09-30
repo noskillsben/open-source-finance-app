@@ -505,7 +505,9 @@ export default function Accounts({ pickerDate }) {
 
       <section className="rounded-lg bg-ink-soft p-4 space-y-3">
         <h2 className="text-sm uppercase tracking-wide text-paper-soft">
-          {editingId ? `Edit account #${editingId}` : 'Add an account'}
+          {editingId
+            ? `Edit account${accounts?.find((a) => a.id === editingId)?.name ? `: ${accounts.find((a) => a.id === editingId).name}` : ''}`
+            : 'Add an account'}
         </h2>
         <form className="space-y-3" onSubmit={submit}>
           <label className="block space-y-1">
