@@ -158,6 +158,7 @@ export default function Accounts({ pickerDate }) {
   }
 
   const checkingAccount = accounts?.find((a) => a.id === checkingId)
+  const checkingIsTracking = checkingAccount ? !checkingAccount.on_budget : false
   const checkingHasLinks = (checkingAccount?.linked_category_ids.length ?? 0) > 0
 
   useEffect(() => {
@@ -206,7 +207,7 @@ export default function Accounts({ pickerDate }) {
       const result = await api.accounts.checkBalance(checkingId, {
         date: checkForm.date,
         stated_balance_cents: statedCents,
-        category_id: checkForm.category_id ? Number(checkForm.category_id) : null,
+        category_id: !checkingIsTracking && checkForm.category_id ? Number(checkForm.category_id) : null,
         category_lines: split.length > 0 ? split : null,
       })
       setCheckResult(result)
@@ -452,19 +453,21 @@ export default function Accounts({ pickerDate }) {
               </div>
             )}
 
-            <label className="block space-y-1">
-              <span className="text-sm">Category for the difference (optional — otherwise ready to assign)</span>
-              <select
-                className="w-full rounded bg-ink px-2 py-1"
-                value={checkForm.category_id}
-                onChange={(e) => updateCheckField('category_id', e.target.value)}
-              >
-                <option value="">Ready to assign</option>
-                {categories?.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </select>
-            </label>
+            {!checkingIsTracking && (
+              <label className="block space-y-1">
+                <span className="text-sm">Category for the difference (optional — otherwise ready to assign)</span>
+                <select
+                  className="w-full rounded bg-ink px-2 py-1"
+                  value={checkForm.category_id}
+                  onChange={(e) => updateCheckField('category_id', e.target.value)}
+                >
+                  <option value="">Ready to assign</option>
+                  {categories?.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </select>
+              </label>
+            )}
 
             {checkError && <p className="text-bad text-sm">{checkError}</p>}
             {checkResult && checkResult.diff_cents === 0 && (
@@ -473,11 +476,13 @@ export default function Accounts({ pickerDate }) {
             {checkResult && checkResult.diff_cents !== 0 && (
               <p className="text-sm text-paper-soft">
                 Adjustment of {formatCents(checkResult.diff_cents)} recorded
-                {checkResult.transaction.category_lines.length === 0
-                  ? ' to ready to assign.'
-                  : ` to ${checkResult.transaction.category_lines
-                      .map((l) => `${categories?.find((c) => c.id === l.category_id)?.name} ${formatCents(l.cents)}`)
-                      .join(', ')}.`}
+                {checkingIsTracking
+                  ? ". This account is outside your budget, so ready to assign doesn't change."
+                  : checkResult.transaction.category_lines.length === 0
+                    ? ' to ready to assign.'
+                    : ` to ${checkResult.transaction.category_lines
+                        .map((l) => `${categories?.find((c) => c.id === l.category_id)?.name} ${formatCents(l.cents)}`)
+                        .join(', ')}.`}
               </p>
             )}
 
