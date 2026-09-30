@@ -27,6 +27,8 @@ export default function Transactions({ pickerDate }) {
   const [date, setDate] = useState(pickerDate)
   const [memo, setMemo] = useState('')
   const [payeeId, setPayeeId] = useState(null)
+  // Bumped on reset and on loading a transaction so the payee picker remounts with fresh text.
+  const [formKey, setFormKey] = useState(0)
   const [accountLines, setAccountLines] = useState([{ ...emptyLine }])
   const [categoryLines, setCategoryLines] = useState([])
   const [deposits, setDeposits] = useState([])
@@ -106,6 +108,7 @@ export default function Transactions({ pickerDate }) {
     setDate(pickerDate)
     setMemo('')
     setPayeeId(null)
+    setFormKey((k) => k + 1)
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])
     setDeposits([])
@@ -122,6 +125,7 @@ export default function Transactions({ pickerDate }) {
     setDate(t.date)
     setMemo(t.memo || '')
     setPayeeId(t.payee_id)
+    setFormKey((k) => k + 1)
     setAccountLines(
       t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) }))
     )
@@ -392,6 +396,7 @@ export default function Transactions({ pickerDate }) {
           <label className="block space-y-1">
             <span className="text-sm">Payee (who it went to or came from — optional)</span>
             <PayeePicker
+              key={formKey}
               payees={payees}
               payeeId={payeeId}
               onSelect={setPayeeId}

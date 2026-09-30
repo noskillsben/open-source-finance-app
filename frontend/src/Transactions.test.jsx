@@ -5,9 +5,11 @@ import Transactions from './Transactions.jsx'
 
 // What the mocked backend already holds; a test sets these before rendering.
 let existingTransactions = []
+let existingPayees = []
 
 const calls = vi.hoisted(() => ({
   create: vi.fn(),
+  payeeCreate: vi.fn(),
   dueDates: vi.fn(),
   lastPayment: vi.fn(),
   remove: vi.fn(),
@@ -34,7 +36,7 @@ vi.mock('./api.js', () => ({
   api: {
     accounts: { list: () => Promise.resolve(ACCOUNTS) },
     categories: { list: () => Promise.resolve(CATEGORIES), create: vi.fn() },
-    payees: { list: () => Promise.resolve([]), create: vi.fn() },
+    payees: { list: () => Promise.resolve(existingPayees), create: calls.payeeCreate },
     transactions: {
       list: () => Promise.resolve(existingTransactions),
       create: calls.create,
@@ -73,6 +75,8 @@ const dueSelect = () => screen.findByLabelText('Which due date')
 
 beforeEach(() => {
   existingTransactions = []
+  existingPayees = []
+  calls.payeeCreate.mockReset()
   calls.create.mockReset()
   calls.create.mockResolvedValue({ notes: [] })
   calls.dueDates.mockReset()
@@ -366,3 +370,62 @@ function fillAccountLine(cents) {
   fireEvent.change(select, { target: { value: '1' } })
   fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: cents } })
 }
+
+describe('Ledger form: choosing a payee with the keyboard', () => {
+  const payeeBox = () => screen.findByPlaceholderText('Search payees…')
+
+  beforeEach(() => {
+    existingPayees = [
+      { id: 3, name: 'Walmart', archived_on: null },
+      { id: 4, name: 'Walk-in Clinic', archived_on: null },
+    ]
+  })
+
+  it('Enter picks the exact-name match, else the top suggestion, without submitting', async () => {
+    renderLedger()
+    const box = await payeeBox()
+    fireEvent.change(box, { target: { value: 'walk' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(box).toHaveValue('Walk-in Clinic')
+
+    fireEvent.change(box, { target: { value: 'walmart' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(box).toHaveValue('Walmart')
+    expect(calls.create).not.toHaveBeenCalled()
+  })
+
+  it('Enter adds a new payee when nothing matches', async () => {
+    calls.payeeCreate.mockResolvedValue({ id: 9, name: 'Corner Store', archived_on: null })
+    renderLedger()
+    const box = await payeeBox()
+    fireEvent.change(box, { target: { value: 'Corner Store' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    await waitFor(() => expect(box).toHaveValue('Corner Store'))
+    expect(calls.payeeCreate).toHaveBeenCalledWith({ name: 'Corner Store', created_on: '2026-10-03' })
+  })
+
+  it('Enter with a failed add shows the error and does not submit', async () => {
+    calls.payeeCreate.mockRejectedValue(new Error('Payee name is taken'))
+    renderLedger()
+    const box = await payeeBox()
+    fireEvent.change(box, { target: { value: 'Corner Store' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    expect(await screen.findByText('Payee name is taken')).toBeInTheDocument()
+    expect(calls.create).not.toHaveBeenCalled()
+  })
+
+  it('leaves the form clean after a save, including unpicked payee text and the memo', async () => {
+    renderLedger()
+    const box = await payeeBox()
+    fireEvent.change(box, { target: { value: 'half typed' } })
+    fireEvent.change(screen.getByLabelText('Memo'), { target: { value: 'groceries' } })
+    fillAccountLine('-20')
+    fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
+
+    await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByPlaceholderText('Search payees…')).toHaveValue(''))
+    expect(screen.getByLabelText('Memo')).toHaveValue('')
+  })
+})

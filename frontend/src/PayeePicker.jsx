@@ -10,9 +10,10 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
 
   const selected = payees?.find((p) => p.id === payeeId) ?? null
 
-  // Keep the text box in sync with the selection made elsewhere (e.g. loading a transaction to edit).
+  // Show a payee selected elsewhere (e.g. a bill's last payee). Never clears: deselecting happens
+  // while typing, and the form remounts this picker (key) when it resets or loads a transaction.
   useEffect(() => {
-    setQuery(selected ? selected.name : '')
+    if (selected) setQuery(selected.name)
   }, [selected?.id])
 
   const trimmed = query.trim()
@@ -41,6 +42,19 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
     }
   }
 
+  function onKeyDown(e) {
+    if (e.key === 'Escape') {
+      setOpen(false)
+      return
+    }
+    // Empty box or a payee already chosen: Enter keeps its normal form-submit behaviour.
+    if (e.key !== 'Enter' || trimmed === '' || payeeId !== null) return
+    e.preventDefault()
+    const target = exactMatch ?? matches[0]
+    if (target) choose(target)
+    else addNew()
+  }
+
   return (
     <div className="relative">
       <input
@@ -52,6 +66,7 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
           setOpen(true)
           if (payeeId !== null) onSelect(null)
         }}
+        onKeyDown={onKeyDown}
         onFocus={() => setOpen(true)}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
       />
