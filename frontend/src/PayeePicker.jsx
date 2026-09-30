@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 /** Searchable, alphabetical payee picker with an inline "add new" option (DESIGN.md §
  * Payees — picked the same way categories are added by name today, but searchable: every
@@ -7,6 +7,9 @@ import { useEffect, useState } from 'react'
 export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError }) {
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
+  // A ref, not state: state isn't updated until the next render, so a second press in the same
+  // instant would still see "not adding".
+  const adding = useRef(false)
 
   const selected = payees?.find((p) => p.id === payeeId) ?? null
 
@@ -34,11 +37,15 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
   }
 
   async function addNew() {
+    if (adding.current) return
+    adding.current = true
     try {
       const payee = await onAdd(trimmed)
       choose(payee)
     } catch (err) {
       onError(err.message)
+    } finally {
+      adding.current = false
     }
   }
 
