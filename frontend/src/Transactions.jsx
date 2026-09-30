@@ -48,10 +48,10 @@ export default function Transactions({ pickerDate }) {
     api.payees.list(pickerDate).then(setPayees).catch((e) => setError(e.message))
     api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
     api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
-    api.accounts.list(pickerDate, true).then(setAccountsAll).catch((e) => setError(e.message))
-    api.categories.list(pickerDate, true).then(setCategoriesAll).catch((e) => setError(e.message))
-    api.payees.list(pickerDate, true).then(setPayeesAll).catch((e) => setError(e.message))
-    api.goals.list(pickerDate, true).then(setGoalsAll).catch((e) => setError(e.message))
+    api.accounts.list(undefined, true).then(setAccountsAll).catch((e) => setError(e.message))
+    api.categories.list(undefined, true).then(setCategoriesAll).catch((e) => setError(e.message))
+    api.payees.list(undefined, true).then(setPayeesAll).catch((e) => setError(e.message))
+    api.goals.list(pickerDate, true, true).then(setGoalsAll).catch((e) => setError(e.message))
   }
 
   async function addPayee(name) {

@@ -399,12 +399,13 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
 
 @app.get("/api/goals", response_model=list[GoalProgressOut])
 def list_goals(
-    as_of: date, include_archived: bool = False, session: Session = Depends(get_session)
+    as_of: date, include_archived: bool = False, any_date: bool = False, session: Session = Depends(get_session)
 ) -> list[GoalProgressOut]:
-    """Every goal shown on `as_of`, each with its progress — the picker date is the only "today"."""
-    goals = session.scalars(
-        select(Goal).where(_visible(Goal, as_of, include_archived)).order_by(Goal.category_id)
-    ).all()
+    """Every goal shown on `as_of`, each with its progress — the picker date is the only "today".
+    `any_date` skips the created-on filter (archived included) so a ledger row can still name a goal
+    created after `as_of`; progress is still computed at `as_of`."""
+    visible = true() if any_date else _visible(Goal, as_of, include_archived)
+    goals = session.scalars(select(Goal).where(visible).order_by(Goal.category_id)).all()
     out = []
     for g in goals:
         due_cents = None
