@@ -25,6 +25,13 @@ function stepDate(cadence, cadenceWeeks, iso, n) {
   return addMonths(iso, months * n)
 }
 
+// The day before an ISO date, in UTC so month and year ends come out right (Mar 1 → Feb 28/29).
+function dayBefore(iso) {
+  const dt = new Date(`${iso}T00:00:00Z`)
+  dt.setUTCDate(dt.getUTCDate() - 1)
+  return dt.toISOString().slice(0, 10)
+}
+
 const emptyRow = () => ({ category: {}, amount: '' })
 
 const centsText = (cents) => (cents / 100).toFixed(2)
@@ -544,7 +551,8 @@ export default function PayRecord({ pickerDate }) {
   if (!streams || !payday) return <p className="py-6">Loading…</p>
   if (!isOneOff && !stream) return <p className="text-bad py-6">No named pay with id {streamId}.</p>
 
-  const periodEnd = isOneOff ? null : stepDate(stream.cadence, stream.cadence_weeks, payday, 1)
+  // The header shows the last day of the period, so two periods never appear to share a day.
+  const periodEnd = isOneOff ? null : dayBefore(stepDate(stream.cadence, stream.cadence_weeks, payday, 1))
 
   async function record(e) {
     e.preventDefault()

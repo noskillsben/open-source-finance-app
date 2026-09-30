@@ -130,6 +130,32 @@ describe('PayRecord with no named pay behind it', () => {
   })
 })
 
+describe('PayRecord period header', () => {
+  it('ends a monthly pay the day before the next payday', async () => {
+    streams = [SALARY]
+    renderSalary()
+    expect(await screen.findByText('Sep 25, 2026 – Oct 24, 2026')).toBeInTheDocument()
+  })
+
+  it('ends a weekly pay the day before the next payday', async () => {
+    streams = [{ ...SALARY, cadence: 'weeks', cadence_weeks: 2, next_payday: '2026-08-12' }]
+    renderSalary()
+    expect(await screen.findByText('Aug 12, 2026 – Aug 25, 2026')).toBeInTheDocument()
+  })
+
+  it('ends on Feb 28 when the next payday is Mar 1', async () => {
+    streams = [{ ...SALARY, cadence: 'weeks', cadence_weeks: 1, next_payday: '2027-02-22' }]
+    renderSalary()
+    expect(await screen.findByText('Feb 22, 2027 – Feb 28, 2027')).toBeInTheDocument()
+  })
+
+  it('ends on Feb 29 in a leap year', async () => {
+    streams = [{ ...SALARY, cadence: 'weeks', cadence_weeks: 1, next_payday: '2028-02-23' }]
+    renderSalary()
+    expect(await screen.findByText('Feb 23, 2028 – Feb 29, 2028')).toBeInTheDocument()
+  })
+})
+
 describe('PayRecord saves the earmark batch whole', () => {
   beforeEach(() => {
     streams = [SALARY]
