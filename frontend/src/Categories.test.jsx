@@ -5,20 +5,24 @@ import Categories from './Categories.jsx'
 
 let goals = []
 let streams = []
-const { setGoal } = vi.hoisted(() => ({ setGoal: vi.fn(() => Promise.resolve({})) }))
+let summaryRows = [{ category_id: 11, available_cents: 0, pool_available_cents: 0, pool_absorber: null }]
+const { setGoal, updateCategory } = vi.hoisted(() => ({
+  setGoal: vi.fn(() => Promise.resolve({})),
+  updateCategory: vi.fn(() => Promise.resolve({})),
+}))
 
 vi.mock('./api.js', () => ({
   api: {
     categories: {
       list: () => Promise.resolve([{
-        id: 11, name: 'Rent', parent_id: null, archived_on: null, need_level: null, linked_accounts: [], pool_id: null,
+        id: 11, name: 'Rent', parent_id: null, archived_on: null, need_level: null, linked_accounts: [], pool_id: null, absorb_overspending: false,
       }]),
-      update: () => Promise.resolve({}),
+      update: updateCategory,
     },
     domains: { list: () => Promise.resolve([]) },
     readyToAssign: () => Promise.resolve({
       ready_to_assign_cents: 0, overspent_cents: 0,
-      categories: [{ category_id: 11, available_cents: 0, pool_available_cents: 0 }],
+      categories: summaryRows,
     }),
     goals: { list: () => Promise.resolve(goals), set: setGoal, archive: () => Promise.resolve({}) },
     accounts: { list: () => Promise.resolve([]) },
@@ -234,5 +238,32 @@ describe('Edit (#168)', () => {
     } finally {
       delete Element.prototype.scrollIntoView
     }
+  })
+})
+
+describe('absorb overspending', () => {
+  it('saves the switch from the category form', async () => {
+    goals = []
+    renderCategories()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: /Absorb overspending/ }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(updateCategory).toHaveBeenCalledWith(11, expect.objectContaining({ absorb_overspending: true })))
+  })
+
+  it('adds "then Food absorbs the rest" to the pool pill only when an absorbing pool is in the chain', async () => {
+    goals = []
+    summaryRows = [{ category_id: 11, available_cents: 0, pool_available_cents: 17000, pool_absorber: 'Food' }]
+    renderCategories()
+    expect(await screen.findByText('+$170.00 available if overspent, then Food absorbs the rest')).toBeInTheDocument()
+  })
+
+  it('shows no absorb wording when nothing in the chain absorbs', async () => {
+    goals = []
+    summaryRows = [{ category_id: 11, available_cents: 0, pool_available_cents: 17000, pool_absorber: null }]
+    renderCategories()
+    expect(await screen.findByText('+$170.00 available if overspent')).toBeInTheDocument()
+    expect(screen.queryByText(/absorbs the rest/)).not.toBeInTheDocument()
   })
 })

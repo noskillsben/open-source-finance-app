@@ -183,6 +183,10 @@ def _write_pool_draws(session: Session, transaction: Transaction) -> None:
     transaction added is drawn (a category already negative before it isn't this spend's to
     cover). What no pool can cover stays negative. The pair nets to zero, so ready to assign
     doesn't move. Computed here, at write time, from the pool links as they stand now.
+
+    A pool set to absorb overspending (DESIGN.md § Pools) changes only the end of the walk:
+    what the whole chain could not cover goes to the first absorbing pool the walk passed, as
+    one more pair, taking that pool negative. Idle money up the chain is always used first.
     """
     spent: dict[int, int] = {}
     for line in transaction.category_lines:
@@ -192,22 +196,32 @@ def _write_pool_draws(session: Session, transaction: Transaction) -> None:
             continue
         balance = category_balance_cents(session, category_id, as_of=transaction.date)
         uncovered = min(-balance, -cents)
+        absorber = None
         for pool in pool_chain(session, category_id):
             if uncovered <= 0:
                 break
             if pool.archived_on is not None and pool.archived_on <= transaction.date:
                 continue
+            if absorber is None and pool.absorb_overspending:
+                absorber = pool
             covered = min(uncovered, max(category_balance_cents(session, pool.id, as_of=transaction.date), 0))
             if covered == 0:
                 continue
-            backdate_created_on(pool, transaction.date)
-            for target_id, signed in ((pool.id, -covered), (category_id, covered)):
-                session.add(EarmarkLine(
-                    date=transaction.date, category_id=target_id, cents=signed,
-                    source="pool_draw", transaction_id=transaction.id,
-                ))
-            session.flush()
+            _write_draw_pair(session, transaction, pool, category_id, covered)
             uncovered -= covered
+        if uncovered > 0 and absorber is not None:
+            _write_draw_pair(session, transaction, absorber, category_id, uncovered)
+
+
+def _write_draw_pair(session: Session, transaction: Transaction, pool: Category, category_id: int, cents: int) -> None:
+    """One hop of a pool draw: pool −cents, category +cents, dated and sourced by the transaction."""
+    backdate_created_on(pool, transaction.date)
+    for target_id, signed in ((pool.id, -cents), (category_id, cents)):
+        session.add(EarmarkLine(
+            date=transaction.date, category_id=target_id, cents=signed,
+            source="pool_draw", transaction_id=transaction.id,
+        ))
+    session.flush()
 
 
 def _check_bill_link(session: Session, goal_id: int | None, goal_due_on: date | None) -> None:

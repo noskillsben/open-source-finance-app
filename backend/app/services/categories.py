@@ -125,9 +125,22 @@ def pool_available_cents(session: Session, category_id: int, *, as_of: date) -> 
     )
 
 
+def pool_absorber_name(session: Session, category_id: int, *, as_of: date) -> str | None:
+    """The name of the first pool in `category_id`'s chain that would absorb a shortfall on
+    `as_of` — the same pools the draw walk considers (archived ones skipped). Drives the
+    "then Food absorbs the rest" pill; None when no pool in the chain absorbs.
+    """
+    return next((
+        pool.name
+        for pool in pool_chain(session, category_id)
+        if pool.absorb_overspending and (pool.archived_on is None or pool.archived_on > as_of)
+    ), None)
+
+
 def apply_category_settings(
     session: Session, category: Category, *, name: str, parent_id: int | None,
     pool_id: int | None, domain_id: int | None, need_level: str | None,
+    absorb_overspending: bool = False,
 ) -> None:
     """The one write path for a category's settings, shared by create and edit. Validates
     everything before touching the row. A category may not be its own pool, directly or through
@@ -151,3 +164,4 @@ def apply_category_settings(
     category.pool_id = pool_id
     category.domain_id = domain_id
     category.need_level = need_level
+    category.absorb_overspending = absorb_overspending

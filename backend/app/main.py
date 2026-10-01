@@ -83,6 +83,7 @@ from app.services.categories import (
     apply_category_settings,
     build_category_archivable,
     category_balance_cents,
+    pool_absorber_name,
     pool_available_cents,
 )
 from app.services.earmarks import (
@@ -330,6 +331,7 @@ def create_category(payload: CategoryCreate, session: Session = Depends(get_sess
         apply_category_settings(
             session, category, name=payload.name, parent_id=payload.parent_id,
             pool_id=payload.pool_id, domain_id=payload.domain_id, need_level=payload.need_level,
+            absorb_overspending=payload.absorb_overspending,
         )
     except CategoryError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -352,6 +354,7 @@ def update_category(
         apply_category_settings(
             session, category, name=payload.name, parent_id=payload.parent_id,
             pool_id=payload.pool_id, domain_id=payload.domain_id, need_level=payload.need_level,
+            absorb_overspending=payload.absorb_overspending,
         )
     except CategoryError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -392,6 +395,7 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
                 category_id=category_id,
                 available_cents=category_balance_cents(session, category_id, as_of=as_of),
                 pool_available_cents=pool_available_cents(session, category_id, as_of=as_of),
+                pool_absorber=pool_absorber_name(session, category_id, as_of=as_of),
             )
             for category_id in session.scalars(select(Category.id).order_by(Category.id))
         ],
@@ -880,10 +884,30 @@ def _pool_draw_notes(session: Session, transaction: Transaction) -> list[str]:
     hops: dict[int, list[tuple[int, int]]] = {}
     for pool_line, category_line in zip(lines[0::2], lines[1::2]):
         hops.setdefault(category_line.category_id, []).append((pool_line.category_id, category_line.cents))
+    # What each pool held before this transaction's draws — an absorbed hop is the one that took
+    # a pool below zero, so it is the second hop on the same pool, or the only one on a pool that
+    # held nothing.
+    given_by_pool: dict[int, int] = {}
+    for pool_line in lines[0::2]:
+        given_by_pool[pool_line.category_id] = given_by_pool.get(pool_line.category_id, 0) - pool_line.cents
     notes = []
     for category_id, category_hops in hops.items():
-        parts = [f"{dollars(cents)} from {session.get(Category, pool_id).name}" for pool_id, cents in category_hops]
-        notes.append(f"{session.get(Category, category_id).name}: covered {', then '.join(parts)}.")
+        parts, absorbed, seen = [], [], set()
+        for pool_id, cents in category_hops:
+            before = category_balance_cents(session, pool_id, as_of=transaction.date) + given_by_pool[pool_id]
+            if pool_id in seen or (before <= 0 and session.get(Category, pool_id).absorb_overspending):
+                absorbed.append((pool_id, cents))
+            else:
+                parts.append(f"{dollars(cents)} from {session.get(Category, pool_id).name}")
+            seen.add(pool_id)
+        note = f"{session.get(Category, category_id).name}: covered {', then '.join(parts)}" if parts else (
+            f"{session.get(Category, category_id).name}: covered nothing from the pools"
+        )
+        for pool_id, cents in absorbed:
+            pool = session.get(Category, pool_id)
+            now = category_balance_cents(session, pool_id, as_of=transaction.date)
+            note += f"; {pool.name} absorbed {dollars(cents)} (now {dollars(now).replace('-', '−')})"
+        notes.append(note + ".")
     return notes
 
 

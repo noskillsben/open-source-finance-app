@@ -40,8 +40,8 @@ def chequing(db_session):
     return account
 
 
-def _category(db_session, name, pool=None):
-    category = Category(name=name, created_on=DAY, pool_id=pool.id if pool else None)
+def _category(db_session, name, pool=None, absorb=False):
+    category = Category(name=name, created_on=DAY, pool_id=pool.id if pool else None, absorb_overspending=absorb)
     db_session.add(category)
     db_session.flush()
     return category
@@ -218,3 +218,123 @@ def test_an_archived_pool_mid_chain_counts_for_neither_the_pill_nor_the_draw(db_
     assert _balance(db_session, food) == 70_00  # untouched
     assert _balance(db_session, household) == 0
     assert _balance(db_session, snacks) == -50_00  # the pill promised 100.00 and delivered 100.00
+
+
+def _absorbing_chain(db_session):
+    household = _category(db_session, "Household")
+    food = _category(db_session, "Food", pool=household, absorb=True)
+    snacks = _category(db_session, "Snacks", pool=food)
+    return household, food, snacks
+
+
+def test_an_absorbing_pool_takes_what_the_whole_chain_could_not_cover(db_session, chequing, client):
+    household, food, snacks = _absorbing_chain(db_session)
+    _fund(db_session, food, 40_00)
+    _fund(db_session, household, 20_00)
+
+    resp = client.post("/api/transactions", json={
+        "date": DAY.isoformat(),
+        "account_lines": [{"account_id": chequing.id, "cents": -85_00}],
+        "category_lines": [{"category_id": snacks.id, "cents": -85_00}],
+    })
+
+    assert resp.status_code == 201
+    assert (_balance(db_session, snacks), _balance(db_session, food), _balance(db_session, household)) == (0, -25_00, 0)
+    assert [(d.category_id, d.cents) for d in _draws(db_session)] == [
+        (food.id, -40_00), (snacks.id, 40_00), (household.id, -20_00), (snacks.id, 20_00),
+        (food.id, -25_00), (snacks.id, 25_00),
+    ]
+    assert ("Snacks: covered $40.00 from Food, then $20.00 from Household; "
+            "Food absorbed $25.00 (now −$25.00).") in resp.json()["notes"]
+
+
+def test_an_absorbing_pool_with_nothing_in_it_still_absorbs_and_says_so(db_session, chequing, client):
+    _, food, snacks = _absorbing_chain(db_session)
+
+    resp = client.post("/api/transactions", json={
+        "date": DAY.isoformat(),
+        "account_lines": [{"account_id": chequing.id, "cents": -25_00}],
+        "category_lines": [{"category_id": snacks.id, "cents": -25_00}],
+    })
+
+    assert (_balance(db_session, snacks), _balance(db_session, food)) == (0, -25_00)
+    assert "Snacks: covered nothing from the pools; Food absorbed $25.00 (now −$25.00)." in resp.json()["notes"]
+
+
+def test_idle_money_up_the_chain_is_used_before_anything_absorbs(db_session, chequing):
+    household, food, snacks = _absorbing_chain(db_session)
+    _fund(db_session, household, 100_00)
+
+    _spend(db_session, chequing, snacks, 60_00)
+
+    assert (_balance(db_session, food), _balance(db_session, household)) == (0, 40_00)
+    assert [d.category_id for d in _draws(db_session)] == [household.id, snacks.id]  # no absorbed pair
+
+
+def test_editing_and_deleting_regenerate_and_remove_the_absorbed_lines(db_session, chequing, client):
+    _, food, snacks = _absorbing_chain(db_session)
+    txn = _spend(db_session, chequing, snacks, 25_00)
+    assert _balance(db_session, food) == -25_00
+
+    _spend(db_session, chequing, snacks, 10_00, transaction=txn)
+    assert (_balance(db_session, food), _balance(db_session, snacks)) == (-10_00, 0)
+    assert [d.cents for d in _draws(db_session)] == [-10_00, 10_00]
+
+    assert client.delete(f"/api/transactions/{txn.id}").status_code == 204
+    assert _draws(db_session) == []
+    assert _balance(db_session, food) == 0
+
+
+def test_an_archived_absorber_is_skipped(db_session, chequing):
+    household, food, snacks = _absorbing_chain(db_session)
+    food.archived_on = DAY
+
+    _spend(db_session, chequing, snacks, 30_00)
+
+    assert _draws(db_session) == []
+    assert _balance(db_session, snacks) == -30_00
+
+
+def test_the_first_absorbing_pool_the_walk_passed_gets_the_rest(db_session, chequing):
+    household = _category(db_session, "Household", absorb=True)
+    food = _category(db_session, "Food", pool=household, absorb=True)
+    snacks = _category(db_session, "Snacks", pool=food)
+
+    _spend(db_session, chequing, snacks, 30_00)
+
+    assert (_balance(db_session, food), _balance(db_session, household)) == (-30_00, 0)
+
+
+def test_spending_on_the_absorbing_category_itself_does_nothing(db_session, chequing):
+    household, food, snacks = _absorbing_chain(db_session)
+
+    _spend(db_session, chequing, household, 30_00)  # Household has no pool of its own
+    _spend(db_session, chequing, food, 10_00)  # Food's own chain: Household, which doesn't absorb
+
+    assert _draws(db_session) == []
+    assert (_balance(db_session, household), _balance(db_session, food)) == (-30_00, -10_00)
+
+
+def test_toggling_the_switch_rewrites_no_past_draw(db_session, chequing):
+    food = _category(db_session, "Food")
+    snacks = _category(db_session, "Snacks", pool=food)
+    _spend(db_session, chequing, snacks, 20_00)
+    assert _draws(db_session) == []
+
+    food.absorb_overspending = True
+    db_session.flush()
+
+    assert _draws(db_session) == []
+    assert (_balance(db_session, snacks), _balance(db_session, food)) == (-20_00, 0)
+
+
+def test_the_available_endpoint_names_the_absorbing_pool_in_the_chain(db_session, chequing, client):
+    household, food, snacks = _absorbing_chain(db_session)
+
+    rows = {
+        r["category_id"]: r
+        for r in client.get(f"/api/ready-to-assign?as_of={DAY.isoformat()}").json()["categories"]
+    }
+
+    assert rows[snacks.id]["pool_absorber"] == "Food"
+    assert rows[food.id]["pool_absorber"] is None  # Household, its pool, doesn't absorb

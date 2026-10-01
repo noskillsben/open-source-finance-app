@@ -112,6 +112,7 @@ class CategoryCreate(BaseModel):
     pool_id: int | None = None
     domain_id: int | None = None
     need_level: str | None = None
+    absorb_overspending: bool = False
 
     _need_level = field_validator("need_level")(_need_level_is_known)
 
@@ -124,6 +125,7 @@ class CategoryUpdate(BaseModel):
     pool_id: int | None = None
     domain_id: int | None = None
     need_level: str | None = None
+    absorb_overspending: bool = False
 
     _need_level = field_validator("need_level")(_need_level_is_known)
 
@@ -143,6 +145,7 @@ class CategoryOut(BaseModel):
     pool_id: int | None
     domain_id: int | None
     need_level: str | None
+    absorb_overspending: bool
     created_on: date
     archived_on: date | None
     linked_accounts: list[LinkedAccountOut] = []
@@ -231,6 +234,7 @@ class CategoryAvailableOut(BaseModel):
     category_id: int
     available_cents: int
     pool_available_cents: int = 0
+    pool_absorber: str | None = None
 
 
 class ReadyToAssignOut(BaseModel):
