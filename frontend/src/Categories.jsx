@@ -413,7 +413,7 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
   )
 }
 
-const EMPTY_FORM = { name: '', needLevel: '', parent: {}, pool: {}, domain: {} }
+const EMPTY_FORM = { name: '', needLevel: '', parent: {}, pool: {}, domain: {}, absorb: false }
 
 // A picker's state is { id, text }: `text` is what was typed, so a name that matches nothing can be
 // refused rather than silently saved as "none".
@@ -478,6 +478,7 @@ export default function Categories({ pickerDate }) {
       parent: { id: category.parent_id },
       pool: { id: category.pool_id },
       domain: { id: category.domain_id },
+      absorb: category.absorb_overspending,
     })
     setGoalForm(goalToForm(goals.find((g) => g.goal.category_id === category.id)?.goal))
     setLinkIds(category.linked_accounts.map((a) => a.id))
@@ -511,6 +512,7 @@ export default function Categories({ pickerDate }) {
       pool_id: form.pool.id ?? null,
       domain_id: form.domain.id ?? null,
       need_level: form.needLevel || null,
+      absorb_overspending: form.absorb,
     }
     try {
       if (editing) {
@@ -598,6 +600,7 @@ export default function Categories({ pickerDate }) {
   const active = (categories ?? []).filter((c) => !c.archived_on)
   const available = (id) => summary?.categories.find((c) => c.category_id === id)?.available_cents ?? 0
   const goalOf = (id) => goals.find((g) => g.goal.category_id === id)
+  const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
 
   return (
@@ -662,6 +665,14 @@ export default function Categories({ pickerDate }) {
           initialId={form.pool.id}
           onChange={(id, text) => setForm({ ...form, pool: { id, text } })}
         />
+        <label className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={form.absorb}
+            onChange={(e) => setForm({ ...form, absorb: e.target.checked })}
+          />
+          Absorb overspending (when another category draws on this one and everything is spent, this one goes negative instead)
+        </label>
         {editing && <GoalFields goal={goalForm} onChange={setGoalForm} streams={streams} />}
         {editing && (
           <LinkFields
@@ -753,9 +764,10 @@ export default function Categories({ pickerDate }) {
                   <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
                   <td className={`py-1 text-right ${available(c.id) < 0 ? 'text-bad' : ''}`}>
                     {formatCents(available(c.id))}
-                    {poolAvailable(c.id) > 0 && (
+                    {(poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
                       <div className="text-xs text-paper-soft">
                         +{formatCents(poolAvailable(c.id))} available if overspent
+                        {poolAbsorber(c.id) && `, then ${poolAbsorber(c.id)} absorbs the rest`}
                       </div>
                     )}
                   </td>

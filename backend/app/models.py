@@ -6,7 +6,7 @@ Import this module wherever Base.metadata must know every table (alembic/env.py 
 from datetime import date
 from decimal import Decimal
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, ForeignKey, Index, Integer, Numeric, String, UniqueConstraint, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db import Base, NonLedger, Owned
@@ -112,6 +112,11 @@ class Category(Base, Owned, NonLedger):
     domain_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("domain.id"), nullable=True, index=True)
     # need / should / nice_to_have / want — a fixed ordinal (app/need_levels.py), not a table.
     need_level: Mapped[str | None] = mapped_column(String, nullable=True)
+    # DESIGN.md § Pools: when this category is reached as another's pool and the whole chain is
+    # spent, it takes the rest and goes negative. Read by the draw walk at write time only.
+    absorb_overspending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
 
     __table_args__ = (
         Index(

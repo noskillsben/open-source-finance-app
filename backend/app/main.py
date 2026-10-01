@@ -83,6 +83,7 @@ from app.services.categories import (
     apply_category_settings,
     build_category_archivable,
     category_balance_cents,
+    pool_absorber_name,
     pool_available_cents,
 )
 from app.services.earmarks import (
@@ -330,6 +331,7 @@ def create_category(payload: CategoryCreate, session: Session = Depends(get_sess
         apply_category_settings(
             session, category, name=payload.name, parent_id=payload.parent_id,
             pool_id=payload.pool_id, domain_id=payload.domain_id, need_level=payload.need_level,
+            absorb_overspending=payload.absorb_overspending,
         )
     except CategoryError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -352,6 +354,7 @@ def update_category(
         apply_category_settings(
             session, category, name=payload.name, parent_id=payload.parent_id,
             pool_id=payload.pool_id, domain_id=payload.domain_id, need_level=payload.need_level,
+            absorb_overspending=payload.absorb_overspending,
         )
     except CategoryError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
@@ -392,6 +395,7 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
                 category_id=category_id,
                 available_cents=category_balance_cents(session, category_id, as_of=as_of),
                 pool_available_cents=pool_available_cents(session, category_id, as_of=as_of),
+                pool_absorber=pool_absorber_name(session, category_id, as_of=as_of),
             )
             for category_id in session.scalars(select(Category.id).order_by(Category.id))
         ],
@@ -877,13 +881,32 @@ def _pool_draw_notes(session: Session, transaction: Transaction) -> list[str]:
         .where(EarmarkLine.transaction_id == transaction.id, EarmarkLine.source == "pool_draw")
         .order_by(EarmarkLine.id)
     ).all()
-    hops: dict[int, list[tuple[int, int]]] = {}
+    # Replay the lines in the order they were written with a running balance per category,
+    # starting from what each held before this transaction's draws. A hop that finds its pool at
+    # zero or below was absorbed: a pool is never drawn from at <= 0 otherwise.
+    running: dict[int, int] = {}
+    for line in lines:
+        if line.category_id not in running:
+            drawn = sum(l.cents for l in lines if l.category_id == line.category_id)
+            running[line.category_id] = category_balance_cents(session, line.category_id, as_of=transaction.date) - drawn
+    taken: dict[int, list[tuple[str, int | None, int]]] = {}  # category -> (pool, balance after if absorbed, cents)
     for pool_line, category_line in zip(lines[0::2], lines[1::2]):
-        hops.setdefault(category_line.category_id, []).append((pool_line.category_id, category_line.cents))
+        absorbed = running[pool_line.category_id] <= 0
+        running[pool_line.category_id] += pool_line.cents
+        running[category_line.category_id] += category_line.cents
+        pool_name = session.get(Category, pool_line.category_id).name
+        taken.setdefault(category_line.category_id, []).append(
+            (pool_name, running[pool_line.category_id] if absorbed else None, category_line.cents)
+        )
     notes = []
-    for category_id, category_hops in hops.items():
-        parts = [f"{dollars(cents)} from {session.get(Category, pool_id).name}" for pool_id, cents in category_hops]
-        notes.append(f"{session.get(Category, category_id).name}: covered {', then '.join(parts)}.")
+    for category_id, hops in taken.items():
+        name = session.get(Category, category_id).name
+        covered = [f"{dollars(cents)} from {pool}" for pool, now, cents in hops if now is None]
+        note = f"{name}: covered {', then '.join(covered)}" if covered else f"{name}: covered nothing from the pools"
+        for pool, now, cents in hops:
+            if now is not None:
+                note += f"; {pool} absorbed {dollars(cents)} (now {dollars(now).replace('-', '−')})"
+        notes.append(note + ".")
     return notes
 
 

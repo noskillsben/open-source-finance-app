@@ -240,6 +240,14 @@ def _assert_c5a1e8d37b42(session):
     assert str(session.get(Goal, 2).percent_of_net) == "5.0000"
 
 
+def _assert_d8b4f2a65c19(session):
+    rows = session.execute(text("SELECT id, name, pool_id, archived_on, absorb_overspending FROM category ORDER BY id")).all()
+    assert [(r.name, r.pool_id, r.archived_on is not None, r.absorb_overspending) for r in rows] == [
+        ("Household", None, False, False), ("Food", 1, False, False),
+        ("Snacks", 2, False, False), ("Old fund", None, True, False),
+    ]
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -260,6 +268,7 @@ ASSERTIONS = {
     "9e2c7a41d3b6": _assert_9e2c7a41d3b6,
     "a3d7f1c92e58": _assert_a3d7f1c92e58,
     "c5a1e8d37b42": _assert_c5a1e8d37b42,
+    "d8b4f2a65c19": _assert_d8b4f2a65c19,
 }
 
 
