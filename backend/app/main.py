@@ -881,32 +881,31 @@ def _pool_draw_notes(session: Session, transaction: Transaction) -> list[str]:
         .where(EarmarkLine.transaction_id == transaction.id, EarmarkLine.source == "pool_draw")
         .order_by(EarmarkLine.id)
     ).all()
-    hops: dict[int, list[tuple[int, int]]] = {}
+    # Replay the lines in the order they were written with a running balance per category,
+    # starting from what each held before this transaction's draws. A hop that finds its pool at
+    # zero or below was absorbed: a pool is never drawn from at <= 0 otherwise.
+    running: dict[int, int] = {}
+    for line in lines:
+        if line.category_id not in running:
+            drawn = sum(l.cents for l in lines if l.category_id == line.category_id)
+            running[line.category_id] = category_balance_cents(session, line.category_id, as_of=transaction.date) - drawn
+    taken: dict[int, list[tuple[str, int | None, int]]] = {}  # category -> (pool, balance after if absorbed, cents)
     for pool_line, category_line in zip(lines[0::2], lines[1::2]):
-        hops.setdefault(category_line.category_id, []).append((pool_line.category_id, category_line.cents))
-    # What each pool held before this transaction's draws — an absorbed hop is the one that took
-    # a pool below zero, so it is the second hop on the same pool, or the only one on a pool that
-    # held nothing.
-    given_by_pool: dict[int, int] = {}
-    for pool_line in lines[0::2]:
-        given_by_pool[pool_line.category_id] = given_by_pool.get(pool_line.category_id, 0) - pool_line.cents
-    notes = []
-    for category_id, category_hops in hops.items():
-        parts, absorbed, seen = [], [], set()
-        for pool_id, cents in category_hops:
-            before = category_balance_cents(session, pool_id, as_of=transaction.date) + given_by_pool[pool_id]
-            if pool_id in seen or (before <= 0 and session.get(Category, pool_id).absorb_overspending):
-                absorbed.append((pool_id, cents))
-            else:
-                parts.append(f"{dollars(cents)} from {session.get(Category, pool_id).name}")
-            seen.add(pool_id)
-        note = f"{session.get(Category, category_id).name}: covered {', then '.join(parts)}" if parts else (
-            f"{session.get(Category, category_id).name}: covered nothing from the pools"
+        absorbed = running[pool_line.category_id] <= 0
+        running[pool_line.category_id] += pool_line.cents
+        running[category_line.category_id] += category_line.cents
+        pool_name = session.get(Category, pool_line.category_id).name
+        taken.setdefault(category_line.category_id, []).append(
+            (pool_name, running[pool_line.category_id] if absorbed else None, category_line.cents)
         )
-        for pool_id, cents in absorbed:
-            pool = session.get(Category, pool_id)
-            now = category_balance_cents(session, pool_id, as_of=transaction.date)
-            note += f"; {pool.name} absorbed {dollars(cents)} (now {dollars(now).replace('-', '−')})"
+    notes = []
+    for category_id, hops in taken.items():
+        name = session.get(Category, category_id).name
+        covered = [f"{dollars(cents)} from {pool}" for pool, now, cents in hops if now is None]
+        note = f"{name}: covered {', then '.join(covered)}" if covered else f"{name}: covered nothing from the pools"
+        for pool, now, cents in hops:
+            if now is not None:
+                note += f"; {pool} absorbed {dollars(cents)} (now {dollars(now).replace('-', '−')})"
         notes.append(note + ".")
     return notes
 

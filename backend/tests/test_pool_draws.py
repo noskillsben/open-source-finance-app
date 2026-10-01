@@ -246,6 +246,8 @@ def test_an_absorbing_pool_takes_what_the_whole_chain_could_not_cover(db_session
     ]
     assert ("Snacks: covered $40.00 from Food, then $20.00 from Household; "
             "Food absorbed $25.00 (now −$25.00).") in resp.json()["notes"]
+    ready = client.get(f"/api/ready-to-assign?as_of={DAY.isoformat()}").json()
+    assert ready["overspent_cents"] == -25_00  # Food's negative counts; no helper changed
 
 
 def test_an_absorbing_pool_with_nothing_in_it_still_absorbs_and_says_so(db_session, chequing, client):
@@ -338,3 +340,24 @@ def test_the_available_endpoint_names_the_absorbing_pool_in_the_chain(db_session
 
     assert rows[snacks.id]["pool_absorber"] == "Food"
     assert rows[food.id]["pool_absorber"] is None  # Household, its pool, doesn't absorb
+
+
+def test_two_categories_sharing_an_absorbing_pool_each_get_the_right_note(db_session, chequing, client):
+    household = _category(db_session, "Household")
+    food = _category(db_session, "Food", pool=household, absorb=True)
+    snacks = _category(db_session, "Snacks", pool=food)
+    drinks = _category(db_session, "Drinks", pool=food)
+    _fund(db_session, food, 40_00)
+
+    resp = client.post("/api/transactions", json={
+        "date": DAY.isoformat(),
+        "account_lines": [{"account_id": chequing.id, "cents": -70_00}],
+        "category_lines": [
+            {"category_id": snacks.id, "cents": -40_00}, {"category_id": drinks.id, "cents": -30_00},
+        ],
+    })
+
+    notes = resp.json()["notes"]
+    assert "Snacks: covered $40.00 from Food." in notes
+    assert "Drinks: covered nothing from the pools; Food absorbed $30.00 (now −$30.00)." in notes
+    assert _balance(db_session, food) == -30_00
