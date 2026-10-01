@@ -1,2 +1,4 @@
+# Store every text file with LF line endings, whatever the OS that edits it; git decides what is text.
+* text=auto eol=lf
 *.sh text eol=lf
 *.md text eol=lf
