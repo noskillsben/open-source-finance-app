@@ -201,9 +201,9 @@ def _assert_9e2c7a41d3b6(session):
     from app.models import Goal
 
     bill = session.get(Goal, 1)
-    assert (bill.kind, bill.amount_cents, bill.cadence, bill.target_date) == (
+    assert (bill.kind, bill.amount_cents, bill.cadence, bill.first_due_on) == (
         "recurring_bill", 104800, "yearly", date(2026, 6, 15),
-    )  # the dated bill survived unchanged
+    )  # the dated bill survived (its date has since moved to first_due_on, f1a6c2e84d97)
     assert session.get(Goal, 2).target_date is None  # a dateless target is still legal
 
 
@@ -234,7 +234,7 @@ def _assert_c5a1e8d37b42(session):
     assert terms(3) == ("commitment", None, None, None)  # fixed on weeks: each payday, weeks dropped
     assert terms(4) == ("commitment", None, None, None)  # an archived refill is cleared too
     assert session.get(Goal, 4).archived_on == datetime.date(2026, 6, 1)
-    assert terms(5) == ("recurring_bill", "weeks", 4, None)  # bills keep weeks
+    assert terms(5) == ("recurring_bill", "weeks", 4, datetime.date(2026, 2, 1))  # bills keep weeks; their date has since moved here
     assert terms(6) == ("target", "monthly", None, None)  # targets untouched
     assert session.get(Goal, 3).amount_cents == 5000 and session.get(Goal, 1).level_cents == 60000
     assert str(session.get(Goal, 2).percent_of_net) == "5.0000"
@@ -264,6 +264,30 @@ def _assert_e9c3a7d15b84(session):
     assert session.get(Goal, 1).amount_cents == 200000 and session.get(Goal, 1).target_date == datetime.date(2027, 6, 1)
 
 
+def _assert_f1a6c2e84d97(session):
+    from app.models import Goal
+    from app.services.goals import due_date, is_bill_due_date
+
+    def dates(goal_id):
+        goal = session.get(Goal, goal_id)
+        return goal.kind, goal.first_due_on, goal.target_date
+
+    assert dates(1) == ("recurring_bill", datetime.date(2026, 1, 31), None)  # a live bill moves across
+    assert dates(2) == ("recurring_bill", datetime.date(2026, 2, 1), None)  # so does an archived one
+    assert dates(3) == ("commitment", datetime.date(2026, 12, 31), None)  # a Commitment is untouched
+    assert dates(4) == ("target", None, datetime.date(2027, 6, 1))  # a Target keeps its target date
+    # All three read the same due dates as before: the bill steps from its own day (Jan 31 -> Feb 28
+    # -> Mar 31), the Target's due date is its target date, the Commitment's period still ends Dec 31.
+    bill = session.get(Goal, 1)
+    assert [is_bill_due_date(bill, d) for d in (
+        datetime.date(2026, 1, 31), datetime.date(2026, 2, 28), datetime.date(2026, 3, 31), datetime.date(2026, 3, 28),
+    )] == [True, True, True, False]
+    assert due_date(session, bill) == datetime.date(2026, 1, 31)
+    assert due_date(session, session.get(Goal, 4)) == datetime.date(2027, 6, 1)
+    assert due_date(session, session.get(Goal, 3)) is None  # a Commitment shows no goal due date
+    assert session.get(Goal, 1).amount_cents == 120000 and session.get(Goal, 3).amount_cents == 30000
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -286,6 +310,7 @@ ASSERTIONS = {
     "c5a1e8d37b42": _assert_c5a1e8d37b42,
     "d8b4f2a65c19": _assert_d8b4f2a65c19,
     "e9c3a7d15b84": _assert_e9c3a7d15b84,
+    "f1a6c2e84d97": _assert_f1a6c2e84d97,
 }
 
 

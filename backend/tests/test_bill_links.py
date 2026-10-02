@@ -44,7 +44,7 @@ def rent(db_session):
     db_session.flush()
     goal = Goal(
         category_id=category.id, name="Rent", kind="recurring_bill", amount_cents=120_000,
-        cadence="monthly", target_date=OCT_1, created_on=DAY,
+        cadence="monthly", first_due_on=OCT_1, created_on=DAY,
     )
     db_session.add(goal)
     db_session.flush()
@@ -199,7 +199,7 @@ def test_due_dates_step_from_the_first_so_a_month_end_does_not_drift(rent):
     from app.services.goals import is_bill_due_date
 
     _, goal = rent
-    goal.target_date = datetime.date(2026, 1, 31)
+    goal.first_due_on = datetime.date(2026, 1, 31)
     assert is_bill_due_date(goal, datetime.date(2026, 2, 28))
     assert is_bill_due_date(goal, datetime.date(2026, 3, 31))  # not the 28th, which drift would give
     assert not is_bill_due_date(goal, datetime.date(2026, 3, 28))
@@ -210,7 +210,7 @@ def test_editing_the_first_due_date_leaves_old_links_marking_nothing_paid(client
     _pay(client, chequing, category, goal_id=goal.id, goal_due_on="2026-10-01")
     response = client.put(f"/api/categories/{category.id}/goal", json={
         "on": "2026-10-05", "name": "Rent", "kind": "recurring_bill", "amount_cents": 120_000,
-        "cadence": "monthly", "target_date": "2026-12-15",
+        "cadence": "monthly", "first_due_on": "2026-12-15",
     })
     assert response.status_code == 200
     progress = client.get("/api/goals", params={"as_of": "2026-10-10"}).json()

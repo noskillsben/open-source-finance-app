@@ -58,7 +58,7 @@ def _bill(db_session, first_due, *, stream=None, name="Rent", amount=120_000):
     db_session.flush()
     goal = Goal(
         category_id=category.id, name=name, kind="recurring_bill", amount_cents=amount, cadence="monthly",
-        target_date=first_due, income_stream_id=None if stream is None else stream.id, created_on=DAY,
+        first_due_on=first_due, income_stream_id=None if stream is None else stream.id, created_on=DAY,
     )
     db_session.add(goal)
     db_session.flush()
@@ -243,7 +243,7 @@ def test_the_last_payment_needs_a_recurring_bill(db_session, client):
     db_session.add(category)
     db_session.flush()
     target = Goal(category_id=category.id, name="Holiday", kind="target", amount_cents=100_000,
-                  target_date=datetime.date(2027, 1, 1), created_on=DAY)
+                  first_due_on=datetime.date(2027, 1, 1), created_on=DAY)
     db_session.add(target)
     db_session.flush()
     assert client.get(f"/api/goals/{target.id}/last-payment").status_code == 400

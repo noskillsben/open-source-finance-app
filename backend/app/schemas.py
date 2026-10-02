@@ -404,9 +404,9 @@ class GoalIn(BaseModel):
 
     @model_validator(mode="after")
     def _bill_needs_first_due_date(self):
-        # A recurring bill's due dates are `target_date` stepped forward by cadence; no cycle
+        # A recurring bill's due dates are `first_due_on` stepped forward by cadence; no cycle
         # exists before it (#131). Structural validation, so a 422.
-        if self.kind == "recurring_bill" and self.target_date is None:
+        if self.kind == "recurring_bill" and self.first_due_on is None:
             raise ValueError("A recurring bill needs a first due date.")
         return self
 

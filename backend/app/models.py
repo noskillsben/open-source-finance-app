@@ -161,8 +161,9 @@ class Goal(Base, Owned, NonLedger):
     amount_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     cadence: Mapped[str | None] = mapped_column(String, nullable=True)
     cadence_weeks: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    # A fixed-amount commitment's first due month, as that month's last day; set exactly when it
-    # has a cadence (app/services/goals.py). Later due dates step from it via cadence.step.
+    # The first due date of a recurring bill (any day) or a fixed-amount commitment with a cadence
+    # (that month's last day) (app/services/goals.py). Later due dates step from it via cadence.step.
+    # `target_date` below is a Target's alone.
     first_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     target_date: Mapped[date | None] = mapped_column(Date, nullable=True)
     level_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
@@ -173,9 +174,9 @@ class Goal(Base, Owned, NonLedger):
 
     __table_args__ = (
         Index("ix_goal_category_live", "category_id", unique=True, postgresql_where=text("archived_on IS NULL")),
-        # `target_date` is a recurring bill's first due date (#131). The column is shared with
-        # targets, which may be dateless, so the rule is a CHECK rather than a NOT NULL.
-        CheckConstraint("kind <> 'recurring_bill' OR target_date IS NOT NULL", name="ck_goal_recurring_bill_first_due"),
+        # A recurring bill's first due date (#131) is `first_due_on`. The column is shared with
+        # commitments, which may have none, so the rule is a CHECK rather than a NOT NULL.
+        CheckConstraint("kind <> 'recurring_bill' OR first_due_on IS NOT NULL", name="ck_goal_recurring_bill_first_due"),
     )
 
 
