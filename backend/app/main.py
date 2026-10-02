@@ -430,7 +430,7 @@ def list_goals(
                 last_paid_due_on=last_paid[0] if last_paid else None,
                 last_paid_cents=last_paid[1] if last_paid else None,
                 last_paid_text=last_paid[2] if last_paid else None,
-                **vars(goal_progress(session, g, as_of=as_of)),
+                **vars(goal_progress(session, g, as_of=as_of, stream=stream)),
             )
         )
     return out

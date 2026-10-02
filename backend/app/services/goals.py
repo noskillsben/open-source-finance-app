@@ -74,6 +74,8 @@ def apply_goal(
             raise GoalError("A target has no percentage.")
         if cadence is not None and target_date is None:
             raise GoalError("A per-period contribution needs a target date.")
+        if cadence is not None and income_stream_id is not None:
+            raise GoalError("A target is paced by its named pay or by its own cadence, not both.")
     else:
         if target_date is not None:
             raise GoalError("A commitment has no target date.")
@@ -162,7 +164,7 @@ class Progress:
     per_period_text: str | None = None
 
 
-def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
+def goal_progress(session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None = None) -> Progress:
     # Postgres sums come back as Decimal, whose // truncates toward zero — the round-up needs an int.
     balance = int(category_balance_cents(session, goal.category_id, as_of=as_of))
     if goal.kind == "commitment":
@@ -170,14 +172,18 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
         per_period = goal.amount_cents
     else:
         target = goal.amount_cents
-        per_period = contribution_cents(goal, balance, as_of=as_of)
+        # A bound Target's pace is what Pay pre-fills; an unbound one's is its own cadence.
+        if goal.kind == "target" and stream is not None:
+            per_period = due_by_next_payday(session, goal, stream, as_of=as_of)
+        else:
+            per_period = contribution_cents(goal, balance, as_of=as_of)
     return Progress(
         balance_cents=balance,
         target_cents=target,
         owed_cents=None if target is None else max(target - balance, 0),
         due_date=due_date(session, goal),
         per_period_cents=per_period,
-        per_period_text=per_period_text(goal, per_period),
+        per_period_text=per_period_text(goal, per_period, stream),
         **commitment_row_text(session, goal, as_of=as_of),
     )
 
@@ -257,9 +263,12 @@ def cadence_label(cadence: str, cadence_weeks: int | None) -> str:
     return _CADENCE_LABELS[cadence]
 
 
-def per_period_text(goal: Goal, per_period_cents: int | None) -> str | None:
-    """The goal row's amount-and-cadence wording: a recurring bill's own amount, or a Target's
-    per-period contribution when it has a cadence. Null for anything else."""
+def per_period_text(goal: Goal, per_period_cents: int | None, stream: IncomeStream | None = None) -> str | None:
+    """The goal row's amount-and-pace wording: a recurring bill's own amount and cadence; a Target's
+    per-period contribution — "$93.30 per Salary payday" when bound to a named pay (the same number
+    Pay pre-fills, so none without a date), "$100.00 monthly" on its own cadence. Null otherwise."""
+    if goal.kind == "target" and stream is not None:
+        return None if per_period_cents is None else f"{dollars(per_period_cents)} per {stream.name} payday"
     if goal.cadence is None:
         return None
     if goal.kind == "recurring_bill" and goal.amount_cents is not None:

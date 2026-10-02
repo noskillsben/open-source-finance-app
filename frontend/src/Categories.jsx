@@ -92,7 +92,9 @@ function goalBody(g, pickerDate) {
   const percentFlavour = g.kind === 'commitment' && g.flavour === 'add' && g.addFlavour === 'percent'
   // Only a fixed-amount Commitment has a cadence, and then it needs its first due month.
   const commitmentCadence = g.kind === 'commitment' && !refill && !percentFlavour && COMMITMENT_CADENCES.some((c) => c.value && c.value === g.cadence) ? g.cadence : null
-  const cadence = g.kind === 'commitment' ? commitmentCadence : g.cadence || null
+  // A Target is paced by its named pay or its own cadence, never both (DESIGN.md § Goals).
+  const targetBound = g.kind === 'target' && g.incomeStreamId != null
+  const cadence = g.kind === 'commitment' ? commitmentCadence : targetBound ? null : g.cadence || null
   return {
     on: pickerDate,
     name: g.name.trim(),
@@ -136,12 +138,14 @@ function GoalFields({ goal, onChange, streams }) {
       />
     </label>
   )
+  // Picking a pay on a Target clears its own cadence and hides the control (one pace, never two);
+  // clearing the pay brings the control back, so a cadence can only be picked while unbound.
   const payPicker = (
     <NamePicker
       label="Named pay this is paid by (optional)"
       items={streams}
       initialId={goal.incomeStreamId}
-      onChange={(id) => set({ incomeStreamId: id })}
+      onChange={(id) => set(id != null && goal.kind === 'target' ? { incomeStreamId: id, cadence: '', weeks: '' } : { incomeStreamId: id })}
     />
   )
   const cadenceInput = (label, optional) => (
@@ -222,7 +226,7 @@ function GoalFields({ goal, onChange, streams }) {
         <>
           {moneyInput('Amount to reach', 'amount')}
           {dateInput('Target date (optional)')}
-          {goal.date && cadenceInput('Set aside every (optional)', true)}
+          {goal.date && goal.incomeStreamId == null && cadenceInput('Set aside every (optional)', true)}
         </>
       )}
       {goal.kind === 'commitment' && (

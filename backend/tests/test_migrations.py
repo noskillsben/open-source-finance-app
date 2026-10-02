@@ -248,6 +248,22 @@ def _assert_d8b4f2a65c19(session):
     ]
 
 
+def _assert_e9c3a7d15b84(session):
+    from app.models import Goal
+
+    def pace(goal_id):
+        goal = session.get(Goal, goal_id)
+        return goal.income_stream_id, goal.cadence, goal.cadence_weeks
+
+    assert pace(1) == (1, None, None)  # bound Target: keeps the pay, loses the cadence
+    assert pace(2) == (None, "monthly", None)  # unbound Target: untouched
+    assert pace(3) == (1, "quarterly", None)  # a bill keeps both
+    assert pace(4) == (1, "monthly", None)  # an archived Target is history, left alone
+    assert pace(5) == (1, None, None)  # nothing to clear
+    assert pace(6) == (1, None, None)  # weeks count goes with the cadence
+    assert session.get(Goal, 1).amount_cents == 200000 and session.get(Goal, 1).target_date == datetime.date(2027, 6, 1)
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -269,6 +285,7 @@ ASSERTIONS = {
     "a3d7f1c92e58": _assert_a3d7f1c92e58,
     "c5a1e8d37b42": _assert_c5a1e8d37b42,
     "d8b4f2a65c19": _assert_d8b4f2a65c19,
+    "e9c3a7d15b84": _assert_e9c3a7d15b84,
 }
 
 

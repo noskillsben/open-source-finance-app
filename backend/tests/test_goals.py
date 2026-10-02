@@ -644,3 +644,41 @@ def test_commitment_row_text_on_the_goals_api(client, db_session, category):
     assert row["commitment_cadence_text"] == "$200.00 monthly · next due Mar 31"
     assert row["commitment_progress_text"] == "$140.00 of $200.00 this month"
     assert row["commitment_context_text"] is None  # no bound pay: the pay screen's line is unchanged
+
+
+# #198: a Target with a date shows one pace — its named pay's or its own cadence, never both.
+def test_target_with_a_pay_and_a_cadence_is_refused(client, category, stream):
+    response = _set(client, category, kind="target", amount_cents=10000, cadence="monthly",
+                    target_date="2026-06-01", income_stream_id=stream.id)
+    assert response.status_code == 400
+    assert "not both" in response.json()["detail"]
+
+
+def test_bound_target_row_reads_per_payday_and_matches_what_pay_prefills(client, db_session, category, stream):
+    _fund(db_session, category, 1000)
+    _set(client, category, kind="target", amount_cents=10000, target_date="2026-06-01", income_stream_id=stream.id)
+    (row,) = _progress(client)
+    assert row["due_by_next_payday_cents"] is not None
+    assert row["per_period_cents"] == row["due_by_next_payday_cents"]
+    assert row["per_period_text"] == f"${row['due_by_next_payday_cents'] / 100:,.2f} per Salary payday"
+
+
+def test_bound_target_with_no_date_shows_no_pace(client, category, stream):
+    _set(client, category, kind="target", amount_cents=10000, income_stream_id=stream.id)
+    (row,) = _progress(client)
+    assert row["per_period_text"] is None and row["per_period_cents"] is None
+
+
+def test_unbound_target_keeps_its_own_cadence_wording(client, db_session, category):
+    _fund(db_session, category, 1000)
+    _set(client, category, kind="target", amount_cents=10000, cadence="monthly", target_date="2026-06-01")
+    (row,) = _progress(client)
+    assert row["per_period_text"] == "$30.00 monthly"
+
+
+def test_bound_recurring_bill_still_has_no_per_period_cents_and_its_own_wording(client, category, stream):
+    _set(client, category, kind="recurring_bill", amount_cents=8700, cadence="monthly",
+         target_date="2026-06-15", income_stream_id=stream.id)
+    (row,) = _progress(client)
+    assert row["per_period_cents"] is None
+    assert row["per_period_text"] == "$87.00 monthly"
