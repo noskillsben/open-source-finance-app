@@ -157,6 +157,9 @@ class Progress:
     # payday, which has no period). Null for any other goal.
     commitment_cadence_text: str | None = None
     commitment_progress_text: str | None = None
+    # A recurring bill's amount and cadence ("$87.00 yearly", "$120.00 every 2 weeks") or a Target's
+    # per-period amount and cadence ("$100.00 monthly"), worded once here. Null for any other goal.
+    per_period_text: str | None = None
 
 
 def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
@@ -174,6 +177,7 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date) -> Progress:
         owed_cents=None if target is None else max(target - balance, 0),
         due_date=due_date(session, goal),
         per_period_cents=per_period,
+        per_period_text=per_period_text(goal, per_period),
         **commitment_row_text(session, goal, as_of=as_of),
     )
 
@@ -244,6 +248,25 @@ def commitment_ask(session: Session, goal: Goal, stream: IncomeStream, *, as_of:
 
 _PERIOD_LABELS = {"monthly": "this month", "quarterly": "this quarter", "semiannual": "this 6-month period", "yearly": "this year"}
 _CADENCE_LABELS = {"monthly": "monthly", "quarterly": "quarterly", "semiannual": "every 6 months", "yearly": "yearly"}
+
+
+def cadence_label(cadence: str, cadence_weeks: int | None) -> str:
+    """A cadence in words: "monthly", "every 6 months", "every week", "every 2 weeks"."""
+    if cadence == "weeks":
+        return "every week" if cadence_weeks == 1 else f"every {cadence_weeks} weeks"
+    return _CADENCE_LABELS[cadence]
+
+
+def per_period_text(goal: Goal, per_period_cents: int | None) -> str | None:
+    """The goal row's amount-and-cadence wording: a recurring bill's own amount, or a Target's
+    per-period contribution when it has a cadence. Null for anything else."""
+    if goal.cadence is None:
+        return None
+    if goal.kind == "recurring_bill" and goal.amount_cents is not None:
+        return f"{dollars(goal.amount_cents)} {cadence_label(goal.cadence, goal.cadence_weeks)}"
+    if goal.kind == "target" and per_period_cents is not None:
+        return f"{dollars(per_period_cents)} {cadence_label(goal.cadence, goal.cadence_weeks)}"
+    return None
 
 
 def commitment_row_text(session: Session, goal: Goal, *, as_of: date) -> dict[str, str | None]:

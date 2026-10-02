@@ -535,6 +535,9 @@ class GoalProgressOut(BaseModel):
     # for any other goal).
     commitment_cadence_text: str | None = None
     commitment_progress_text: str | None = None
+    # A recurring bill's amount and cadence ("$87.00 yearly") or a Target's per-period amount and
+    # cadence ("$100.00 monthly"), worded once on the server; null for any other goal.
+    per_period_text: str | None = None
     # A recurring bill's status ("overdue" / "due" / "next_due") and its wording, worded once on
     # the server (DESIGN.md § Paying a bill); null for any other kind.
     bill_status: str | None = None
