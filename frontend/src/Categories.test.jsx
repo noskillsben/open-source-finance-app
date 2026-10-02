@@ -127,6 +127,54 @@ describe('the per-period text on a goal row (#205)', () => {
   })
 })
 
+// #198: a Target with a date has one pace, its named pay's or its own cadence, never both.
+describe("a Target's one pace (#198)", () => {
+  async function openTargetForm() {
+    goals = []
+    streams = [{ id: 3, name: 'Salary' }]
+    setGoal.mockClear()
+    renderCategories()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.change(await screen.findByLabelText('Kind'), { target: { value: 'target' } })
+    fireEvent.change(screen.getByLabelText('Goal name'), { target: { value: 'Vacation' } })
+    fireEvent.change(screen.getByLabelText('Amount to reach'), { target: { value: '1000.00' } })
+    fireEvent.change(screen.getByLabelText('Target date (optional)'), { target: { value: '2027-06-01' } })
+  }
+
+  it('hides "how often" once a named pay is picked, and sends no cadence', async () => {
+    await openTargetForm()
+    fireEvent.change(screen.getByLabelText('Set aside every (optional)'), { target: { value: 'monthly' } })
+    fireEvent.change(screen.getByLabelText('Named pay this is paid by (optional)'), { target: { value: 'Salary' } })
+    expect(screen.queryByLabelText('Set aside every (optional)')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ income_stream_id: 3, cadence: null, cadence_weeks: null })
+  })
+
+  it('brings "how often" back when the named pay is cleared, and sends the cadence with no pay', async () => {
+    await openTargetForm()
+    fireEvent.change(screen.getByLabelText('Named pay this is paid by (optional)'), { target: { value: 'Salary' } })
+    fireEvent.change(screen.getByLabelText('Named pay this is paid by (optional)'), { target: { value: '' } })
+    fireEvent.change(screen.getByLabelText('Set aside every (optional)'), { target: { value: 'monthly' } })
+    expect(screen.getByLabelText('Named pay this is paid by (optional)')).toHaveValue('')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ income_stream_id: null, cadence: 'monthly' })
+  })
+
+  it('shows the server-worded per-payday pace on a bound Target row', async () => {
+    goals = [rentRow({
+      goal: { ...rentRow().goal, kind: 'target', cadence: null, income_stream_id: 3 },
+      earliest_unpaid_due_on: null, bill_status: null, bill_status_text: null,
+      per_period_cents: 9330, per_period_text: '$93.30 per Salary payday',
+    })]
+    renderCategories()
+    expect(await screen.findByText('$93.30 per Salary payday')).toBeInTheDocument()
+  })
+})
+
 // #148: a percent-of-net Commitment has no fixed per-period amount to show, so the row must
 // name the rule instead of falling back to a bare, misleading "$0.00".
 it('shows a percent-of-net Commitment\'s per-period text as a percentage, not $0.00', async () => {
