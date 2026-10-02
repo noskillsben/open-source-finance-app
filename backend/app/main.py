@@ -58,7 +58,6 @@ from app.services.accounts import (
     create_account_with_opening_valuation,
     credit_limit_note,
     dollars,
-    floor_note,
     update_account,
 )
 from app.services.links import (
@@ -118,9 +117,6 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
     valuation = latest_valuation(session, account.id)
     balance_cents = account_balance_cents(session, account.id, as_of=as_of)
     notes = []
-    floor = floor_note(balance_cents, account.on_budget_floor_cents, account.on_budget)
-    if floor is not None:
-        notes.append(f"{floor}.")
     limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)
     if limit_note is not None:
         notes.append(f"{limit_note}.")
