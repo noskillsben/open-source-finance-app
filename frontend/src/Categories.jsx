@@ -108,8 +108,6 @@ function goalBody(g, pickerDate) {
   }
 }
 
-const cadenceText = (goal) => (goal.cadence === 'weeks' ? `every ${goal.cadence_weeks} weeks` : (CADENCES.find((c) => c.value === goal.cadence)?.label ?? goal.cadence).toLowerCase())
-
 // The goal section of the category's settings form. The kind decides which fields show; "No goal"
 // removes (archives) the goal on save.
 function GoalFields({ goal, onChange, streams }) {
@@ -341,9 +339,9 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
 // The goal row under a category: name, "$X of $Y", due date, per-period amount, and its own
 // Add / Withdraw box — the same earmark move as the row above, so progress and available stay one number.
 function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams }) {
-  const { goal, balance_cents: balance, target_cents: target, due_date: due, per_period_cents: perPeriod } = progress
+  const { goal, balance_cents: balance, target_cents: target, due_date: due } = progress
   const { bill_status: billStatus, bill_status_text: billStatusText, last_paid_text: lastPaidText } = progress
-  const { commitment_cadence_text: cadenceLine, commitment_progress_text: progressLine } = progress
+  const { commitment_cadence_text: cadenceLine, commitment_progress_text: progressLine, per_period_text: perPeriodText } = progress
   const nextDue = progress.earliest_unpaid_due_on
   const nextDueText = progress.earliest_unpaid_due_text
   const streamName = streams.find((s) => s.id === goal.income_stream_id)?.name
@@ -380,12 +378,7 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
           ) : goal.percent_of_net != null ? (
             <span>{goal.percent_of_net}% of net{streamName ? ` · ${streamName} pay` : ''}</span>
           ) : (
-            perPeriod != null && goal.kind !== 'commitment' && (
-              <span>
-                {formatCents(perPeriod)}
-                {goal.cadence ? ` ${cadenceText(goal)}` : ''}
-              </span>
-            )
+            perPeriodText && <span>{perPeriodText}</span>
           )}
           {!archived && (
             <form

@@ -112,6 +112,37 @@ def test_target_with_date_but_no_cadence_has_no_contribution(client, category):
     assert (row["due_date"], row["per_period_cents"]) == ("2026-06-01", None)
 
 
+@pytest.mark.parametrize("cadence, weeks, text", [
+    ("monthly", None, "$87.00 monthly"),
+    ("quarterly", None, "$87.00 quarterly"),
+    ("semiannual", None, "$87.00 every 6 months"),
+    ("yearly", None, "$87.00 yearly"),
+    ("weeks", 2, "$87.00 every 2 weeks"),
+    ("weeks", 1, "$87.00 every week"),
+])
+def test_recurring_bill_per_period_text(client, category, cadence, weeks, text):
+    _set(client, category, kind="recurring_bill", amount_cents=8700, cadence=cadence, cadence_weeks=weeks,
+         target_date="2026-06-15")
+    (row,) = _progress(client)
+    assert row["per_period_text"] == text
+
+
+def test_target_with_a_cadence_has_per_period_text(client, db_session, category):
+    _fund(db_session, category, 1000)
+    _set(client, category, kind="target", amount_cents=10000, cadence="monthly", target_date="2026-06-01")
+    (row,) = _progress(client)
+    assert row["per_period_text"] == "$30.00 monthly"
+
+
+def test_per_period_text_is_null_for_a_target_without_a_cadence_and_for_commitments(client, category):
+    _set(client, category, kind="target", amount_cents=10000, target_date="2026-06-01")
+    (row,) = _progress(client)
+    assert row["per_period_text"] is None
+    _set(client, category, kind="commitment", amount_cents=20000, cadence="monthly", first_due_on="2026-06-30")
+    (row,) = _progress(client)
+    assert row["per_period_text"] is None
+
+
 def test_target_contribution_over_whole_periods(client, db_session, category):
     _fund(db_session, category, 1000)
     _set(client, category, kind="target", amount_cents=10000, cadence="monthly", target_date="2026-06-01")

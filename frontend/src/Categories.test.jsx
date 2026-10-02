@@ -101,6 +101,32 @@ it('never shows a "still owed this cycle" line on a bill goal row', async () => 
   expect(screen.queryByText(/still owed this cycle/i)).not.toBeInTheDocument()
 })
 
+// #205: the amount-and-cadence text on a bill or Target row is the server's wording, never the client's.
+describe('the per-period text on a goal row (#205)', () => {
+  it('shows the amount and cadence of a bill from the server', async () => {
+    goals = [rentRow({ per_period_text: '$87.00 yearly' })]
+    renderCategories()
+    expect(await screen.findByText('$87.00 yearly')).toBeInTheDocument()
+  })
+
+  it('shows the per-period amount and cadence of a Target from the server', async () => {
+    goals = [rentRow({
+      goal: { ...rentRow().goal, kind: 'target', cadence: 'monthly' },
+      earliest_unpaid_due_on: null, bill_status: null, bill_status_text: null,
+      per_period_cents: 10000, per_period_text: '$100.00 monthly',
+    })]
+    renderCategories()
+    expect(await screen.findByText('$100.00 monthly')).toBeInTheDocument()
+  })
+
+  it('words no cadence of its own when the server sends none', async () => {
+    goals = [rentRow({ per_period_text: null })]
+    renderCategories()
+    await screen.findByText('Rent', { selector: 'span' })
+    expect(screen.queryByText(/monthly|yearly/i)).not.toBeInTheDocument()
+  })
+})
+
 // #148: a percent-of-net Commitment has no fixed per-period amount to show, so the row must
 // name the rule instead of falling back to a bare, misleading "$0.00".
 it('shows a percent-of-net Commitment\'s per-period text as a percentage, not $0.00', async () => {
