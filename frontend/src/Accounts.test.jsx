@@ -129,6 +129,21 @@ describe('add an account: opening balance', () => {
     expect(createAccount.mock.calls[0][0].opening_balance_cents).toBe(0)
   })
 
+  it('blocks a second submit while the first is saving', async () => {
+    let finish
+    createAccount.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    await fillAndSave('5')
+    const button = screen.getByRole('button', { name: 'Add account' })
+
+    await waitFor(() => expect(button).toBeDisabled())
+    expect(screen.getByLabelText('Name')).toBeDisabled()
+    fireEvent.submit(button.closest('form'))
+    expect(createAccount).toHaveBeenCalledTimes(1)
+
+    finish({})
+    await waitFor(() => expect(screen.getByLabelText('Name')).not.toBeDisabled())
+  })
+
   it('still refuses text that is not a number', async () => {
     await fillAndSave('abc')
     expect(await screen.findByText('Opening balance must be a number.')).toBeTruthy()

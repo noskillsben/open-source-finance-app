@@ -438,6 +438,7 @@ export default function Categories({ pickerDate }) {
   const [editing, setEditing] = useState(null) // the category being edited, or null when adding
   const [form, setForm] = useState(EMPTY_FORM)
   const [formError, setFormError] = useState(null)
+  const [saving, setSaving] = useState(false)
   const [formKey, setFormKey] = useState(0) // remounts the form so its pickers reseed their text
   const [summary, setSummary] = useState(null) // ready to assign, overspent and each category's available
   const [amounts, setAmounts] = useState({}) // the assign box's text per category id
@@ -497,6 +498,7 @@ export default function Categories({ pickerDate }) {
 
   async function submit(e) {
     e.preventDefault()
+    if (saving) return
     setFormError(null)
     const name = form.name.trim()
     if (!name) return setFormError('Name is required.')
@@ -514,6 +516,7 @@ export default function Categories({ pickerDate }) {
       need_level: form.needLevel || null,
       absorb_overspending: form.absorb,
     }
+    setSaving(true)
     try {
       if (editing) {
         await api.categories.update(editing.id, settings)
@@ -527,6 +530,8 @@ export default function Categories({ pickerDate }) {
       refresh()
     } catch (err) {
       setFormError(err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -631,6 +636,7 @@ export default function Categories({ pickerDate }) {
           <input
             className="mt-1 w-full rounded bg-ink px-2 py-1"
             value={form.name}
+            disabled={saving}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </label>
@@ -685,7 +691,7 @@ export default function Categories({ pickerDate }) {
           />
         )}
         <div className="flex gap-3">
-          <button type="submit" className="rounded bg-accent px-3 py-1 text-ink">
+          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink disabled:opacity-50">
             {editing ? 'Save' : 'Add category'}
           </button>
           {editing && (

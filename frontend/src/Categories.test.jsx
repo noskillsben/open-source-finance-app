@@ -6,7 +6,8 @@ import Categories from './Categories.jsx'
 let goals = []
 let streams = []
 let summaryRows = [{ category_id: 11, available_cents: 0, pool_available_cents: 0, pool_absorber: null }]
-const { setGoal, updateCategory } = vi.hoisted(() => ({
+const { setGoal, updateCategory, createCategory } = vi.hoisted(() => ({
+  createCategory: vi.fn(),
   setGoal: vi.fn(() => Promise.resolve({})),
   updateCategory: vi.fn(() => Promise.resolve({})),
 }))
@@ -18,6 +19,7 @@ vi.mock('./api.js', () => ({
         id: 11, name: 'Rent', parent_id: null, archived_on: null, need_level: null, linked_accounts: [], pool_id: null, absorb_overspending: false,
       }]),
       update: updateCategory,
+      create: createCategory,
     },
     domains: { list: () => Promise.resolve([]) },
     readyToAssign: () => Promise.resolve({
@@ -265,5 +267,26 @@ describe('absorb overspending', () => {
     renderCategories()
     expect(await screen.findByText('+$170.00 available if overspent')).toBeInTheDocument()
     expect(screen.queryByText(/absorbs the rest/)).not.toBeInTheDocument()
+  })
+})
+
+describe('add a category', () => {
+  it('blocks a second submit while the first is saving', async () => {
+    let finish
+    createCategory.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    renderCategories()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Groceries' } })
+    const button = screen.getByRole('button', { name: 'Add category' })
+    fireEvent.click(button)
+
+    await waitFor(() => expect(button).toBeDisabled())
+    expect(screen.getByLabelText('Name')).toBeDisabled()
+    fireEvent.submit(button.closest('form'))
+    expect(createCategory).toHaveBeenCalledTimes(1)
+
+    finish({})
+    await waitFor(() => expect(screen.getByLabelText('Name')).not.toBeDisabled())
+    expect(screen.getByLabelText('Name')).toHaveValue('')
+    expect(screen.getByRole('button', { name: 'Add category' })).not.toBeDisabled()
   })
 })

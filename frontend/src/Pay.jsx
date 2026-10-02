@@ -147,6 +147,7 @@ export default function Pay({ pickerDate }) {
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [formError, setFormError] = useState(null)
+  const [saving, setSaving] = useState(false)
   const [formKey, setFormKey] = useState(0)
 
   function refresh() {
@@ -181,6 +182,7 @@ export default function Pay({ pickerDate }) {
 
   async function submit(e) {
     e.preventDefault()
+    if (saving) return
     setFormError(null)
     const name = form.name.trim()
     if (!name) return setFormError('Name is required.')
@@ -197,6 +199,7 @@ export default function Pay({ pickerDate }) {
     if (unmatched(form.payee)) return setFormError(`"${form.payee.text}" is not an existing payee.`)
     const { deductions, error: deductionError } = validateDeductions(form.deductions)
     if (deductionError) return setFormError(deductionError)
+    setSaving(true)
     try {
       const body = streamBody(form, pickerDate, deductions)
       if (editing) await api.incomeStreams.update(editing.id, body)
@@ -205,6 +208,8 @@ export default function Pay({ pickerDate }) {
       refresh()
     } catch (err) {
       setFormError(err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -324,6 +329,7 @@ export default function Pay({ pickerDate }) {
           <input
             className="mt-1 w-full rounded bg-ink px-2 py-1"
             value={form.name}
+            disabled={saving}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
           />
         </label>
@@ -421,7 +427,7 @@ export default function Pay({ pickerDate }) {
           onChange={(deductions) => setForm({ ...form, deductions })}
         />
         <div className="flex gap-3">
-          <button type="submit" className="rounded bg-accent px-3 py-1 text-ink">
+          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink disabled:opacity-50">
             {editing ? 'Save' : 'Add named pay'}
           </button>
           {editing && (
