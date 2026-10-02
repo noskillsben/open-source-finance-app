@@ -33,6 +33,7 @@ export default function Accounts({ pickerDate }) {
   const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
+  const [saving, setSaving] = useState(false)
 
   const [checkingId, setCheckingId] = useState(null)
   const [checkForm, setCheckForm] = useState(() => emptyCheckForm(pickerDate))
@@ -230,6 +231,7 @@ export default function Accounts({ pickerDate }) {
 
   async function submit(e) {
     e.preventDefault()
+    if (saving) return
     setFormError(null)
 
     const floorCents = parseCents(form.on_budget_floor_cents) ?? 0
@@ -238,6 +240,7 @@ export default function Accounts({ pickerDate }) {
 
     try {
       if (editingId) {
+        setSaving(true)
         await api.accounts.update(editingId, {
           name: form.name.trim(),
           type: form.type,
@@ -251,6 +254,7 @@ export default function Accounts({ pickerDate }) {
         const openingBalanceCents = form.opening_balance_cents.trim() === '' ? 0 : parseCents(form.opening_balance_cents)
         if (!form.created_on) return setFormError('Opening balance date is required.')
         if (openingBalanceCents === null) return setFormError('Opening balance must be a number.')
+        setSaving(true)
         await api.accounts.create({
           name: form.name.trim(),
           created_on: form.created_on,
@@ -265,6 +269,8 @@ export default function Accounts({ pickerDate }) {
       refresh()
     } catch (err) {
       setFormError(err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -515,6 +521,7 @@ export default function Accounts({ pickerDate }) {
             <input
               className="w-full rounded bg-ink px-2 py-1"
               value={form.name}
+              disabled={saving}
               onChange={(e) => updateField('name', e.target.value)}
             />
           </label>
@@ -605,7 +612,7 @@ export default function Accounts({ pickerDate }) {
           {formError && <p className="text-bad text-sm">{formError}</p>}
 
           <div className="flex gap-2">
-            <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
+            <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1.5 text-sm font-medium disabled:opacity-50">
               {editingId ? 'Save changes' : 'Add account'}
             </button>
             {editingId && (

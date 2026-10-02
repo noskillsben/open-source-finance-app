@@ -10,6 +10,7 @@ export default function Domains({ pickerDate, onChange }) {
   const [editing, setEditing] = useState(null)
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [saving, setSaving] = useState(false)
 
   function refresh() {
     api.domains.list(pickerDate, showArchived).then(setDomains).catch((e) => setError(e.message))
@@ -28,15 +29,19 @@ export default function Domains({ pickerDate, onChange }) {
 
   async function submit(e) {
     e.preventDefault()
+    if (saving) return
     setError(null)
     if (!name.trim()) return setError('Name is required.')
     const body = { name: name.trim(), description: description.trim() || null }
+    setSaving(true)
     try {
       if (editing) await api.domains.update(editing.id, body)
       else await api.domains.create({ ...body, created_on: pickerDate })
       done()
     } catch (err) {
       setError(err.message)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -67,7 +72,12 @@ export default function Domains({ pickerDate, onChange }) {
       <form onSubmit={submit} className="space-y-2">
         <label className="block text-sm">
           <span className="text-paper-soft">{editing ? `Rename ${editing.name}` : 'Domain name'}</span>
-          <input className="mt-1 w-full rounded bg-ink px-2 py-1" value={name} onChange={(e) => setName(e.target.value)} />
+          <input
+            className="mt-1 w-full rounded bg-ink px-2 py-1"
+            value={name}
+            disabled={saving}
+            onChange={(e) => setName(e.target.value)}
+          />
         </label>
         <label className="block text-sm">
           <span className="text-paper-soft">Description (optional)</span>
@@ -78,7 +88,7 @@ export default function Domains({ pickerDate, onChange }) {
           />
         </label>
         <div className="flex gap-3">
-          <button type="submit" className="rounded bg-accent px-3 py-1 text-ink">
+          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink disabled:opacity-50">
             {editing ? 'Save' : 'Add domain'}
           </button>
           {editing && (
