@@ -51,6 +51,24 @@ describe('balance check on a tracking account', () => {
   })
 })
 
+describe('balance check that matches the ledger', () => {
+  beforeEach(() => {
+    checkBalance.mockReset()
+  })
+
+  it('says the check was recorded, with its date and no adjustment', async () => {
+    accounts = [account()]
+    checkBalance.mockResolvedValue({ diff_cents: 0, transaction: null })
+    render(<Accounts pickerDate="2026-08-11" />)
+
+    await saveCheck('100')
+
+    expect(await screen.findByText(
+      'That matches the ledger — balance checked Aug 11, 2026, no adjustment needed.'
+    )).toBeTruthy()
+  })
+})
+
 describe('balance check on an on-budget account', () => {
   beforeEach(() => {
     checkBalance.mockReset()
