@@ -11,6 +11,7 @@ import Payees from './Payees.jsx'
 import Transactions from './Transactions.jsx'
 import { api } from './api.js'
 import { todayIso } from './utils/format.js'
+import { clearPickerDate, loadPickerDate, savePickerDate } from './utils/pickerDate.js'
 
 // Categories carries a wide table, so it gets room on a desktop; every other page stays narrow.
 function Layout({ children }) {
@@ -22,7 +23,22 @@ function Layout({ children }) {
 export default function App() {
   const [health, setHealth] = useState(null)
   const [error, setError] = useState(null)
-  const [pickerDate, setPickerDate] = useState(todayIso)
+  const [pickerDate, setPickerDate] = useState(loadPickerDate)
+
+  const today = todayIso()
+  const notToday = pickerDate !== today
+
+  // An empty input (cleared by the user) means "back to today", never "no date".
+  function changePickerDate(value) {
+    if (!value) return resetToToday()
+    setPickerDate(value)
+    savePickerDate(value)
+  }
+
+  function resetToToday() {
+    setPickerDate(today)
+    clearPickerDate()
+  }
 
   useEffect(() => {
     api.health().then(setHealth).catch((e) => setError(e.message))
@@ -36,15 +52,29 @@ export default function App() {
             <h1 className="text-2xl font-semibold">Open Source Finance App</h1>
             <p className="text-paper-soft">A financial mirror, not a financial cage.</p>
           </div>
-          <label className="flex items-center gap-2 text-sm">
-            <span className="text-paper-soft">Show as of</span>
-            <input
-              type="date"
-              className="rounded bg-ink-soft px-2 py-1"
-              value={pickerDate}
-              onChange={(e) => setPickerDate(e.target.value)}
-            />
-          </label>
+          <div className="flex flex-wrap items-center justify-end gap-2 text-sm">
+            <label className="flex items-center gap-2">
+              <span className="text-paper-soft">Show as of</span>
+              <input
+                type="date"
+                className={`rounded bg-ink-soft px-2 py-1 ${notToday ? 'border-2 border-warn' : ''}`}
+                value={pickerDate}
+                onChange={(e) => changePickerDate(e.target.value)}
+              />
+            </label>
+            {notToday && (
+              <>
+                <span className="font-medium text-warn">not today</span>
+                <button
+                  type="button"
+                  className="rounded bg-accent px-2 py-1 text-paper"
+                  onClick={resetToToday}
+                >
+                  Today
+                </button>
+              </>
+            )}
+          </div>
         </header>
 
         <div className="mt-4">

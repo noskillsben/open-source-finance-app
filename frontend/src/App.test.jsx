@@ -1,5 +1,6 @@
-import { render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { fireEvent, render, screen, within } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { todayIso } from './utils/format.js'
 import App from './App.jsx'
 
 // Every page fetches on mount; stub every api call so routing/render tests never hit the network.
@@ -63,5 +64,60 @@ describe('routing', () => {
   it('redirects the root path to the ledger', async () => {
     renderAt('/')
     expect(await screen.findByRole('heading', { level: 2, name: 'Transactions' })).toBeInTheDocument()
+  })
+})
+
+describe('Show as of date', () => {
+  const input = () => screen.getByLabelText('Show as of')
+
+  beforeEach(() => window.sessionStorage.clear())
+  afterEach(() => vi.restoreAllMocks())
+
+  it('starts on today in a fresh session, with no "not today" cue', () => {
+    renderAt('/ledger')
+    expect(input()).toHaveValue(todayIso())
+    expect(screen.queryByText('not today')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Today' })).not.toBeInTheDocument()
+  })
+
+  it('keeps a picked date across a remount', () => {
+    const first = renderAt('/ledger')
+    fireEvent.change(input(), { target: { value: '2026-03-15' } })
+    first.unmount()
+    renderAt('/ledger')
+    expect(input()).toHaveValue('2026-03-15')
+  })
+
+  it('ignores an invalid stored value', () => {
+    window.sessionStorage.setItem('pickerDate', '2026-13-45')
+    renderAt('/ledger')
+    expect(input()).toHaveValue(todayIso())
+  })
+
+  it('falls back to today when storage throws', () => {
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => { throw new Error('blocked') })
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => { throw new Error('blocked') })
+    renderAt('/ledger')
+    expect(input()).toHaveValue(todayIso())
+    fireEvent.change(input(), { target: { value: '2026-03-15' } })
+    expect(input()).toHaveValue('2026-03-15')
+  })
+
+  it('shows the cue off today, and Today resets the date', () => {
+    renderAt('/ledger')
+    fireEvent.change(input(), { target: { value: '2026-03-15' } })
+    expect(screen.getByText('not today')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Today' }))
+    expect(input()).toHaveValue(todayIso())
+    expect(screen.queryByText('not today')).not.toBeInTheDocument()
+    expect(window.sessionStorage.getItem('pickerDate')).toBeNull()
+  })
+
+  it('treats a cleared input as today and stores nothing', () => {
+    renderAt('/ledger')
+    fireEvent.change(input(), { target: { value: '2026-03-15' } })
+    fireEvent.change(input(), { target: { value: '' } })
+    expect(input()).toHaveValue(todayIso())
+    expect(window.sessionStorage.getItem('pickerDate')).toBeNull()
   })
 })
