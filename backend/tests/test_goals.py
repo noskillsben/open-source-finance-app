@@ -674,3 +674,11 @@ def test_unbound_target_keeps_its_own_cadence_wording(client, db_session, catego
     _set(client, category, kind="target", amount_cents=10000, cadence="monthly", target_date="2026-06-01")
     (row,) = _progress(client)
     assert row["per_period_text"] == "$30.00 monthly"
+
+
+def test_bound_recurring_bill_still_has_no_per_period_cents_and_its_own_wording(client, category, stream):
+    _set(client, category, kind="recurring_bill", amount_cents=8700, cadence="monthly",
+         target_date="2026-06-15", income_stream_id=stream.id)
+    (row,) = _progress(client)
+    assert row["per_period_cents"] is None
+    assert row["per_period_text"] == "$87.00 monthly"

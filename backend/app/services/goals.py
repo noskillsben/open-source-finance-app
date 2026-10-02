@@ -173,10 +173,10 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date, stream: IncomeSt
     else:
         target = goal.amount_cents
         # A bound Target's pace is what Pay pre-fills; an unbound one's is its own cadence.
-        per_period = (
-            due_by_next_payday(session, goal, stream, as_of=as_of) if stream is not None
-            else contribution_cents(goal, balance, as_of=as_of)
-        )
+        if goal.kind == "target" and stream is not None:
+            per_period = due_by_next_payday(session, goal, stream, as_of=as_of)
+        else:
+            per_period = contribution_cents(goal, balance, as_of=as_of)
     return Progress(
         balance_cents=balance,
         target_cents=target,
