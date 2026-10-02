@@ -210,7 +210,7 @@ export default function Accounts({ pickerDate }) {
         category_id: !checkingIsTracking && checkForm.category_id ? Number(checkForm.category_id) : null,
         category_lines: split.length > 0 ? split : null,
       })
-      setCheckResult(result)
+      setCheckResult({ ...result, date: checkForm.date }) // the date saved, not whatever the field says later
       refresh()
     } catch (err) {
       setCheckError(err.message)
@@ -476,7 +476,7 @@ export default function Accounts({ pickerDate }) {
 
             {checkError && <p className="text-bad text-sm">{checkError}</p>}
             {checkResult && checkResult.diff_cents === 0 && (
-              <p className="text-sm text-paper-soft">That matches the ledger — nothing recorded.</p>
+              <p className="text-sm text-paper-soft">That matches the ledger — balance checked {formatDate(checkResult.date)}, no adjustment needed.</p>
             )}
             {checkResult && checkResult.diff_cents !== 0 && (
               <p className="text-sm text-paper-soft">
