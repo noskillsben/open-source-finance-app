@@ -13,7 +13,6 @@ from app.services.accounts import (
     account_balance_cents,
     create_account_with_opening_valuation,
     credit_limit_note,
-    floor_note,
     on_budget_cents,
     update_account,
 )
@@ -181,12 +180,6 @@ def test_credit_limit_note_with_zero_limit_warns_below_zero():
     assert credit_limit_note(0, 0) is None
 
 
-def test_floor_note_says_how_far_below_the_floor_an_on_budget_account_is():
-    assert floor_note(-1_500_00, -1_000_00, True) == "Below your floor by $500.00"
-    assert floor_note(-250_00, -1_000_00, True) is None
-    assert floor_note(-1_500_00, -1_000_00, False) is None  # tracking: no budget floor
-
-
 def _client(db_session):
     def override():
         yield db_session
@@ -237,3 +230,33 @@ def test_null_interest_rate_stays_null_through_the_api(db_session):
     assert created.json()["terms"]["annual_rate"] is None
     assert created.json()["terms"]["deferred_rate"] is None
     assert listed.json()[0]["terms"]["annual_rate"] is None
+
+
+def _listed_account(db_session, account_id):
+    client = _client(db_session)
+    try:
+        return next(a for a in client.get("/api/accounts").json() if a["id"] == account_id)
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_a_card_with_a_balance_and_a_floor_of_zero_shows_no_note(db_session):
+    card = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=datetime.date(2026, 1, 1),
+        type="Credit card", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=-300_00,
+    )
+    card.credit_limit_cents = 1_000_00
+    db_session.flush()
+
+    assert _listed_account(db_session, card.id)["notes"] == []
+
+
+def test_an_account_past_its_credit_limit_still_warns(db_session):
+    card = create_account_with_opening_valuation(
+        db_session, name="Card", created_on=datetime.date(2026, 1, 1),
+        type="Credit card", on_budget=True, on_budget_floor_cents=0, opening_balance_cents=-1_500_00,
+    )
+    card.credit_limit_cents = 1_000_00
+    db_session.flush()
+
+    assert _listed_account(db_session, card.id)["notes"] == ["This balance is past the credit limit."]
