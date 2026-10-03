@@ -79,7 +79,7 @@ function goalToForm(goal) {
     percent: goal.percent_of_net ?? '',
     cadence: goal.cadence ?? '',
     weeks: goal.cadence_weeks ?? '',
-    date: goal.target_date ?? '',
+    date: (goal.kind === 'recurring_bill' ? goal.first_due_on : goal.target_date) ?? '',
     firstDueMonth: goal.first_due_on ? goal.first_due_on.slice(0, 7) : '',
     incomeStreamId: goal.income_stream_id ?? null,
   }
@@ -104,8 +104,8 @@ function goalBody(g, pickerDate) {
     percent_of_net: percentFlavour && String(g.percent).trim() !== '' ? g.percent : null,
     cadence,
     cadence_weeks: cadence === 'weeks' && g.weeks !== '' ? Number(g.weeks) : null,
-    first_due_on: commitmentCadence && g.firstDueMonth ? monthEnd(g.firstDueMonth) : null,
-    target_date: g.kind !== 'commitment' && g.date ? g.date : null,
+    first_due_on: g.kind === 'recurring_bill' ? g.date || null : commitmentCadence && g.firstDueMonth ? monthEnd(g.firstDueMonth) : null,
+    target_date: g.kind === 'target' && g.date ? g.date : null,
     income_stream_id: g.incomeStreamId ?? null,
   }
 }

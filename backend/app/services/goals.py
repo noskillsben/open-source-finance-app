@@ -42,8 +42,8 @@ def apply_goal(
         raise GoalError(f"Unknown cadence {cadence!r}.")
     if kind == "commitment" and (cadence == "weeks" or cadence_weeks is not None):
         raise GoalError("A commitment has no every-N-weeks cadence; that stays on bills.")
-    if kind != "commitment" and first_due_on is not None:
-        raise GoalError("Only a commitment has a first due month.")
+    if kind == "target" and first_due_on is not None:
+        raise GoalError("Only a recurring bill or a commitment has a first due date.")
     if cadence == "weeks":
         if cadence_weeks is None or cadence_weeks < 1:
             raise GoalError("'Every N weeks' needs N, at least 1.")
@@ -61,6 +61,10 @@ def apply_goal(
     if kind == "recurring_bill":
         if amount_cents is None or cadence is None:
             raise GoalError("A recurring bill needs an amount and a cadence.")
+        if first_due_on is None:
+            raise GoalError("A recurring bill needs a first due date.")
+        if target_date is not None:
+            raise GoalError("A recurring bill has no target date; give its first due date.")
         if level_cents is not None:
             raise GoalError("A recurring bill has no level.")
         if percent_of_net is not None:
@@ -140,11 +144,9 @@ def due_date(session: Session, goal: Goal) -> date | None:
     `as_of`, so an unpaid bill stays due (and reads overdue) instead of becoming next month's;
     a target's is its target date.
     """
-    if goal.target_date is None:
-        return None
-    if goal.kind != "recurring_bill":
-        return goal.target_date
-    return earliest_unpaid_due_date(session, goal)
+    if goal.kind == "recurring_bill":
+        return earliest_unpaid_due_date(session, goal)
+    return goal.target_date
 
 
 @dataclass
@@ -340,12 +342,12 @@ def is_bill_due_date(goal: Goal, day: date) -> bool:
     by whole cadence periods (DESIGN.md § Goals). Stepping from the first date each time, never
     from the previous step, so a month-end clamp doesn't drift the later dates.
     """
-    if goal.kind != "recurring_bill" or goal.target_date is None or day < goal.target_date:
+    if goal.kind != "recurring_bill" or goal.first_due_on is None or day < goal.first_due_on:
         return False
     n = 0
-    while _step(goal, goal.target_date, n) < day:
+    while _step(goal, goal.first_due_on, n) < day:
         n += 1
-    return _step(goal, goal.target_date, n) == day
+    return _step(goal, goal.first_due_on, n) == day
 
 
 def linked_due_dates(session: Session, goal_id: int) -> set[date]:
@@ -361,13 +363,13 @@ def earliest_unpaid_due_date(session: Session, goal: Goal) -> date | None:
     One linked payment marks a date paid whatever its amount. Links to dates no longer on the
     bill's cycle (after its cadence or first date was edited) mark nothing paid.
     """
-    if goal.kind != "recurring_bill" or goal.target_date is None:
+    if goal.kind != "recurring_bill" or goal.first_due_on is None:
         return None
     paid = linked_due_dates(session, goal.id)
     n = 0
-    while _step(goal, goal.target_date, n) in paid:
+    while _step(goal, goal.first_due_on, n) in paid:
         n += 1
-    return _step(goal, goal.target_date, n)
+    return _step(goal, goal.first_due_on, n)
 
 
 def offered_due_dates(session: Session, goal: Goal, *, before: int = 3, after: int = 8) -> list[tuple[date, bool]]:
@@ -380,11 +382,11 @@ def offered_due_dates(session: Session, goal: Goal, *, before: int = 3, after: i
         return []
     paid = linked_due_dates(session, goal.id)
     index = 0
-    while _step(goal, goal.target_date, index) < earliest:
+    while _step(goal, goal.first_due_on, index) < earliest:
         index += 1
     return [
         (day, day in paid)
-        for day in (_step(goal, goal.target_date, n) for n in range(max(index - before, 0), index + after + 1))
+        for day in (_step(goal, goal.first_due_on, n) for n in range(max(index - before, 0), index + after + 1))
     ]
 
 

@@ -58,7 +58,7 @@ def _bill(db_session, first_due, *, stream=None, name="Rent", amount=120_000):
     db_session.flush()
     goal = Goal(
         category_id=category.id, name=name, kind="recurring_bill", amount_cents=amount, cadence="monthly",
-        target_date=first_due, income_stream_id=None if stream is None else stream.id, created_on=DAY,
+        first_due_on=first_due, income_stream_id=None if stream is None else stream.id, created_on=DAY,
     )
     db_session.add(goal)
     db_session.flush()

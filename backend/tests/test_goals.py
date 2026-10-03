@@ -75,7 +75,7 @@ def _progress(client, on=DAY):
 def test_recurring_bill_progress_and_owed_this_cycle(client, db_session, category):
     _fund(db_session, category, 13282)
     response = _set(client, category, kind="recurring_bill", amount_cents=104800, cadence="yearly",
-                    target_date="2026-06-15")
+                    first_due_on="2026-06-15")
     assert response.status_code == 200
     (row,) = _progress(client)
     assert (row["balance_cents"], row["target_cents"], row["owed_cents"]) == (13282, 104800, 91518)
@@ -84,7 +84,7 @@ def test_recurring_bill_progress_and_owed_this_cycle(client, db_session, categor
 
 
 def test_recurring_bill_due_date_does_not_roll_past_the_picker(client, category):
-    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-01-31")
+    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", first_due_on="2026-01-31")
     (row,) = _progress(client)
     assert row["due_date"] == "2026-01-31"  # unpaid, so it stays the due date; the picker moving on doesn't skip it
     (row,) = _progress(client, datetime.date(2026, 4, 1))
@@ -93,7 +93,7 @@ def test_recurring_bill_due_date_does_not_roll_past_the_picker(client, category)
 
 def test_recurring_bill_every_n_weeks(client, category):
     _set(client, category, kind="recurring_bill", amount_cents=5000, cadence="weeks", cadence_weeks=2,
-         target_date="2026-02-20")
+         first_due_on="2026-02-20")
     (row,) = _progress(client)
     assert row["due_date"] == "2026-02-20"  # earliest unpaid, not rolled to the picker
 
@@ -122,7 +122,7 @@ def test_target_with_date_but_no_cadence_has_no_contribution(client, category):
 ])
 def test_recurring_bill_per_period_text(client, category, cadence, weeks, text):
     _set(client, category, kind="recurring_bill", amount_cents=8700, cadence=cadence, cadence_weeks=weeks,
-         target_date="2026-06-15")
+         first_due_on="2026-06-15")
     (row,) = _progress(client)
     assert row["per_period_text"] == text
 
@@ -189,8 +189,8 @@ def test_progress_reads_the_picker_date(client, db_session, category):
 
 @pytest.mark.parametrize("fields, message", [
     ({"kind": "wish", "amount_cents": 1}, "Unknown goal kind"),
-    ({"kind": "recurring_bill", "amount_cents": 100, "target_date": "2026-06-15"}, "amount and a cadence"),
-    ({"kind": "recurring_bill", "cadence": "monthly", "target_date": "2026-06-15"}, "amount and a cadence"),
+    ({"kind": "recurring_bill", "amount_cents": 100, "first_due_on": "2026-06-15"}, "amount and a cadence"),
+    ({"kind": "recurring_bill", "cadence": "monthly", "first_due_on": "2026-06-15"}, "amount and a cadence"),
     ({"kind": "target"}, "needs an amount"),
     ({"kind": "target", "amount_cents": 100, "cadence": "monthly"}, "needs a target date"),
     ({"kind": "target", "amount_cents": 100, "level_cents": 5}, "no level"),
@@ -207,13 +207,13 @@ def test_progress_reads_the_picker_date(client, db_session, category):
     ({"kind": "commitment", "level_cents": 5, "cadence": "monthly", "first_due_on": "2026-10-31"}, "Only a fixed-amount"),
     ({"kind": "commitment", "level_cents": 5, "first_due_on": "2026-10-31"}, "no cadence has no first due month"),
     ({"kind": "commitment", "percent_of_net": "5", "cadence": "monthly", "first_due_on": "2026-10-31"}, "Only a fixed-amount"),
-    ({"kind": "target", "amount_cents": 100, "first_due_on": "2026-10-31"}, "Only a commitment"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "target_date": "2026-06-15", "first_due_on": "2026-10-31"}, "Only a commitment"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "weeks", "target_date": "2026-06-15"}, "needs N"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "cadence_weeks": 2, "target_date": "2026-06-15"}, "only applies"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "daily", "target_date": "2026-06-15"}, "Unknown cadence"),
+    ({"kind": "target", "amount_cents": 100, "first_due_on": "2026-10-31"}, "Only a recurring bill or a commitment"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "target_date": "2026-06-15", "first_due_on": "2026-10-31"}, "no target date"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "weeks", "first_due_on": "2026-06-15"}, "needs N"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "cadence_weeks": 2, "first_due_on": "2026-06-15"}, "only applies"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "daily", "first_due_on": "2026-06-15"}, "Unknown cadence"),
     ({"kind": "target", "amount_cents": 100, "percent_of_net": "5"}, "no percentage"),
-    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "percent_of_net": "5", "target_date": "2026-06-15"}, "no percentage"),
+    ({"kind": "recurring_bill", "amount_cents": 1, "cadence": "monthly", "percent_of_net": "5", "first_due_on": "2026-06-15"}, "no percentage"),
     ({"kind": "commitment", "percent_of_net": "5"}, "needs a bound pay"),
     ({"kind": "target", "amount_cents": 100, "income_stream_id": 999}, "Unknown income stream id"),
 ])
@@ -224,11 +224,11 @@ def test_invalid_goals_are_refused_and_nothing_is_written(client, category, fiel
     assert _progress(client) == []
 
 
-@pytest.mark.parametrize("target_date", [None, "missing"])
-def test_recurring_bill_without_a_first_due_date_is_a_422(client, category, target_date):
+@pytest.mark.parametrize("first_due_on", [None, "missing"])
+def test_recurring_bill_without_a_first_due_date_is_a_422(client, category, first_due_on):
     fields = {"kind": "recurring_bill", "amount_cents": 10000, "cadence": "monthly"}
-    if target_date is None:
-        fields["target_date"] = None  # stated as null
+    if first_due_on is None:
+        fields["first_due_on"] = None  # stated as null
     response = _set(client, category, **fields)  # or left out entirely
     assert response.status_code == 422
     assert "first due date" in response.text
@@ -236,9 +236,9 @@ def test_recurring_bill_without_a_first_due_date_is_a_422(client, category, targ
 
 
 def test_editing_a_bills_first_due_date_restarts_its_cycles(client, category):
-    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-01-15")
+    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", first_due_on="2026-01-15")
     assert _progress(client)[0]["due_date"] == "2026-01-15"
-    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", target_date="2026-05-10")
+    _set(client, category, kind="recurring_bill", amount_cents=10000, cadence="monthly", first_due_on="2026-05-10")
     assert _progress(client)[0]["due_date"] == "2026-05-10"  # no cycle exists before the new first date
 
 
@@ -331,7 +331,7 @@ def test_due_by_next_payday_worked_example(db_session, category, stream):
     _fund(db_session, category, 40000)
     goal = Goal(
         category_id=category.id, name="Insurance", kind="recurring_bill", amount_cents=120000,
-        cadence="quarterly", target_date=datetime.date(2026, 3, 20), income_stream_id=stream.id,
+        cadence="quarterly", first_due_on=datetime.date(2026, 3, 20), income_stream_id=stream.id,
         created_on=DAY,
     )
     db_session.add(goal)
@@ -365,7 +365,7 @@ def test_due_by_next_payday_cents_on_the_goals_api(client, db_session, category,
     _fund(db_session, category, 40000)
     response = _set(
         client, category, kind="recurring_bill", amount_cents=120000, cadence="quarterly",
-        target_date="2026-03-20", income_stream_id=stream.id,
+        first_due_on="2026-03-20", income_stream_id=stream.id,
     )
     assert response.status_code == 200
     (row,) = _progress(client)
@@ -413,9 +413,9 @@ def test_a_commitment_first_due_month_may_be_a_leap_february_end(client, categor
 
 def test_bills_keep_every_n_weeks(client, category):
     response = _set(client, category, kind="recurring_bill", amount_cents=5000, cadence="weeks", cadence_weeks=2,
-                    target_date="2026-02-20")
+                    first_due_on="2026-02-20")
     assert response.status_code == 200
-    assert (response.json()["cadence"], response.json()["cadence_weeks"], response.json()["first_due_on"]) == ("weeks", 2, None)
+    assert (response.json()["cadence"], response.json()["cadence_weeks"], response.json()["first_due_on"]) == ("weeks", 2, "2026-02-20")
 
 
 # --- #157: a fixed Commitment with a cadence spreads over the paydays left --------------------
@@ -678,7 +678,7 @@ def test_unbound_target_keeps_its_own_cadence_wording(client, db_session, catego
 
 def test_bound_recurring_bill_still_has_no_per_period_cents_and_its_own_wording(client, category, stream):
     _set(client, category, kind="recurring_bill", amount_cents=8700, cadence="monthly",
-         target_date="2026-06-15", income_stream_id=stream.id)
+         first_due_on="2026-06-15", income_stream_id=stream.id)
     (row,) = _progress(client)
     assert row["per_period_cents"] is None
     assert row["per_period_text"] == "$87.00 monthly"
