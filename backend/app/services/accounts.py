@@ -221,3 +221,16 @@ def account_balance_cents(
         line_stmt = line_stmt.where(Transaction.date <= as_of)
 
     return session.scalar(line_stmt)
+
+
+class AccountError(ValueError):
+    """A settings-surface rule refused an account change — a block, not a ledger validation."""
+
+
+def reject_floor_below_credit_limit(floor_cents: int, credit_limit_cents: int | None) -> None:
+    """DESIGN.md § On-budget floor: the floor may not be set below `-credit_limit_cents` where
+    that limit is known — you cannot budget with credit the lender has not extended. A settings
+    surface, so this one is a block, unlike the credit-limit warnings above.
+    """
+    if credit_limit_cents is not None and floor_cents < -credit_limit_cents:
+        raise AccountError(f"The on-budget floor can't be set below the credit limit of -{dollars(credit_limit_cents)}.")

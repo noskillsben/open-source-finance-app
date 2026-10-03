@@ -8,7 +8,7 @@ from dataclasses import dataclass, field
 from datetime import date
 from typing import Sequence
 
-from sqlalchemy import ColumnElement, or_
+from sqlalchemy import ColumnElement, or_, true
 
 
 def visible_as_of(model, as_of: date | None) -> ColumnElement[bool]:
@@ -21,6 +21,14 @@ def visible_as_of(model, as_of: date | None) -> ColumnElement[bool]:
     if as_of is None:
         return model.archived_on.is_(None)
     return (model.created_on <= as_of) & (or_(model.archived_on.is_(None), as_of < model.archived_on))
+
+
+def _visible(model, as_of: date | None, include_archived: bool):
+    # `include_archived` is the "show archived" toggle: every row that existed by `as_of`,
+    # archived or not, so the UI can offer Unarchive. Without it, the effective-date rule applies.
+    if not include_archived:
+        return visible_as_of(model, as_of)
+    return (model.created_on <= as_of) if as_of is not None else true()
 
 
 class ArchiveError(Exception):
