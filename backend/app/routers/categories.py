@@ -27,6 +27,7 @@ from app.services.earmarks import sweep_archived_category_tree
 from app.services.goals import (
     GoalError, _short_date, apply_goal, bill_status, commitment_context, due_by_next_payday, earliest_unpaid_due_date,
     goal_latest_linked_date, goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
+    unbound_bill_horizon,
 )
 from app.services.links import (
     LinkError,
@@ -123,6 +124,7 @@ def list_goals(
     created after `as_of`; progress is still computed at `as_of`."""
     visible = true() if any_date else _visible(Goal, as_of, include_archived)
     goals = session.scalars(select(Goal).where(visible).order_by(Goal.category_id)).all()
+    horizon = unbound_bill_horizon(session, as_of=as_of)
     out = []
     for g in goals:
         due_cents = None
@@ -131,7 +133,7 @@ def list_goals(
         if stream is not None:
             due_cents = due_by_next_payday(session, g, stream, as_of=as_of)
             context_text = commitment_context(session, g, stream, as_of=as_of)
-        status = bill_status(session, g, as_of=as_of, stream=stream)
+        status = bill_status(session, g, as_of=as_of, stream=stream, horizon=horizon)
         last_paid = last_paid_text(session, g, as_of=as_of) if g.kind == "recurring_bill" else None
         earliest_unpaid = earliest_unpaid_due_date(session, g)
         out.append(

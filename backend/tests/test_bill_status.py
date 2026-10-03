@@ -94,6 +94,69 @@ def test_status_without_a_bound_pay_compares_to_the_picker_date(db_session, clie
     assert (row["bill_status"], row["bill_status_text"]) == (status, text)
 
 
+AUG = datetime.date(2026, 8, 1)
+
+
+def _early_pay(db_session, chequing, *, archived_on=None):
+    """A biweekly pay (Aug 12, Aug 26, Sep 9, ...) that already existed in August."""
+    income = Category(name="Salary income", created_on=AUG)
+    db_session.add(income)
+    db_session.flush()
+    stream = IncomeStream(
+        name="Salary", cadence="weeks", cadence_weeks=2, anchor_payday=datetime.date(2026, 8, 12),
+        expected_net_low_cents=0, expected_net_high_cents=0, income_category_id=income.id,
+        destination_account_id=chequing.id, created_on=AUG, archived_on=archived_on,
+    )
+    db_session.add(stream)
+    db_session.flush()
+    return stream
+
+
+def _august_bill(db_session, *, stream=None):
+    category = Category(name="Rent", created_on=AUG)
+    db_session.add(category)
+    db_session.flush()
+    goal = Goal(
+        category_id=category.id, name="Rent", kind="recurring_bill", amount_cents=120_000, cadence="monthly",
+        first_due_on=DAY, income_stream_id=None if stream is None else stream.id, created_on=AUG,
+    )
+    db_session.add(goal)
+    db_session.flush()
+    return goal
+
+
+@pytest.mark.parametrize(
+    "as_of, status",
+    [
+        (datetime.date(2026, 8, 25), "next_due"),  # horizon Aug 26, before the due date
+        (datetime.date(2026, 8, 26), "due"),       # payday itself: horizon is Sep 9
+        (datetime.date(2026, 8, 31), "due"),
+        (datetime.date(2026, 9, 2), "overdue"),
+    ],
+)
+def test_a_bill_with_no_pay_counts_to_the_next_payday_of_any_live_pay(db_session, client, chequing, as_of, status):
+    _early_pay(db_session, chequing)
+    goal = _august_bill(db_session)
+    assert _row(client, goal, as_of)["bill_status"] == status
+
+
+@pytest.mark.parametrize(
+    "as_of, status",
+    [(datetime.date(2026, 8, 31), "next_due"), (datetime.date(2026, 9, 1), "due")],
+)
+def test_a_bill_with_no_pay_keeps_the_due_date_rule_when_no_pay_is_live(db_session, client, chequing, as_of, status):
+    _early_pay(db_session, chequing, archived_on=datetime.date(2026, 8, 20))
+    goal = _august_bill(db_session)
+    assert _row(client, goal, as_of)["bill_status"] == status
+
+
+def test_a_bound_bills_status_ignores_the_other_pays_horizon(db_session, client, chequing):
+    stream = _early_pay(db_session, chequing)
+    goal = _august_bill(db_session, stream=stream)
+    assert _row(client, goal, datetime.date(2026, 8, 25))["bill_status"] == "next_due"
+    assert _row(client, goal, datetime.date(2026, 8, 26))["bill_status"] == "due"
+
+
 @pytest.mark.parametrize(
     "first_due, status",
     [
