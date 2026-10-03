@@ -185,6 +185,25 @@ describe('PayRecord period from the backend', () => {
     expect(await screen.findByText(/last month \$123\.45/)).toBeInTheDocument()
   })
 
+  it('ignores a slow answer for a payday the user has moved off', async () => {
+    streams = [SALARY]
+    renderSalary()
+    await screen.findByText('Sep 25, 2026 – Oct 24, 2026')
+    // The answer for Oct 25 is held back; the user moves on to Nov 25 before it lands.
+    let releaseSlow
+    holdPeriod = new Promise((resolve) => { releaseSlow = resolve })
+    fireEvent.change(screen.getByLabelText('Payday'), { target: { value: '2026-10-25' } })
+    periodEnd = '2026-12-24'
+    holdPeriod = null
+    fireEvent.change(screen.getByLabelText('Payday'), { target: { value: '2026-11-25' } })
+    expect(await screen.findByText('Nov 25, 2026 – Dec 24, 2026')).toBeInTheDocument()
+    periodEnd = '2026-11-24'
+    releaseSlow()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.getByText('Nov 25, 2026 – Dec 24, 2026')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled()
+  })
+
   it('keeps Record disabled until the period has loaded', async () => {
     streams = [SALARY]
     let release

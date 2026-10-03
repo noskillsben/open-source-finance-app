@@ -136,14 +136,20 @@ export default function PayRecord({ pickerDate }) {
 
   // The period end, the recorded pay and last period's actual for this payday all come from the
   // backend, which owns the cadence maths (app/services/cadence.py).
-  function refreshPeriod() {
+  // `isStale` lets the effect drop an answer for a payday the user has since moved off, so a slow
+  // answer for an earlier payday can never land over the current one.
+  function refreshPeriod(isStale = () => false) {
     if (!payday) return Promise.resolve()
     return api.payPeriod(payday, isOneOff ? null : streamId)
-      .then((p) => setPeriod({ ...p, payday }))
-      .catch((e) => setError(e.message))
+      .then((p) => { if (!isStale()) setPeriod({ ...p, payday }) })
+      .catch((e) => { if (!isStale()) setError(e.message) })
   }
 
-  useEffect(() => { refreshPeriod() }, [payday, streamId, isOneOff])
+  useEffect(() => {
+    let cancelled = false
+    refreshPeriod(() => cancelled)
+    return () => { cancelled = true }
+  }, [payday, streamId, isOneOff])
 
   const periodLoaded = period != null && period.payday === payday
 
