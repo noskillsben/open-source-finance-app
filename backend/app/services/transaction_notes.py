@@ -61,6 +61,7 @@ def transaction_notes(session: Session, transaction: Transaction) -> list[str]:
                 f"but it has no line on {session.get(Category, bill.category_id).name}."
             )
     for line in transaction.account_lines:
+        # No as_of: a transaction dated on or before any recorded check predates it, whatever the picker says.
         valuation = latest_valuation(session, line.account_id)
         if (
             valuation is not None

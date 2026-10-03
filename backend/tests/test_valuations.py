@@ -151,3 +151,122 @@ def test_balance_check_on_opening_date_survives_a_later_backfill(db_session):
     assert check_valuation.balance_cents == 1_020_00  # untouched
     assert check_txn.date == TODAY  # untouched
     assert check_txn.account_lines[0].cents == 20_00  # untouched
+
+
+# --- The badge at a "Show as of" date (DESIGN.md § Founding decisions, "Effective-date view") ---
+
+def _listed(db_session, account_id, as_of):
+    from fastapi.testclient import TestClient
+
+    from app.db import get_session
+    from app.main import app
+
+    def override():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override
+    try:
+        response = TestClient(app).get("/api/accounts", params={"as_of": as_of.isoformat()})
+    finally:
+        app.dependency_overrides.clear()
+    assert response.status_code == 200
+    return next(a for a in response.json() if a["id"] == account_id)
+
+
+def _backdated_entry(db_session, account, txn_date, after):
+    """A transaction dated `txn_date` but recorded (by wall clock) just after `after`."""
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=txn_date, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -5_00}], category_lines=[],
+    )
+    db_session.flush()
+    txn.created_at = after.created_at + datetime.timedelta(seconds=1)
+    db_session.flush()
+    return txn
+
+
+def test_latest_valuation_as_of_hides_a_later_check_and_shows_it_on_its_date(db_session):
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+    check, _, _ = check_balance(
+        db_session, account_id=account.id, check_date=datetime.date(2026, 8, 11),
+        stated_balance_cents=120_00, category_id=None,
+    )
+
+    assert latest_valuation(db_session, account.id, as_of=datetime.date(2026, 8, 6)).date == TODAY  # opening only
+    assert latest_valuation(db_session, account.id, as_of=datetime.date(2026, 8, 11)).id == check.id
+    assert latest_valuation(db_session, account.id).id == check.id  # None behaves as before
+
+
+def test_badge_hides_an_august_check_at_an_earlier_as_of(db_session):
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+    check, _, _ = check_balance(
+        db_session, account_id=account.id, check_date=datetime.date(2026, 8, 11),
+        stated_balance_cents=120_00, category_id=None,
+    )
+    db_session.flush()
+
+    hidden = _listed(db_session, account.id, datetime.date(2026, 8, 6))
+    shown = _listed(db_session, account.id, datetime.date(2026, 8, 11))
+
+    # Every listed account has its opening check on or before the as-of, so that is what the
+    # badge falls back to once the August check is hidden.
+    assert hidden["checked_on"] == TODAY.isoformat()
+    assert hidden["checked_valuation_id"] != check.id
+    assert hidden["checked_is_opening"] is True
+    assert shown["checked_on"] == "2026-08-11"
+    assert shown["checked_valuation_id"] == check.id
+
+
+def test_opening_balance_check_alone_shows_at_its_own_date(db_session):
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+
+    listed = _listed(db_session, account.id, TODAY)
+
+    assert listed["checked_on"] == TODAY.isoformat()
+    assert listed["checked_is_opening"] is True
+
+
+def test_badge_follows_the_earlier_check_at_an_in_between_date(db_session):
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+    earlier, _, _ = check_balance(
+        db_session, account_id=account.id, check_date=datetime.date(2026, 4, 1),
+        stated_balance_cents=100_00, category_id=None,
+    )
+    later, _, _ = check_balance(
+        db_session, account_id=account.id, check_date=datetime.date(2026, 6, 1),
+        stated_balance_cents=90_00, category_id=None,
+    )
+    db_session.flush()
+    # One entry dated before the earlier check, recorded after it: counts against the earlier
+    # check. One dated between the checks: after the earlier check, so it doesn't.
+    _backdated_entry(db_session, account, datetime.date(2026, 3, 15), after=later)
+    _backdated_entry(db_session, account, datetime.date(2026, 5, 1), after=later)
+
+    between = _listed(db_session, account.id, datetime.date(2026, 5, 1))
+    latest = _listed(db_session, account.id, datetime.date(2026, 7, 1))
+
+    assert between["checked_on"] == "2026-04-01"
+    assert between["checked_valuation_id"] == earlier.id
+    assert between["checked_is_opening"] is False
+    assert between["entries_added_since_check"] == 1
+    assert latest["checked_valuation_id"] == later.id
+    assert latest["entries_added_since_check"] == 2
+
+
+def test_predates_note_ignores_the_picker(db_session):
+    from app.services.transaction_notes import transaction_notes
+
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+    check_balance(
+        db_session, account_id=account.id, check_date=datetime.date(2026, 8, 11),
+        stated_balance_cents=100_00, category_id=None,
+    )
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=datetime.date(2026, 8, 1), memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -5_00}], category_lines=[],
+    )
+    db_session.flush()
+
+    # The picker at Aug 6 hides the Aug 11 check from the badge, not from the note.
+    assert _listed(db_session, account.id, datetime.date(2026, 8, 6))["checked_on"] == TODAY.isoformat()
+    assert "This predates your 2026-08-11 check on Chequing." in transaction_notes(db_session, txn)
