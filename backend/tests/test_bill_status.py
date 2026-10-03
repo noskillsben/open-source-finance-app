@@ -97,13 +97,15 @@ def test_status_without_a_bound_pay_compares_to_the_picker_date(db_session, clie
 AUG = datetime.date(2026, 8, 1)
 
 
-def _early_pay(db_session, chequing, *, archived_on=None):
-    """A biweekly pay (Aug 12, Aug 26, Sep 9, ...) that already existed in August."""
-    income = Category(name="Salary income", created_on=AUG)
+def _early_pay(
+    db_session, chequing, *, archived_on=None, name="Salary", weeks=2, anchor=datetime.date(2026, 8, 12)
+):
+    """By default a biweekly pay (Aug 12, Aug 26, Sep 9, ...) that already existed in August."""
+    income = Category(name=f"{name} income", created_on=AUG)
     db_session.add(income)
     db_session.flush()
     stream = IncomeStream(
-        name="Salary", cadence="weeks", cadence_weeks=2, anchor_payday=datetime.date(2026, 8, 12),
+        name=name, cadence="weeks", cadence_weeks=weeks, anchor_payday=anchor,
         expected_net_low_cents=0, expected_net_high_cents=0, income_category_id=income.id,
         destination_account_id=chequing.id, created_on=AUG, archived_on=archived_on,
     )
@@ -150,11 +152,19 @@ def test_a_bill_with_no_pay_keeps_the_due_date_rule_when_no_pay_is_live(db_sessi
     assert _row(client, goal, as_of)["bill_status"] == status
 
 
+def test_a_bill_with_no_pay_counts_to_the_earliest_payday_across_all_live_pays(db_session, client, chequing):
+    _early_pay(db_session, chequing)  # biweekly: Aug 26, then Sep 9
+    _early_pay(db_session, chequing, name="Gig", weeks=1, anchor=datetime.date(2026, 8, 14))  # Aug 28 next
+    goal = _august_bill(db_session)
+    assert _row(client, goal, datetime.date(2026, 8, 26))["bill_status"] == "next_due"  # horizon Aug 28
+    assert _row(client, goal, datetime.date(2026, 8, 28))["bill_status"] == "due"       # horizon Sep 4
+
+
 def test_a_bound_bills_status_ignores_the_other_pays_horizon(db_session, client, chequing):
-    stream = _early_pay(db_session, chequing)
-    goal = _august_bill(db_session, stream=stream)
-    assert _row(client, goal, datetime.date(2026, 8, 25))["bill_status"] == "next_due"
-    assert _row(client, goal, datetime.date(2026, 8, 26))["bill_status"] == "due"
+    salary = _early_pay(db_session, chequing)
+    _early_pay(db_session, chequing, name="Gig", weeks=1, anchor=datetime.date(2026, 8, 14))
+    goal = _august_bill(db_session, stream=salary)
+    assert _row(client, goal, datetime.date(2026, 8, 26))["bill_status"] == "due"  # Sep 9, not Aug 28
 
 
 @pytest.mark.parametrize(

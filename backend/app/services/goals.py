@@ -439,8 +439,8 @@ def bill_status(
     strictly before the bound pay's next payday — the first payday strictly after `as_of`, so on
     payday itself the horizon is the payday still to come, not today. A bill bound to no pay uses
     the earliest such payday across all live pays (`horizon`, from `unbound_bill_horizon`), or
-    `as_of` itself when there are none, so it is due on its due date; otherwise "next_due", including a bill due exactly on that next
-    payday, which waits for that payday to arrive. None for any other kind of goal.
+    `as_of` itself when there are none, so it is due on its due date. Otherwise "next_due",
+    including a bill due exactly on that next payday, which waits for that payday to arrive. None for any other kind of goal.
     """
     due = earliest_unpaid_due_date(session, goal)
     if due is None:
