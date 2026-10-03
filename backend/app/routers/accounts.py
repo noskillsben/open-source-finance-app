@@ -45,7 +45,7 @@ router = APIRouter()
 
 
 def _account_out(session: Session, account: Account, *, as_of: date | None = None) -> AccountOut:
-    valuation = latest_valuation(session, account.id)
+    valuation = latest_valuation(session, account.id, as_of=as_of)
     balance_cents = account_balance_cents(session, account.id, as_of=as_of)
     notes = []
     limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)

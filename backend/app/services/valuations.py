@@ -58,14 +58,15 @@ def check_balance(
     return valuation, transaction, diff_cents
 
 
-def latest_valuation(session: Session, account_id: int) -> Valuation | None:
-    """The check shown on the account as "balance checked <date>" — the most recent one."""
-    return session.scalar(
-        select(Valuation)
-        .where(Valuation.account_id == account_id)
-        .order_by(Valuation.date.desc(), Valuation.id.desc())
-        .limit(1)
-    )
+def latest_valuation(session: Session, account_id: int, as_of: date | None = None) -> Valuation | None:
+    """The check shown on the account as "balance checked <date>" — the most recent one, or,
+    when `as_of` is given, the most recent dated on or before it (DESIGN.md § Founding
+    decisions, "Effective-date view"). Ties on date break by id, newest first.
+    """
+    query = select(Valuation).where(Valuation.account_id == account_id)
+    if as_of is not None:
+        query = query.where(Valuation.date <= as_of)
+    return session.scalar(query.order_by(Valuation.date.desc(), Valuation.id.desc()).limit(1))
 
 
 def entries_added_since_check(session: Session, account_id: int, valuation: Valuation) -> int:
