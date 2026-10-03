@@ -4,34 +4,6 @@ import { api } from './api.js'
 import NamePicker from './NamePicker.jsx'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 
-// The same roll-forward DESIGN.md § Income streams describes for "next payday" (app/services/
-// cadence.py), reused here only for display and for the last-period window — never written back.
-function addMonths(iso, months) {
-  const [y, m, d] = iso.split('-').map(Number)
-  const total = y * 12 + (m - 1) + months
-  const year = Math.floor(total / 12)
-  const month = total - year * 12
-  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate()
-  return `${year}-${String(month + 1).padStart(2, '0')}-${String(Math.min(d, lastDay)).padStart(2, '0')}`
-}
-
-function stepDate(cadence, cadenceWeeks, iso, n) {
-  if (cadence === 'weeks') {
-    const dt = new Date(`${iso}T00:00:00Z`)
-    dt.setUTCDate(dt.getUTCDate() + cadenceWeeks * 7 * n)
-    return dt.toISOString().slice(0, 10)
-  }
-  const months = { monthly: 1, quarterly: 3, semiannual: 6, yearly: 12 }[cadence] ?? 1
-  return addMonths(iso, months * n)
-}
-
-// The day before an ISO date, in UTC so month and year ends come out right (Mar 1 → Feb 28/29).
-function dayBefore(iso) {
-  const dt = new Date(`${iso}T00:00:00Z`)
-  dt.setUTCDate(dt.getUTCDate() - 1)
-  return dt.toISOString().slice(0, 10)
-}
-
 const emptyRow = () => ({ category: {}, amount: '' })
 
 const centsText = (cents) => (cents / 100).toFixed(2)
@@ -122,7 +94,9 @@ export default function PayRecord({ pickerDate }) {
   const [categoriesAll, setCategoriesAll] = useState([]) // including archived, to label a row "(archived)"
   const [accounts, setAccounts] = useState([])
   const [goals, setGoals] = useState([])
-  const [transactions, setTransactions] = useState(null)
+  // The backend's facts for this payday: { payday, period_end, recorded, last_period_actuals }.
+  // `payday` says which one it answers, so a stale answer is never read for a payday since moved.
+  const [period, setPeriod] = useState(null)
   const [error, setError] = useState(null)
   const [formError, setFormError] = useState(null)
   const [saving, setSaving] = useState(false)
@@ -156,16 +130,22 @@ export default function PayRecord({ pickerDate }) {
 
   const stream = streams?.find((s) => s.id === streamId) ?? null
 
-  function refreshTransactions() {
-    return api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
-  }
-
-  function refresh() {
+  useEffect(() => {
     api.incomeStreams.list(pickerDate, true).then(setStreams).catch((e) => setError(e.message))
-    refreshTransactions()
+  }, [pickerDate])
+
+  // The period end, the recorded pay and last period's actual for this payday all come from the
+  // backend, which owns the cadence maths (app/services/cadence.py).
+  function refreshPeriod() {
+    if (!payday) return Promise.resolve()
+    return api.payPeriod(payday, isOneOff ? null : streamId)
+      .then((p) => setPeriod({ ...p, payday }))
+      .catch((e) => setError(e.message))
   }
 
-  useEffect(refresh, [pickerDate])
+  useEffect(() => { refreshPeriod() }, [payday, streamId, isOneOff])
+
+  const periodLoaded = period != null && period.payday === payday
 
   // Seed the payday once the stream is known — or, with no named pay behind this screen, from
   // the app-wide picker date, since there is no next payday to anchor on.
@@ -224,11 +204,8 @@ export default function PayRecord({ pickerDate }) {
   // a second identity mechanism (DESIGN.md § Record income, "A one-off on the pay screen"). A
   // one-off is a one-shot write every time; a recorded one is corrected in the Ledger.
   const existingTransaction = useMemo(
-    () =>
-      isOneOff
-        ? null
-        : (transactions?.find((t) => t.income_stream_id === streamId && t.date === payday) ?? null),
-    [transactions, streamId, payday, isOneOff]
+    () => (periodLoaded ? (period.recorded ?? null) : null),
+    [period, periodLoaded]
   )
   const reopening = existingTransaction != null
 
@@ -411,31 +388,13 @@ export default function PayRecord({ pickerDate }) {
       .sort((a, b) => a.name.localeCompare(b.name))
   }, [categories, goalsLoaded, streamGoalCategoryIds, deductionCategoryIds, incomeCategoryId])
 
-  // Last period's actual for a named pay, last calendar month's for a one-off — there is no pay
-  // period to compare a one-off against (DESIGN.md § "A one-off on the pay screen").
+  // Last period's actual for a named pay, last calendar month's for a one-off — the backend works
+  // out the window (DESIGN.md § "A one-off on the pay screen"); outflow lines only.
   const lastPeriodActuals = useMemo(() => {
-    if (!payday || !transactions) return {}
-    let start
-    let end
-    if (isOneOff) {
-      end = `${payday.slice(0, 7)}-01`
-      start = addMonths(end, -1)
-    } else if (stream) {
-      start = stepDate(stream.cadence, stream.cadence_weeks, payday, -1)
-      end = payday
-    } else {
-      return {}
-    }
     const totals = {}
-    for (const t of transactions) {
-      if (t.date < start || t.date >= end) continue
-      for (const line of t.category_lines) {
-        if (line.cents >= 0) continue
-        totals[line.category_id] = (totals[line.category_id] ?? 0) - line.cents
-      }
-    }
+    if (periodLoaded) for (const a of period.last_period_actuals) totals[a.category_id] = a.cents
     return totals
-  }, [transactions, payday, stream, isOneOff])
+  }, [period, periodLoaded])
 
   const categoriesById = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories])
   const categoriesAllById = useMemo(() => new Map(categoriesAll.map((c) => [c.id, c])), [categoriesAll])
@@ -552,7 +511,7 @@ export default function PayRecord({ pickerDate }) {
   if (!isOneOff && !stream) return <p className="text-bad py-6">No named pay with id {streamId}.</p>
 
   // The header shows the last day of the period, so two periods never appear to share a day.
-  const periodEnd = isOneOff ? null : dayBefore(stepDate(stream.cadence, stream.cadence_weeks, payday, 1))
+  const periodEnd = periodLoaded ? period.period_end : null
 
   async function record(e) {
     e.preventDefault()
@@ -632,7 +591,7 @@ export default function PayRecord({ pickerDate }) {
       // For a named pay, a partial write (the transaction saved but the batch 400'd) must be
       // recognized as `existingTransaction` before the form is usable again, so Record can't be
       // resubmitted blindly into a second transaction for the same payday.
-      await refreshTransactions()
+      await refreshPeriod()
     } finally {
       setSaving(false)
     }
@@ -682,7 +641,7 @@ export default function PayRecord({ pickerDate }) {
         {isOneOff ? (
           <p className="text-sm text-paper-soft">{formatDate(payday)}</p>
         ) : (
-          <p className="text-sm text-paper-soft">{formatDate(payday)} – {formatDate(periodEnd)}</p>
+          <p className="text-sm text-paper-soft">{formatDate(payday)}{periodEnd && <> – {formatDate(periodEnd)}</>}</p>
         )}
         {isOneOff && (
           <div className="grid grid-cols-2 gap-3 pt-2">
@@ -990,7 +949,7 @@ export default function PayRecord({ pickerDate }) {
         {leftover < 0 && <p className="text-sm text-bad">Assigned more than this paycheque brings in.</p>}
         <button
           type="submit"
-          disabled={saving || !transactions || (reopening && !reopenReady)}
+          disabled={saving || !periodLoaded || (reopening && !reopenReady)}
           className="rounded bg-accent px-3 py-1 text-ink"
         >
           Record

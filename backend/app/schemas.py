@@ -341,6 +341,23 @@ class TransactionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class CategoryActualOut(BaseModel):
+    category_id: int
+    cents: int
+
+
+class PayPeriodOut(BaseModel):
+    """What the pay screen shows for one payday (DESIGN.md § Record income). `period_end` and
+    `recorded` are null for a one-off; for a one-off `previous_payday` is the first day of the
+    window, the start of the month before the payday's month.
+    """
+
+    period_end: date | None
+    previous_payday: date
+    recorded: TransactionOut | None
+    last_period_actuals: list[CategoryActualOut]
+
+
 class BalanceCheckIn(BaseModel):
     """DESIGN.md § Balance checks — one table: a stated balance on a date, and where the
     difference goes if there is one. Unassigned by default (category_id omitted or null).
