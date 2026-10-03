@@ -12,8 +12,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models import AccountLine, Transaction, Valuation
-from app.services.accounts import account_balance_cents
-from app.services.transactions import write_transaction
+from app.services.accounts import _opening_valuation, account_balance_cents
+from app.services.transactions import TransactionError, clear_generated_earmarks, write_transaction
 
 
 def check_balance(
@@ -84,3 +84,19 @@ def entries_added_since_check(session: Session, account_id: int, valuation: Valu
             Transaction.valuation_id.is_distinct_from(valuation.id),
         )
     )
+
+
+def delete_valuation(session: Session, valuation: Valuation) -> None:
+    """DESIGN.md § Balance checks — "Nothing is locked": a valuation and its adjustment (if
+    any) are deleted together, one write. The opening valuation is the one exception — it's
+    what makes the account's start date true, and is corrected by backfilling instead.
+    """
+    account = valuation.account
+    if valuation is _opening_valuation(session, account):
+        raise TransactionError("this is the account's opening valuation; fix it by backfilling instead")
+    adjustment = session.scalar(select(Transaction).where(Transaction.valuation_id == valuation.id))
+    if adjustment is not None:
+        clear_generated_earmarks(session, adjustment.id)
+        session.delete(adjustment)
+    session.delete(valuation)
+    session.flush()

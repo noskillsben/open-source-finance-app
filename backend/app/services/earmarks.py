@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 
 from app.models import Account, Category, EarmarkLine, Transaction
 from app.services.accounts import account_balance_cents, on_budget_cents
+from app.services.archiving import Archivable
 from app.services.categories import category_balance_cents
 from app.services.transactions import backdate_created_on
 
@@ -160,3 +161,28 @@ def replace_pay_batch(session: Session, transaction: Transaction, lines: list[di
         new_lines.append(line)
     session.flush()
     return new_lines
+
+
+def _archive_sweep_note(balance_cents: int) -> str:
+    sign = "-" if balance_cents < 0 else ""
+    return f"moved {sign}${abs(balance_cents) / 100:,.2f} to Ready to assign"
+
+
+def _iter_archivable(node: Archivable):
+    yield node
+    for child in node.children:
+        yield from _iter_archivable(child)
+
+
+def sweep_archived_category_tree(session: Session, target: Archivable, *, archived_on: date) -> list[str]:
+    """Empty every just-archived category in `target`'s tree into ready to assign (see
+    `sweep_archived_category_balance`) and return one note per category that held a balance.
+    """
+    notes = []
+    for node in _iter_archivable(target):
+        line = sweep_archived_category_balance(
+            session, node.entity, archived_on=archived_on, balance_cents=node.balance_cents
+        )
+        if line is not None:
+            notes.append(_archive_sweep_note(node.balance_cents))
+    return notes
