@@ -243,7 +243,7 @@ def test_the_last_payment_needs_a_recurring_bill(db_session, client):
     db_session.add(category)
     db_session.flush()
     target = Goal(category_id=category.id, name="Holiday", kind="target", amount_cents=100_000,
-                  first_due_on=datetime.date(2027, 1, 1), created_on=DAY)
+                  target_date=datetime.date(2027, 1, 1), created_on=DAY)
     db_session.add(target)
     db_session.flush()
     assert client.get(f"/api/goals/{target.id}/last-payment").status_code == 400
