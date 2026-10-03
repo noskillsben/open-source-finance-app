@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
+import { CADENCES } from './cadences.js'
 import Domains from './Domains.jsx'
 import NamePicker from './NamePicker.jsx'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
@@ -40,13 +41,6 @@ const GOAL_KINDS = [
   { value: 'recurring_bill', label: 'Recurring bill' },
   { value: 'target', label: 'Target' },
   { value: 'commitment', label: 'Commitment' },
-]
-const CADENCES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'semiannual', label: 'Every 6 months' },
-  { value: 'yearly', label: 'Yearly' },
-  { value: 'weeks', label: 'Every N weeks' },
 ]
 // A fixed-amount Commitment's cadence, in this order; "Each payday" is the empty cadence, and there
 // is no every-N-weeks (that stays on bills).

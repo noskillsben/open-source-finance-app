@@ -94,6 +94,12 @@ export const api = {
     archive: (id, archivedOn) => request(`/api/income-streams/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/income-streams/${id}/unarchive`, { method: 'POST' }),
   },
+  // The pay screen's facts for one payday; no income stream id is a one-off.
+  payPeriod: (payday, incomeStreamId) => {
+    const params = new URLSearchParams({ payday })
+    if (incomeStreamId != null) params.set('income_stream_id', incomeStreamId)
+    return request(`/api/pay-period?${params}`)
+  },
   transactions: {
     list: () => request('/api/transactions'),
     create: (transaction) => request('/api/transactions', { method: 'POST', body: transaction }),

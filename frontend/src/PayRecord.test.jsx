@@ -9,6 +9,9 @@ let streams = []
 let categories = []
 let goals = []
 let recordedBatch = []
+let periodEnd = '2026-10-24' // what the mocked backend says the period ends
+let lastActuals = [] // [{ category_id, cents }]
+let holdPeriod = null // a promise the mocked period waits on, to look at the screen mid-load
 
 const writes = vi.hoisted(() => ({
   createTransaction: vi.fn(),
@@ -16,6 +19,7 @@ const writes = vi.hoisted(() => ({
   replaceBatch: vi.fn(),
   removeTransaction: vi.fn(),
   createMove: vi.fn(),
+  payPeriod: vi.fn(),
 }))
 
 vi.mock('./api.js', () => {
@@ -26,8 +30,20 @@ vi.mock('./api.js', () => {
       categories: { list: () => Promise.resolve(categories) },
       accounts: { list },
       goals: { list: () => Promise.resolve(goals) },
+      // Answers as the backend does: the recorded pay is the named pay's own transaction on that
+      // payday, a one-off never finds one.
+      payPeriod: (payday, incomeStreamId) => {
+        writes.payPeriod(payday, incomeStreamId)
+        return Promise.resolve(holdPeriod).then(() => ({
+          period_end: incomeStreamId == null ? null : periodEnd,
+          previous_payday: '2026-08-25',
+          recorded: incomeStreamId == null
+            ? null
+            : (existingTransactions.find((t) => t.income_stream_id === incomeStreamId && t.date === payday) ?? null),
+          last_period_actuals: lastActuals,
+        }))
+      },
       transactions: {
-        list: () => Promise.resolve(existingTransactions),
         create: writes.createTransaction,
         update: writes.updateTransaction,
         remove: writes.removeTransaction,
@@ -77,6 +93,9 @@ beforeEach(() => {
   categories = []
   goals = []
   recordedBatch = []
+  periodEnd = '2026-10-24'
+  lastActuals = []
+  holdPeriod = null
   for (const fn of Object.values(writes)) fn.mockReset()
 })
 
@@ -130,29 +149,89 @@ describe('PayRecord with no named pay behind it', () => {
   })
 })
 
-describe('PayRecord period header', () => {
-  it('ends a monthly pay the day before the next payday', async () => {
+describe('PayRecord period from the backend', () => {
+  it('shows the period end the backend returns, asking for the payday and the named pay', async () => {
     streams = [SALARY]
+    periodEnd = '2026-10-24'
     renderSalary()
     expect(await screen.findByText('Sep 25, 2026 – Oct 24, 2026')).toBeInTheDocument()
+    expect(writes.payPeriod).toHaveBeenCalledWith('2026-09-25', 3)
   })
 
-  it('ends a weekly pay the day before the next payday', async () => {
-    streams = [{ ...SALARY, cadence: 'weeks', cadence_weeks: 2, next_payday: '2026-08-12' }]
-    renderSalary()
-    expect(await screen.findByText('Aug 12, 2026 – Aug 25, 2026')).toBeInTheDocument()
+  it('shows the date alone for a one-off and asks without a named pay', async () => {
+    renderOneOff()
+    expect(await screen.findByText('Sep 23, 2026')).toBeInTheDocument()
+    expect(writes.payPeriod).toHaveBeenCalledWith('2026-09-23', null)
   })
 
-  it('ends on Feb 28 when the next payday is Mar 1', async () => {
-    streams = [{ ...SALARY, cadence: 'weeks', cadence_weeks: 1, next_payday: '2027-02-22' }]
+  it('asks again when the payday changes', async () => {
+    streams = [SALARY]
     renderSalary()
-    expect(await screen.findByText('Feb 22, 2027 – Feb 28, 2027')).toBeInTheDocument()
+    await screen.findByText('Sep 25, 2026 – Oct 24, 2026')
+    periodEnd = '2026-11-24'
+    fireEvent.change(screen.getByLabelText('Payday'), { target: { value: '2026-10-25' } })
+    expect(await screen.findByText('Oct 25, 2026 – Nov 24, 2026')).toBeInTheDocument()
+    expect(writes.payPeriod).toHaveBeenLastCalledWith('2026-10-25', 3)
   })
 
-  it('ends on Feb 29 in a leap year', async () => {
-    streams = [{ ...SALARY, cadence: 'weeks', cadence_weeks: 1, next_payday: '2028-02-23' }]
+  it('hints the last period actual from the backend, and last month for a one-off', async () => {
+    streams = [SALARY]
+    categories = CATEGORIES
+    lastActuals = [{ category_id: 4, cents: 12345 }]
+    const { unmount } = renderSalary()
+    expect(await screen.findByText(/last period \$123\.45/)).toBeInTheDocument()
+    unmount()
+    renderOneOff()
+    expect(await screen.findByText(/last month \$123\.45/)).toBeInTheDocument()
+  })
+
+  it('ignores a slow answer for a payday the user has moved off', async () => {
+    streams = [SALARY]
     renderSalary()
-    expect(await screen.findByText('Feb 23, 2028 – Feb 29, 2028')).toBeInTheDocument()
+    await screen.findByText('Sep 25, 2026 – Oct 24, 2026')
+    // The answer for Oct 25 is held back; the user moves on to Nov 25 before it lands.
+    let releaseSlow
+    holdPeriod = new Promise((resolve) => { releaseSlow = resolve })
+    fireEvent.change(screen.getByLabelText('Payday'), { target: { value: '2026-10-25' } })
+    periodEnd = '2026-12-24'
+    holdPeriod = null
+    fireEvent.change(screen.getByLabelText('Payday'), { target: { value: '2026-11-25' } })
+    expect(await screen.findByText('Nov 25, 2026 – Dec 24, 2026')).toBeInTheDocument()
+    periodEnd = '2026-11-24'
+    releaseSlow()
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.getByText('Nov 25, 2026 – Dec 24, 2026')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled()
+  })
+
+  it('keeps Record disabled until the period has loaded', async () => {
+    streams = [SALARY]
+    let release
+    holdPeriod = new Promise((resolve) => { release = resolve })
+    renderSalary()
+    expect(await screen.findByRole('button', { name: 'Record' })).toBeDisabled()
+    release()
+    await screen.findByText('Sep 25, 2026 – Oct 24, 2026')
+    expect(screen.getByRole('button', { name: 'Record' })).toBeEnabled()
+  })
+
+  it('after a half-failed Record, asks again so the saved pay is recognised', async () => {
+    streams = [SALARY]
+    categories = CATEGORIES
+    writes.createTransaction.mockResolvedValue({ id: 42 })
+    writes.replaceBatch.mockRejectedValue(new Error('batch refused'))
+    renderSalary()
+    await screen.findByText('Sep 25, 2026 – Oct 24, 2026')
+    const before = writes.payPeriod.mock.calls.length
+    existingTransactions = [{
+      id: 42, date: '2026-09-25', memo: '', payee_id: null, income_stream_id: 3, deposits: [],
+      account_lines: [{ id: 1, account_id: 1, cents: 300000 }],
+      category_lines: [{ id: 1, category_id: 1, cents: 300000, need_level: null }],
+    }]
+    fireEvent.click(screen.getByRole('button', { name: 'Record' }))
+    expect(await screen.findByText('batch refused')).toBeInTheDocument()
+    expect(writes.payPeriod.mock.calls.length).toBe(before + 1)
+    expect(await screen.findByText('recorded')).toBeInTheDocument()
   })
 })
 

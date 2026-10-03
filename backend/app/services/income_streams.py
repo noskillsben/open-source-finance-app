@@ -2,13 +2,16 @@
 first, that goals later attach to (#21) and the pay screen later records against (#24). This
 issue only ever writes the stream and its expected deductions — never a transaction.
 """
-from datetime import date
+from dataclasses import dataclass
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
-from app.models import Account, Category, IncomeStream, IncomeStreamDeduction, Payee, Transaction
-from app.services.cadence import CADENCES, roll_forward
+from app.models import (
+    Account, Category, CategoryLine, IncomeStream, IncomeStreamDeduction, Payee, Transaction,
+)
+from app.services.cadence import CADENCES, add_months, roll_forward, step
 
 
 class IncomeStreamError(Exception):
@@ -96,3 +99,59 @@ def apply_income_stream(
         for d in deductions
     ]
     return stream
+
+
+def recorded_pay_transaction(session: Session, income_stream_id: int, payday: date) -> Transaction | None:
+    """The transaction recorded for this named pay on this payday: `income_stream_id` plus the
+    date, the only identity a recorded pay has (DESIGN.md § Re-opening a recorded pay). The
+    earliest one if more than one exists.
+    """
+    return session.scalars(
+        select(Transaction)
+        .options(selectinload(Transaction.account_lines), selectinload(Transaction.category_lines))
+        .where(Transaction.income_stream_id == income_stream_id, Transaction.date == payday)
+        .order_by(Transaction.id)
+        .limit(1)
+    ).first()
+
+
+@dataclass
+class PayPeriod:
+    period_end: date | None
+    previous_payday: date
+    recorded: Transaction | None
+    last_period_actuals: dict[int, int]
+
+
+def pay_period(session: Session, stream: IncomeStream | None, payday: date) -> PayPeriod:
+    """What the pay screen needs for one payday, stepped from the payday given (never from the
+    anchor), so a screen opened for a past or future payday shows the same period it always did.
+
+    A named pay: the period ends the day before the following payday; last period is the window
+    from the previous payday up to, not including, this payday. A one-off has no cadence, so no
+    period end and no recorded transaction, and its window is the calendar month before the
+    payday's month (DESIGN.md § Record income → "A one-off on the pay screen").
+
+    Last period's actual is per category, in cents, from outflow lines only (cents < 0): a
+    refund (a positive line) is not netted off.
+    """
+    if stream is None:
+        month_start = payday.replace(day=1)
+        start, end = add_months(month_start, -1), month_start
+        period_end = None
+        recorded = None
+    else:
+        start = step(stream.cadence, stream.cadence_weeks, payday, -1)
+        end = payday
+        period_end = step(stream.cadence, stream.cadence_weeks, payday, 1) - timedelta(days=1)
+        recorded = recorded_pay_transaction(session, stream.id, payday)
+    rows = session.execute(
+        select(CategoryLine.category_id, func.sum(-CategoryLine.cents))
+        .join(Transaction, CategoryLine.transaction_id == Transaction.id)
+        .where(Transaction.date >= start, Transaction.date < end, CategoryLine.cents < 0)
+        .group_by(CategoryLine.category_id)
+    ).all()
+    return PayPeriod(
+        period_end=period_end, previous_payday=start, recorded=recorded,
+        last_period_actuals={category_id: int(cents) for category_id, cents in rows},
+    )

@@ -48,6 +48,8 @@ from app.schemas import (
     ReadyToAssignOut,
     TransactionCreate,
     TransactionOut,
+    PayPeriodOut,
+    CategoryActualOut,
 )
 from app.services.accounts import (
     _opening_adjustment_transaction,
@@ -75,7 +77,9 @@ from app.services.goals import (
     GoalError, _short_date, apply_goal, bill_status, commitment_context, due_by_next_payday, earliest_unpaid_due_date,
     goal_latest_linked_date, goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
 )
-from app.services.income_streams import IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday
+from app.services.income_streams import (
+    IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday, pay_period,
+)
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import (
     CategoryError,
@@ -718,6 +722,29 @@ def list_income_streams(
         select(IncomeStream).where(_visible(IncomeStream, as_of, include_archived)).order_by(IncomeStream.name)
     ).all()
     return [_income_stream_out(s, as_of=as_of) for s in streams]
+
+
+@app.get("/api/pay-period", response_model=PayPeriodOut)
+def get_pay_period(
+    payday: date, income_stream_id: int | None = None, session: Session = Depends(get_session)
+) -> PayPeriodOut:
+    """The pay screen's facts for one payday; no `income_stream_id` is a one-off."""
+    stream = None
+    if income_stream_id is not None:
+        stream = session.get(IncomeStream, income_stream_id)
+        if stream is None:
+            raise HTTPException(status_code=404, detail=f"No named pay with id {income_stream_id}.")
+    period = pay_period(session, stream, payday)
+    return PayPeriodOut(
+        period_end=period.period_end,
+        previous_payday=period.previous_payday,
+        # The list's shape: no notes (those belong to a save), deposits included.
+        recorded=_transaction_shape(period.recorded, [], read_deposits(session, period.recorded)) if period.recorded else None,
+        last_period_actuals=[
+            CategoryActualOut(category_id=cid, cents=cents)
+            for cid, cents in sorted(period.last_period_actuals.items())
+        ],
+    )
 
 
 @app.post("/api/income-streams", response_model=IncomeStreamOut, status_code=201)

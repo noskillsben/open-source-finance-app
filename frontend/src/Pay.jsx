@@ -1,19 +1,11 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
+import { CADENCES } from './cadences.js'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
 import { formatDate, parseCents } from './utils/format.js'
 
-// The cadence shape goals use, reused here (DESIGN.md § Income streams: "the goals' cadence
-// representation, reused — not a copy" — same field names and semantics on the wire).
-const CADENCES = [
-  { value: 'monthly', label: 'Monthly' },
-  { value: 'quarterly', label: 'Quarterly' },
-  { value: 'semiannual', label: 'Every 6 months' },
-  { value: 'yearly', label: 'Yearly' },
-  { value: 'weeks', label: 'Every N weeks' },
-]
 const cadenceText = (stream) => (stream.cadence === 'weeks' ? `every ${stream.cadence_weeks} weeks` : (CADENCES.find((c) => c.value === stream.cadence)?.label ?? stream.cadence).toLowerCase())
 
 const centsText = (cents) => (cents == null ? '' : (cents / 100).toFixed(2))
