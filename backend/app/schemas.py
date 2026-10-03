@@ -503,6 +503,8 @@ class IncomeStreamOut(BaseModel):
     created_on: date
     archived_on: date | None
     next_payday: date
+    # True when a transaction is recorded for this pay's next payday (the Pay list's Re-open).
+    next_payday_recorded: bool
 
     model_config = {"from_attributes": True}
 

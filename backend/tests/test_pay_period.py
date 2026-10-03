@@ -176,3 +176,89 @@ def test_unknown_named_pay_is_a_404(client):
     response = client.get("/api/pay-period", params={"payday": "2026-09-25", "income_stream_id": 999})
     assert response.status_code == 404
     assert "999" in response.json()["detail"]
+
+
+# #215: the Pay list's Record / Re-open flag on the stream itself.
+def _list_streams(client, as_of):
+    return {s["name"]: s for s in client.get("/api/income-streams", params={"as_of": as_of}).json()}
+
+
+def test_list_flag_false_with_no_transaction(client, db_session, world):
+    _stream(db_session, world, anchor="2026-09-25")
+    assert _list_streams(client, "2026-09-23")["Salary"]["next_payday_recorded"] is False
+
+
+def test_list_flag_true_when_recorded_on_the_next_payday(client, db_session, world):
+    stream = _stream(db_session, world, anchor="2026-09-25")
+    _txn(db_session, world, "2026-09-25", [(world["income"], 400000)], stream=stream)
+    row = _list_streams(client, "2026-09-23")["Salary"]
+    assert row["next_payday"] == "2026-09-25"
+    assert row["next_payday_recorded"] is True
+
+
+def test_list_flag_false_when_recorded_on_another_payday(client, db_session, world):
+    stream = _stream(db_session, world, anchor="2026-09-25")
+    _txn(db_session, world, "2026-09-26", [(world["income"], 400000)], stream=stream)
+    assert _list_streams(client, "2026-09-23")["Salary"]["next_payday_recorded"] is False
+
+
+def test_list_flag_false_when_the_transaction_belongs_to_a_different_pay(client, db_session, world):
+    _stream(db_session, world, anchor="2026-09-25")
+    other = _stream(db_session, world, name="Gig", anchor="2026-09-25")
+    _txn(db_session, world, "2026-09-25", [(world["income"], 400000)], stream=other)
+    rows = _list_streams(client, "2026-09-23")
+    assert rows["Salary"]["next_payday_recorded"] is False
+    assert rows["Gig"]["next_payday_recorded"] is True
+
+
+def test_list_flag_turns_false_once_the_picker_moves_past_the_recorded_payday(client, db_session, world):
+    stream = _stream(db_session, world, anchor="2026-09-25")
+    _txn(db_session, world, "2026-09-25", [(world["income"], 400000)], stream=stream)
+    later = _list_streams(client, "2026-09-26")["Salary"]
+    assert later["next_payday"] == "2026-10-25"
+    assert later["next_payday_recorded"] is False
+
+
+def test_create_and_update_responses_carry_the_flag(client, world):
+    body = {
+        "on": "2026-09-01", "name": "Salary", "payee_id": None, "cadence": "monthly", "cadence_weeks": None,
+        "anchor_payday": "2026-09-25", "expected_gross_cents": None, "expected_net_low_cents": 0,
+        "expected_net_high_cents": 0, "income_category_id": world["income"].id,
+        "destination_account_id": world["account"].id, "deductions": [],
+    }
+    created = client.post("/api/income-streams", json=body)
+    assert created.status_code == 201
+    assert created.json()["next_payday_recorded"] is False
+    stream_id = created.json()["id"]
+    updated = client.put(f"/api/income-streams/{stream_id}", json=body)
+    assert updated.status_code == 200
+    assert updated.json()["next_payday_recorded"] is False
+
+
+def test_update_response_flag_true_when_recorded(client, db_session, world):
+    stream = _stream(db_session, world, anchor="2026-09-25")
+    _txn(db_session, world, "2026-09-25", [(world["income"], 400000)], stream=stream)
+    body = {
+        "on": "2026-09-23", "name": "Salary", "payee_id": None, "cadence": "monthly", "cadence_weeks": None,
+        "anchor_payday": "2026-09-25", "expected_gross_cents": None, "expected_net_low_cents": 0,
+        "expected_net_high_cents": 0, "income_category_id": world["income"].id,
+        "destination_account_id": world["account"].id, "deductions": [],
+    }
+    updated = client.put(f"/api/income-streams/{stream.id}", json=body)
+    assert updated.status_code == 200
+    assert updated.json()["next_payday_recorded"] is True
+
+
+def test_list_flag_and_pay_period_recorded_agree(client, db_session, world):
+    stream = _stream(db_session, world, anchor="2026-09-25")
+    assert _agree(client, stream, "2026-09-23") is False
+    _txn(db_session, world, "2026-09-25", [(world["income"], 400000)], stream=stream)
+    assert _agree(client, stream, "2026-09-23") is True
+    assert _agree(client, stream, "2026-09-26") is False
+
+
+def _agree(client, stream, as_of):
+    row = _list_streams(client, as_of)[stream.name]
+    recorded = _get(client, row["next_payday"], stream).json()["recorded"] is not None
+    assert row["next_payday_recorded"] is recorded
+    return recorded

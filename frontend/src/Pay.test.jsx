@@ -5,14 +5,12 @@ import Pay from './Pay.jsx'
 
 let streams = []
 const { createStream } = vi.hoisted(() => ({ createStream: vi.fn() }))
-let transactions = []
 
 vi.mock('./api.js', () => {
   const list = () => Promise.resolve([])
   return {
     api: {
       incomeStreams: { list: () => Promise.resolve(streams), create: createStream },
-      transactions: { list: () => Promise.resolve(transactions) },
       categories: { list: () => Promise.resolve([{ id: 5, name: 'Salary income' }]) },
       accounts: { list: () => Promise.resolve([{ id: 6, name: 'Chequing' }]) },
       payees: { list },
@@ -33,10 +31,9 @@ describe('Pay', () => {
 
   it('offers Re-open instead of Record on a pay already recorded for its next payday', async () => {
     streams = [
-      { id: 3, name: 'Salary', cadence: 'monthly', next_payday: '2026-09-25', archived_on: null },
-      { id: 4, name: 'Gig', cadence: 'monthly', next_payday: '2026-09-28', archived_on: null },
+      { id: 3, name: 'Salary', cadence: 'monthly', next_payday: '2026-09-25', next_payday_recorded: true, archived_on: null },
+      { id: 4, name: 'Gig', cadence: 'monthly', next_payday: '2026-09-28', next_payday_recorded: false, archived_on: null },
     ]
-    transactions = [{ id: 42, date: '2026-09-25', income_stream_id: 3 }]
     render(
       <MemoryRouter initialEntries={['/pay']}>
         <Pay pickerDate="2026-09-23" />

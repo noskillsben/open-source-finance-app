@@ -79,6 +79,7 @@ from app.services.goals import (
 )
 from app.services.income_streams import (
     IncomeStreamError, apply_income_stream, income_stream_latest_ledger_date, next_payday, pay_period,
+    recorded_pay_transaction,
 )
 from app.services.archiving import Archivable, ArchiveError, archive, unarchive, visible_as_of
 from app.services.categories import (
@@ -698,7 +699,8 @@ def unarchive_payee(payee_id: int, session: Session = Depends(get_session)) -> A
     return ArchiveOut(id=payee.id, archived_on=payee.archived_on, warnings=[])
 
 
-def _income_stream_out(stream: IncomeStream, *, as_of: date) -> IncomeStreamOut:
+def _income_stream_out(session: Session, stream: IncomeStream, *, as_of: date) -> IncomeStreamOut:
+    upcoming = next_payday(stream, as_of=as_of)
     return IncomeStreamOut(
         id=stream.id, name=stream.name, payee_id=stream.payee_id, cadence=stream.cadence,
         cadence_weeks=stream.cadence_weeks, anchor_payday=stream.anchor_payday,
@@ -710,7 +712,9 @@ def _income_stream_out(stream: IncomeStream, *, as_of: date) -> IncomeStreamOut:
             {"id": d.id, "category_id": d.category_id, "amount_cents": d.amount_cents} for d in stream.deductions
         ],
         created_on=stream.created_on, archived_on=stream.archived_on,
-        next_payday=next_payday(stream, as_of=as_of),
+        next_payday=upcoming,
+        # The same lookup the pay screen's period call uses, so the two never disagree.
+        next_payday_recorded=recorded_pay_transaction(session, stream.id, upcoming) is not None,
     )
 
 
@@ -721,7 +725,7 @@ def list_income_streams(
     streams = session.scalars(
         select(IncomeStream).where(_visible(IncomeStream, as_of, include_archived)).order_by(IncomeStream.name)
     ).all()
-    return [_income_stream_out(s, as_of=as_of) for s in streams]
+    return [_income_stream_out(session, s, as_of=as_of) for s in streams]
 
 
 @app.get("/api/pay-period", response_model=PayPeriodOut)
@@ -765,7 +769,7 @@ def create_income_stream(payload: IncomeStreamIn, session: Session = Depends(get
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A named pay called {payload.name!r} already exists.")
-    return _income_stream_out(stream, as_of=payload.on)
+    return _income_stream_out(session, stream, as_of=payload.on)
 
 
 @app.put("/api/income-streams/{income_stream_id}", response_model=IncomeStreamOut)
@@ -791,7 +795,7 @@ def update_income_stream(
         session.flush()
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A named pay called {payload.name!r} already exists.")
-    return _income_stream_out(stream, as_of=payload.on)
+    return _income_stream_out(session, stream, as_of=payload.on)
 
 
 @app.post("/api/income-streams/{income_stream_id}/archive", response_model=ArchiveOut)
