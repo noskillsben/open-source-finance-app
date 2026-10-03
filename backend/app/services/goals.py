@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.models import AccountLine, Category, CategoryLine, EarmarkLine, Goal, IncomeStream, Transaction
 from app.services.accounts import dollars
+from app.services.archiving import _visible
 from app.services.cadence import CADENCES, step
 from app.services.categories import category_balance_cents
 from app.services.income_streams import next_payday
@@ -420,15 +421,26 @@ def _short_date(day: date, *, as_of: date) -> str:
     return text if day.year == as_of.year else f"{text}, {day.year}"
 
 
+def unbound_bill_horizon(session: Session, *, as_of: date) -> date | None:
+    """Where a bill with no named pay stops being "next due": the earliest first payday strictly
+    after `as_of` across the named pays live at `as_of` (the visibility rule goals use), because the
+    money that pays such a bill arrives on a payday whichever pay it is. None when there are no
+    live pays. Computed once per request and handed to `bill_status`.
+    """
+    streams = session.scalars(select(IncomeStream).where(_visible(IncomeStream, as_of, False))).all()
+    return min((next_payday(s, as_of=as_of + timedelta(days=1)) for s in streams), default=None)
+
+
 def bill_status(
-    session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None
+    session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None, horizon: date | None = None
 ) -> tuple[str, str] | None:
     """A recurring bill's status and its wording, computed here so no component words it again:
     "overdue" once `as_of` is past its earliest unpaid due date; "due" when that date falls
     strictly before the bound pay's next payday — the first payday strictly after `as_of`, so on
-    payday itself the horizon is the payday still to come, not today (or is `as_of` itself for a
-    bill bound to no pay); otherwise "next_due", including a bill due exactly on that next
-    payday, which waits for that payday to arrive. None for any other kind of goal.
+    payday itself the horizon is the payday still to come, not today. A bill bound to no pay uses
+    the earliest such payday across all live pays (`horizon`, from `unbound_bill_horizon`), or
+    `as_of` itself when there are none, so it is due on its due date. Otherwise "next_due",
+    including a bill due exactly on that next payday, which waits for that payday to arrive. None for any other kind of goal.
     """
     due = earliest_unpaid_due_date(session, goal)
     if due is None:
@@ -436,14 +448,14 @@ def bill_status(
     day = _short_date(due, as_of=as_of)
     if due < as_of:
         return "overdue", f"overdue since {day}"
-    if stream is None:
-        horizon = as_of
-        if due <= horizon:
-            return "due", f"due {day} · not paid"
+    if stream is not None:
+        due_now = due < next_payday(stream, as_of=as_of + timedelta(days=1))
+    elif horizon is None:
+        due_now = due <= as_of
     else:
-        horizon = next_payday(stream, as_of=as_of + timedelta(days=1))
-        if due < horizon:
-            return "due", f"due {day} · not paid"
+        due_now = due < horizon
+    if due_now:
+        return "due", f"due {day} · not paid"
     return "next_due", f"next due {day}"
 
 
