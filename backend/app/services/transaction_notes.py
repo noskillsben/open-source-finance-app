@@ -75,6 +75,25 @@ def transaction_notes(session: Session, transaction: Transaction) -> list[str]:
             notes.append(f"{limit_note} on {line.account.name}.")
     notes.extend(pool_draw_notes(session, transaction))
     notes.extend(linked_money_notes(session, transaction))
+    notes.extend(locked_payee_notes(session, transaction))
+    return notes
+
+
+def locked_payee_notes(session: Session, transaction: Transaction) -> list[str]:
+    """DESIGN.md § Payee-locked accounts: an outflow from an account locked to a payee that
+    names a different payee warns. Inflows, transfers in, and a transaction with no payee say
+    nothing. A warning, never a refusal.
+    """
+    if transaction.payee_id is None:
+        return []
+    notes = []
+    for line in transaction.account_lines:
+        locked_id = line.account.locked_payee_id
+        if line.cents < 0 and locked_id is not None and locked_id != transaction.payee_id:
+            notes.append(
+                f"{line.account.name} is locked to {session.get(Payee, locked_id).name}, "
+                f"but this names {session.get(Payee, transaction.payee_id).name}."
+            )
     return notes
 
 

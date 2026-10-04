@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 
 /** Searchable, alphabetical payee picker with an inline "add new" option (DESIGN.md §
  * Payees — picked the same way categories are added by name today, but searchable: every
- * picker that could hold more than five items is searchable, per CLAUDE.md).
+ * picker that could hold more than five items is searchable, per CLAUDE.md). Without `onAdd`
+ * it only picks: the account form's payee lock never creates a payee on the side.
  */
 export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError }) {
   const [query, setQuery] = useState('')
@@ -59,7 +60,7 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
     e.preventDefault()
     const target = exactMatch ?? matches[0]
     if (target) choose(target)
-    else addNew()
+    else if (onAdd) addNew()
   }
 
   return (
@@ -97,7 +98,7 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
           {matches.length === 0 && trimmed === '' && (
             <p className="px-2 py-1 text-paper-soft">No payees yet.</p>
           )}
-          {trimmed !== '' && !exactMatch && (
+          {onAdd && trimmed !== '' && !exactMatch && (
             <button
               type="button"
               className="block w-full text-left px-2 py-1 text-accent hover:bg-ink"

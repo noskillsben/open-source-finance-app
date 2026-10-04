@@ -12,6 +12,7 @@ const account = (overrides) => ({
 })
 
 let accounts = []
+let payees = [{ id: 7, name: 'Starbucks' }, { id: 8, name: 'Walmart' }]
 
 vi.mock('./api.js', () => ({
   api: {
@@ -22,6 +23,7 @@ vi.mock('./api.js', () => ({
       checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: [] }),
     },
     categories: { list: () => Promise.resolve([{ id: 11, name: 'Rent' }]) },
+    payees: { list: () => Promise.resolve(payees) },
   },
 }))
 
@@ -148,5 +150,41 @@ describe('add an account: opening balance', () => {
     await fillAndSave('abc')
     expect(await screen.findByText('Opening balance must be a number.')).toBeTruthy()
     expect(createAccount).not.toHaveBeenCalled()
+  })
+})
+
+describe('payee-locked accounts', () => {
+  beforeEach(() => {
+    createAccount.mockReset()
+  })
+
+  it('groups accounts that share a locked payee onto one line with each balance', async () => {
+    accounts = [
+      account({ id: 1, name: 'Chequing', balance_cents: 50000 }),
+      account({ id: 2, name: 'Starbucks app', balance_cents: 1500, locked_payee_id: 7 }),
+      account({ id: 3, name: 'Starbucks card', balance_cents: 2000, locked_payee_id: 7 }),
+      account({ id: 4, name: 'Walmart card', balance_cents: 900, locked_payee_id: 8 }),
+    ]
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    expect(await screen.findByText('Locked to Starbucks')).toBeTruthy()
+    expect(screen.getByText('$15.00')).toBeTruthy()
+    expect(screen.getByText('$20.00')).toBeTruthy()
+    expect(screen.queryByText('Locked to Walmart')).toBeNull() // a lone locked account keeps its own row
+    expect(screen.getByText('Walmart card')).toBeTruthy()
+  })
+
+  it('sends the chosen payee when an account is added', async () => {
+    accounts = []
+    createAccount.mockResolvedValue({})
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Starbucks card' } })
+    fireEvent.focus(screen.getByPlaceholderText('Search payees…'))
+    fireEvent.mouseDown(await screen.findByText('Starbucks'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].locked_payee_id).toBe(7)
   })
 })

@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import Account, Category, Valuation
+from app.models import Account, Category, Payee, Valuation
 from app.routers.shapes import _transaction_out
 from app.schemas import (
     AccountCreate,
@@ -58,7 +58,7 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
     return AccountOut(
         id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
         type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
-        balance_cents=balance_cents,
+        balance_cents=balance_cents, locked_payee_id=account.locked_payee_id,
         linked_category_ids=linked_category_ids(session, account.id), drift_cents=drift,
         checked_on=valuation.date if valuation is not None else None,
         checked_valuation_id=valuation.id if valuation is not None else None,
@@ -88,8 +88,14 @@ def _reject_floor_below_credit_limit(floor_cents: int, credit_limit_cents: int |
 
 
 
+def _reject_unknown_payee(session: Session, payee_id: int | None) -> None:
+    if payee_id is not None and session.get(Payee, payee_id) is None:
+        raise HTTPException(status_code=400, detail=f"Unknown payee id: {payee_id}")
+
+
 @router.post("/api/accounts", response_model=AccountOut, status_code=201)
 def create_account(payload: AccountCreate, session: Session = Depends(get_session)) -> AccountOut:
+    _reject_unknown_payee(session, payload.locked_payee_id)
     _reject_floor_below_credit_limit(payload.on_budget_floor_cents, payload.terms.credit_limit_cents)
     try:
         account = create_account_with_opening_valuation(
@@ -100,6 +106,7 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
             on_budget=payload.on_budget,
             on_budget_floor_cents=payload.on_budget_floor_cents,
             opening_balance_cents=payload.opening_balance_cents,
+            locked_payee_id=payload.locked_payee_id,
             **payload.terms.model_dump(),
         )
     except IntegrityError:
@@ -117,8 +124,11 @@ def update_account_route(
     # "terms" wasn't sent means leave the account's existing terms alone — null means unknown,
     # never zero (DESIGN.md § Debt terms), and an edit that omits terms isn't the user saying
     # "I don't know these anymore."
+    _reject_unknown_payee(session, payload.locked_payee_id)
     terms_sent = "terms" in payload.model_fields_set
     terms = payload.terms.model_dump() if terms_sent else {}
+    if "locked_payee_id" in payload.model_fields_set:  # likewise: omitted leaves the lock as it is
+        terms["locked_payee_id"] = payload.locked_payee_id
     effective_credit_limit_cents = (
         payload.terms.credit_limit_cents if terms_sent else account.credit_limit_cents
     )

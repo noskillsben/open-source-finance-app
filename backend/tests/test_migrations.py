@@ -288,6 +288,16 @@ def _assert_f1a6c2e84d97(session):
     assert session.get(Goal, 1).amount_cents == 120000 and session.get(Goal, 3).amount_cents == 30000
 
 
+def _assert_a2b7d9e41c36(session):
+    from app.models import Account, AccountLine
+
+    assert session.get(Account, 1).locked_payee_id is None  # the column this revision adds; nullable, untouched
+    assert session.get(Account, 2).locked_payee_id is None
+    assert session.get(Account, 2).archived_on == datetime.date(2026, 6, 1)
+    assert session.get(AccountLine, 1).cents == -450
+    assert session.get(Transaction, 1).payee_id == 1
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -311,6 +321,7 @@ ASSERTIONS = {
     "d8b4f2a65c19": _assert_d8b4f2a65c19,
     "e9c3a7d15b84": _assert_e9c3a7d15b84,
     "f1a6c2e84d97": _assert_f1a6c2e84d97,
+    "a2b7d9e41c36": _assert_a2b7d9e41c36,
 }
 
 

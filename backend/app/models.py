@@ -37,6 +37,11 @@ class Account(Base, Owned, NonLedger):
     opening_stated_on: Mapped[date] = mapped_column(
         Date, nullable=False, default=lambda ctx: ctx.get_current_parameters()["created_on"]
     )
+    # Payee-locked accounts (DESIGN.md § Payee-locked accounts): spending from this account
+    # pre-fills this payee and warns on any other. Null means not locked.
+    locked_payee_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("payee.id"), nullable=True, index=True
+    )
 
     # Debt terms (DESIGN.md § Debt terms) — all nullable, null means unknown, never zero.
     credit_limit_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

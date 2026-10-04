@@ -46,6 +46,7 @@ class AccountCreate(BaseModel):
     on_budget: bool
     on_budget_floor_cents: int = 0
     opening_balance_cents: int
+    locked_payee_id: int | None = None
     terms: DebtTerms = DebtTerms()
 
     @field_validator("type")
@@ -65,6 +66,7 @@ class AccountUpdate(BaseModel):
     type: str
     on_budget: bool
     on_budget_floor_cents: int = 0
+    locked_payee_id: int | None = None
     terms: DebtTerms = DebtTerms()
 
     @field_validator("type")
@@ -84,6 +86,7 @@ class AccountOut(BaseModel):
     on_budget: bool
     on_budget_floor_cents: int
     balance_cents: int
+    locked_payee_id: int | None = None
     # Linked categories (DESIGN.md § Linked categories): who claims this account's money, and
     # the account minus what they hold — null with no links. A reminder, never enforced.
     linked_category_ids: list[int] = []
