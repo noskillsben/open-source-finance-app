@@ -8,6 +8,7 @@ import Nav from './Nav.jsx'
 import Pay from './Pay.jsx'
 import PayRecord from './PayRecord.jsx'
 import Payees from './Payees.jsx'
+import Splits from './Splits.jsx'
 import Transactions from './Transactions.jsx'
 import { api } from './api.js'
 import { todayIso } from './utils/format.js'
@@ -97,6 +98,7 @@ export default function App() {
           <Route path="/categories" element={<Categories pickerDate={pickerDate} />} />
           <Route path="/accounts" element={<Accounts pickerDate={pickerDate} />} />
           <Route path="/payees" element={<Payees pickerDate={pickerDate} />} />
+          <Route path="/splits" element={<Splits pickerDate={pickerDate} />} />
           <Route path="/domains" element={<Domains pickerDate={pickerDate} />} />
           <Route path="/settings/data-check" element={<IntegrityCheck />} />
         </Routes>

@@ -15,6 +15,7 @@ vi.mock('./api.js', () => {
       readyToAssign: () => Promise.resolve({ ready_to_assign_cents: 0, overspent_cents: 0, categories: [] }),
       domains: { list },
       payees: { list },
+      splits: { list },
       incomeStreams: { list },
       transactions: { list },
       integrityCheck: { list },
@@ -39,6 +40,7 @@ describe('nav menu', () => {
     expect(within(nav).getByRole('link', { name: 'Categories' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Accounts' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Payees' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Splits' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Domains' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Data check' })).toBeInTheDocument()
 
@@ -54,6 +56,7 @@ describe('routing', () => {
     ['/categories', 2, 'Categories'],
     ['/accounts', 2, 'Accounts'],
     ['/payees', 2, 'Payees'],
+    ['/splits', 2, 'Splits'],
     ['/domains', 3, 'Domains'],
     ['/settings/data-check', 2, 'Integrity check'],
   ])('mounts the right page at %s', async (path, level, expectedHeading) => {

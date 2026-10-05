@@ -87,6 +87,13 @@ export const api = {
     archive: (id, archivedOn) => request(`/api/payees/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/payees/${id}/unarchive`, { method: 'POST' }),
   },
+  splits: {
+    list: (asOf, includeArchived = false) => request(listPath('/api/splits', asOf, includeArchived)),
+    create: (split) => request('/api/splits', { method: 'POST', body: split }),
+    update: (id, split) => request(`/api/splits/${id}`, { method: 'PUT', body: split }),
+    archive: (id, archivedOn) => request(`/api/splits/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
+    unarchive: (id) => request(`/api/splits/${id}/unarchive`, { method: 'POST' }),
+  },
   incomeStreams: {
     list: (asOf, includeArchived = false) => request(listPath('/api/income-streams', asOf, includeArchived)),
     create: (stream) => request('/api/income-streams', { method: 'POST', body: stream }),

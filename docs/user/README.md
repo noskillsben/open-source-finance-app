@@ -6,7 +6,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 - Run `docker compose up --build` and open http://localhost:5173.
 - Pick a date with the "Show as of" control in the header to see every balance as it stood that day — it also becomes the default date on every form (accounts and transactions) — on the Ledger, changing it updates the Record form's date at once, replacing a date you typed, though a transaction you are editing keeps its own date — and the category and payee lists only show what existed that day, until you change it again. It stays on that date when you reload, until you change it or open a new tab. When the date is not today, the control is outlined and a "not today" note appears beside it, with a "Today" button that puts it back to today in one tap.
-- Move around the app from the menu, grouped by what you're doing: **Record** (Pay, Ledger), **Assign** (Categories, Accounts, Payees, Domains), and **Settings** (Data check). **Plan** and **Review** show as headers with nothing under them yet — their pages arrive with later issues. On a narrow phone, tap "Menu" to open it.
+- Move around the app from the menu, grouped by what you're doing: **Record** (Pay, Ledger), **Assign** (Categories, Accounts, Payees, Splits, Domains), and **Settings** (Data check). **Plan** and **Review** show as headers with nothing under them yet — their pages arrive with later issues. On a narrow phone, tap "Menu" to open it.
 - The payee "Me" already exists the first time you open the app — no need to add it before recording a transfer between your own accounts.
 - A starter set of categories (Groceries, Dining out, Rent, Utilities, Transit, Health care, Clothing, Entertainment, Debt payments) and domains (Food, Housing, Transportation, Health, Lifestyle, Financial) is there the first time you open the app. Rename or archive any of them; they won't come back. If you already made a category or domain with one of those names, yours is kept and the starter one is skipped.
 
@@ -32,6 +32,12 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 ## Payees
 
 - See your payees in the Payees list. Click "Archive" on a row to archive it as of the "Show as of" date (the payee "Me" can't be archived). Tick "Show archived" to see archived payees and "Unarchive" one; that's refused if another payee now has the same name.
+
+## Splits
+
+- Set up a split on the Splits page under Assign: give it a name (and a description if you like), then add the other people in it and a percent for each. You are never in the list: your share is whatever they leave, and it updates under the form as you type ("Your share: 50%"). A roommate at 50% leaves you 50%. If the people add up to more than 100% the form says so and the save is refused; exactly 100% is fine, which leaves you 0%. Percents are kept to four decimal places.
+- Pick each person from the searchable list, or type a new name to add them as a payee. The first time someone joins a split, an on-budget account named after them is created to hold their balance; if they are already in another split, that same account is used, so one person has one balance across all your splits. You can instead pick an account you already have for them. A name that matches an account you already have is refused with a note to pick that account.
+- Click "Edit" on a split to change its name, its people or their percentages, or take someone out. Changing a split never touches anything already recorded. "Archive" removes a split (its name frees up for reuse); tick "Show archived" to see archived splits and "Unarchive" one, which is refused if another split now has the same name. Nothing here records money yet: splits are only the rule.
 
 ## Recording money
 
