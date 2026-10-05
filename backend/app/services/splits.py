@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.models import Account, AccountLine, Payee, Split, SplitMember, Transaction
 from app.schemas import SplitMemberIn
 from app.seed import is_me
+from app.services.archiving import Archivable, archive
 from app.services.accounts import create_account_with_opening_valuation
 
 HUNDRED = Decimal("100")
@@ -202,13 +203,23 @@ def unarchive_split_checked(session: Session, split: Split) -> None:
         unarchive_split(split)
 
 
-def archive_split(split: Split, archived_on: date) -> None:
-    """A split has no ledger rows pointing at it yet, so there is no date bound. Its live members
-    go with it, dated the same, so unarchiving brings back the rule as it stood."""
-    split.archived_on = archived_on
-    for member in split.members:
-        if member.archived_on is None:
-            member.archived_on = archived_on
+def split_latest_ledger_date(session: Session, split_id: int) -> date | None:
+    """The most recent transaction date that used this split — the archive-date bound."""
+    return session.scalar(select(func.max(Transaction.date)).where(Transaction.split_id == split_id))
+
+
+def archive_split(session: Session, split: Split, archived_on: date) -> None:
+    """Archive through the one archive mechanism: refused (`ArchiveError`) on or before the date
+    of a bill that used the split. Its live members go with it, dated the same, so unarchiving
+    brings back the rule as it stood; a member archived earlier is left alone and keeps its date.
+    """
+    members = [
+        Archivable(entity=m, latest_ledger_date=None) for m in split.members if m.archived_on is None
+    ]
+    archive(
+        Archivable(entity=split, latest_ledger_date=split_latest_ledger_date(session, split.id), children=members),
+        archived_on,
+    )
 
 
 def unarchive_split(split: Split) -> None:

@@ -4,7 +4,7 @@ Non-ledger rows are archived), and the fill-in the Ledger form reads when a paye
 from dataclasses import dataclass
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models import Account, Category, CategoryLine, Split, SplitMember, Transaction
@@ -15,11 +15,13 @@ from app.services.archiving import visible_as_of
 def payee_latest_ledger_date(session: Session, payee_id: int) -> date | None:
     """The most recent transaction date that still references this payee — the archive-date
     bound (DESIGN.md: `archived_on` must be strictly later than the latest ledger row still
-    pointing at the entity). Unlike accounts and categories, a transaction names its payee
-    directly, so no join table is involved.
+    pointing at the entity). A transaction names its payee directly and may name them as the
+    one who paid (`paid_by_payee_id`), so either column counts.
     """
     return session.scalar(
-        select(func.max(Transaction.date)).where(Transaction.payee_id == payee_id)
+        select(func.max(Transaction.date)).where(
+            or_(Transaction.payee_id == payee_id, Transaction.paid_by_payee_id == payee_id)
+        )
     )
 
 
