@@ -159,6 +159,14 @@ def update_split(
     if split.archived_on is not None:
         raise SplitError("This split is archived. Unarchive it to change it.")
     resolved = _validate_members(session, members, split_id=split.id)
+    live_before = {m.payee_id: m for m in split.members if m.archived_on is None}
+    for member in members:
+        current = live_before.get(member.payee_id)
+        if current is not None and member.account_id is not None and member.account_id != current.account_id:
+            raise SplitError(
+                "A person's account can't be changed once they're in a split. "
+                "Remove them and add them again."
+            )
     with _name_must_be_free(session, name):
         split.name = name
         split.description = description

@@ -260,3 +260,46 @@ def test_editing_over_100_is_refused_and_leaves_the_split_as_it_was(db_session):
     assert refused.status_code == 400
     assert [m["percent"] for m in listed[0]["members"]] == ["50.0000"]
     assert db_session.query(Account).filter(Account.name == "Kit").count() == 0
+
+
+def test_editing_refuses_a_different_account_for_an_existing_member(db_session):
+    sam = _payee(db_session, "Sam")
+    other = create_account_with_opening_valuation(
+        db_session, name="Another", created_on=DAY, type="Cash", on_budget=True,
+        on_budget_floor_cents=0, opening_balance_cents=0,
+    )
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}]).json()
+        refused = client.put(
+            f"/api/splits/{split['id']}",
+            json={"name": "Rent", "as_of": "2026-05-01",
+                  "members": [{"payee_id": sam.id, "account_id": other.id, "percent": "40"}]},
+        )
+        listed = client.get("/api/splits").json()
+    finally:
+        app.dependency_overrides.clear()
+
+    assert refused.status_code == 400
+    assert "can't be changed" in refused.json()["detail"]
+    assert listed[0]["members"][0]["account_id"] == split["members"][0]["account_id"]
+    assert listed[0]["members"][0]["percent"] == "50.0000"  # nothing was written
+
+
+def test_editing_with_the_members_unchanged_account_succeeds(db_session):
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}]).json()
+        account_id = split["members"][0]["account_id"]
+        edited = client.put(
+            f"/api/splits/{split['id']}",
+            json={"name": "Rent", "as_of": "2026-05-01",
+                  "members": [{"payee_id": sam.id, "account_id": account_id, "percent": "40"}]},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert edited.status_code == 200
+    assert edited.json()["members"][0]["percent"] == "40.0000"
+    assert edited.json()["members"][0]["account_id"] == account_id
