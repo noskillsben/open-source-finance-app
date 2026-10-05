@@ -302,6 +302,14 @@ export default function Accounts({ pickerDate }) {
     if (shared) groups.get(a.locked_payee_id).group.push(a)
   }
 
+  // A lock on a payee archived since stays visible in the picker, labelled, and saves unchanged
+  // (DESIGN.md § General concepts): archived entities leave pickers but not where they are referenced.
+  const lockedArchived =
+    form.locked_payee_id != null && payees && !payees.some((p) => p.id === form.locked_payee_id)
+      ? payeesAll?.find((p) => p.id === form.locked_payee_id)
+      : null
+  const pickerPayees = lockedArchived ? [...payees, { ...lockedArchived, name: `${lockedArchived.name} (archived)` }] : payees
+
   function accountNotes(a) {
     return (
       <>
@@ -643,7 +651,7 @@ export default function Accounts({ pickerDate }) {
             <span className="text-sm">Locked to a payee (optional — a gift card or store credit only spends there)</span>
             <PayeePicker
               key={formKey}
-              payees={payees}
+              payees={pickerPayees}
               payeeId={form.locked_payee_id}
               onSelect={(id) => updateField('locked_payee_id', id)}
               onError={setFormError}

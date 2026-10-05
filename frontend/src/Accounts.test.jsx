@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Accounts from './Accounts.jsx'
 
-const { checkBalance, createAccount } = vi.hoisted(() => ({ checkBalance: vi.fn(), createAccount: vi.fn() }))
+const { checkBalance, createAccount, updateAccount } = vi.hoisted(() => ({
+  checkBalance: vi.fn(), createAccount: vi.fn(), updateAccount: vi.fn(),
+}))
 
 const account = (overrides) => ({
   id: 1, name: 'Chequing', type: 'Chequing', on_budget: true, on_budget_floor_cents: 0,
@@ -13,6 +15,7 @@ const account = (overrides) => ({
 
 let accounts = []
 let payees = [{ id: 7, name: 'Starbucks' }, { id: 8, name: 'Walmart' }]
+const archivedPayee = { id: 9, name: 'Old Shop' }
 
 vi.mock('./api.js', () => ({
   api: {
@@ -20,10 +23,11 @@ vi.mock('./api.js', () => ({
       list: () => Promise.resolve(accounts),
       checkBalance,
       create: createAccount,
+      update: updateAccount,
       checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: [] }),
     },
     categories: { list: () => Promise.resolve([{ id: 11, name: 'Rent' }]) },
-    payees: { list: () => Promise.resolve(payees) },
+    payees: { list: (asOf, all) => Promise.resolve(all ? [...payees, archivedPayee] : payees) },
   },
 }))
 
@@ -186,5 +190,21 @@ describe('payee-locked accounts', () => {
 
     await waitFor(() => expect(createAccount).toHaveBeenCalled())
     expect(createAccount.mock.calls[0][0].locked_payee_id).toBe(7)
+  })
+})
+
+describe('an account locked to a payee archived since', () => {
+  it('shows the payee as archived in the box and keeps the lock on save', async () => {
+    updateAccount.mockReset()
+    updateAccount.mockResolvedValue({})
+    accounts = [account({ id: 5, name: 'Old shop card', locked_payee_id: 9 })]
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    fireEvent.click(await screen.findByText('Old shop card'))
+    await waitFor(() => expect(screen.getByPlaceholderText('Search payees…')).toHaveValue('Old Shop (archived)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(updateAccount).toHaveBeenCalled())
+    expect(updateAccount.mock.calls[0][1].locked_payee_id).toBe(9)
   })
 })
