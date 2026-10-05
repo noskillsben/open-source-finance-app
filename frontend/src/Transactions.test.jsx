@@ -610,3 +610,23 @@ describe('Ledger form: a shared bill on a split', () => {
     expect(await screen.findByText('Split: Household')).toBeInTheDocument()
   })
 })
+
+describe("Ledger form: 'Settle up' from the Splits page", () => {
+  it('pre-fills a plain transfer for the full balance when they owe me: their account down, mine up', async () => {
+    renderLedger({ settleUp: { account_id: 3, cents: -3000 } })
+
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-30', '30']))
+    expect(screen.getAllByRole('option', { name: 'Roommate' })[0].closest('select')).toHaveValue('3')
+    expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
+    expect(screen.queryByRole('option', { name: 'Groceries' })).not.toBeInTheDocument() // no category line
+    expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
+  })
+
+  it('reverses the signs when I owe them, and leaves my account for the user to pick', async () => {
+    renderLedger({ settleUp: { account_id: 3, cents: 2050 } })
+
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
+    const accountSelects = screen.getAllByRole('option', { name: 'Chequing' }).map((o) => o.closest('select'))
+    expect(accountSelects[1]).toHaveValue('')
+  })
+})
