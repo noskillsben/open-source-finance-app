@@ -74,3 +74,42 @@ def test_transaction_with_unknown_payee_id_is_refused(db_session):
             account_lines=[{"account_id": account.id, "cents": -80_00}],
             category_lines=[],
         )
+
+
+def _paid_bill(db_session, payee_id, paid_by_payee_id, on):
+    account = create_account_with_opening_valuation(
+        db_session, name="Chequing", created_on=EARLIER, type="Chequing",
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+    )
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=on, memo=None, payee_id=payee_id,
+        account_lines=[{"account_id": account.id, "cents": -80_00}], category_lines=[],
+    )
+    txn.paid_by_payee_id = paid_by_payee_id
+    db_session.flush()
+    return txn
+
+
+def test_a_payee_who_paid_a_bill_cannot_be_archived_on_or_before_it(db_session):
+    from fastapi.testclient import TestClient
+
+    from app.db import get_session
+    from app.main import app
+
+    def override():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override
+    roommate = Payee(name="Sam", created_on=EARLIER)
+    db_session.add(roommate)
+    db_session.flush()
+    _paid_bill(db_session, None, roommate.id, datetime.date(2026, 5, 10))
+    client = TestClient(app)
+    try:
+        same_day = client.post(f"/api/payees/{roommate.id}/archive", json={"archived_on": "2026-05-10"})
+        next_day = client.post(f"/api/payees/{roommate.id}/archive", json={"archived_on": "2026-05-11"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert same_day.status_code == 400
+    assert next_day.status_code == 200

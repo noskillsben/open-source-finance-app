@@ -8,7 +8,7 @@ from app.db import get_session
 from app.models import Account, Split
 from app.routers.shapes import _transaction_shape
 from app.schemas import ArchiveIn, ArchiveOut, MemberBalanceOut, SplitCreate, SplitMemberOut, SplitOut, SplitUpdate
-from app.services.archiving import _visible
+from app.services.archiving import ArchiveError, _visible
 from app.services.splits import (
     SplitError, archive_split, balance_since_zero, create_split, my_share_percent, shown_members, unarchive_split_checked, update_split,
 )
@@ -90,7 +90,10 @@ def archive_split_route(
     split_id: int, payload: ArchiveIn, session: Session = Depends(get_session)
 ) -> ArchiveOut:
     split = _get(session, split_id)
-    archive_split(split, payload.archived_on)
+    try:
+        archive_split(session, split, payload.archived_on)
+    except ArchiveError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
     return ArchiveOut(id=split.id, archived_on=split.archived_on, warnings=[])
 

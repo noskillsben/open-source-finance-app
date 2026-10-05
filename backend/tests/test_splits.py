@@ -303,3 +303,78 @@ def test_editing_with_the_members_unchanged_account_succeeds(db_session):
     assert edited.status_code == 200
     assert edited.json()["members"][0]["percent"] == "40.0000"
     assert edited.json()["members"][0]["account_id"] == account_id
+
+
+def _bill(db_session, on, split_id=None, payee_id=None, paid_by_payee_id=None):
+    from app.services.transactions import write_transaction
+
+    account = db_session.query(Account).filter(Account.name == "Chequing").first()
+    if account is None:
+        account = create_account_with_opening_valuation(
+            db_session, name="Chequing", created_on=DAY, type="Chequing",
+            on_budget=True, on_budget_floor_cents=0, opening_balance_cents=500_00,
+        )
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=on, memo=None, payee_id=payee_id,
+        account_lines=[{"account_id": account.id, "cents": -10_00}], category_lines=[],
+    )
+    txn.split_id, txn.paid_by_payee_id = split_id, paid_by_payee_id
+    db_session.flush()
+
+
+def test_a_split_cannot_be_archived_on_or_before_the_date_of_a_bill_that_used_it(db_session):
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}]).json()
+        _bill(db_session, datetime.date(2026, 5, 10), split_id=split["id"])
+        same_day = client.post(f"/api/splits/{split['id']}/archive", json={"archived_on": "2026-05-10"})
+        before = client.post(f"/api/splits/{split['id']}/archive", json={"archived_on": "2026-05-01"})
+        next_day = client.post(f"/api/splits/{split['id']}/archive", json={"archived_on": "2026-05-11"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert same_day.status_code == 400 and "2026-05-10" in same_day.json()["detail"]
+    assert before.status_code == 400
+    assert next_day.status_code == 200
+    assert next_day.json()["archived_on"] == "2026-05-11"
+
+
+def test_a_split_with_no_bills_archives_with_its_members(db_session):
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}]).json()
+        response = client.post(f"/api/splits/{split['id']}/archive", json={"archived_on": "2026-03-01"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 200
+    member = db_session.query(SplitMember).one()
+    assert member.archived_on == datetime.date(2026, 3, 1)
+
+
+def test_a_member_archived_earlier_keeps_its_own_date_through_archive_and_unarchive(db_session):
+    sam, kit = _payee(db_session, "Sam"), _payee(db_session, "Kit")
+    client = _client(db_session)
+    try:
+        split = _create(
+            client, "Rent", [{"payee_id": sam.id, "percent": "50"}, {"payee_id": kit.id, "percent": "20"}]
+        ).json()
+        client.put(
+            f"/api/splits/{split['id']}",
+            json={"name": "Rent", "as_of": "2026-05-01", "members": [{"payee_id": sam.id, "percent": "50"}]},
+        )
+        client.post(f"/api/splits/{split['id']}/archive", json={"archived_on": "2026-06-01"})
+        kit_member = db_session.query(SplitMember).filter(SplitMember.payee_id == kit.id).one()
+        sam_member = db_session.query(SplitMember).filter(SplitMember.payee_id == sam.id).one()
+        archived_dates = (kit_member.archived_on, sam_member.archived_on)
+        client.post(f"/api/splits/{split['id']}/unarchive")
+        db_session.refresh(kit_member)
+        db_session.refresh(sam_member)
+    finally:
+        app.dependency_overrides.clear()
+
+    assert archived_dates == (datetime.date(2026, 5, 1), datetime.date(2026, 6, 1))
+    assert kit_member.archived_on == datetime.date(2026, 5, 1)
+    assert sam_member.archived_on is None
