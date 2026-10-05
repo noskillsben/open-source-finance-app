@@ -750,4 +750,92 @@ describe('Ledger form: picking a payee fills in the category, account and split'
       category_lines: [{ category_id: 10, cents: -5000 }],
     })
   })
+
+  describe('a total typed on my own account line after the split is chosen', () => {
+    const inputs = () => screen.getAllByPlaceholderText('0.00')
+    const amounts = () => inputs().map((i) => i.value)
+    const type = (index, text) => fireEvent.change(screen.getAllByPlaceholderText('0.00')[index], { target: { value: text } })
+
+    async function hydroChosen() {
+      calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: 5 })
+      renderLedger()
+      await pickHydro()
+      await waitFor(() => expect(screen.getByLabelText('Split')).toHaveValue('5'))
+    }
+
+    it('becomes the Bill total and fills the member and category lines', async () => {
+      await hydroChosen()
+      type(1, '-120')
+
+      await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('120'))
+      expect(amounts().slice(1, 4)).toEqual(['-120', '60', '-60'])
+    })
+
+    it('keeps following keystroke by keystroke, without eating a decimal point', async () => {
+      await hydroChosen()
+      for (const text of ['-', '-1', '-12', '-12.', '-12.5', '-120']) type(1, text)
+
+      await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('120'))
+      expect(amounts().slice(1, 4)).toEqual(['-120', '60', '-60'])
+      type(1, '-12.')
+      expect(inputs()[1]).toHaveValue('-12.')
+      expect(amounts().slice(2, 4)).toEqual(['6', '-6'])
+    })
+
+    it("never fires from a member's line", async () => {
+      await hydroChosen()
+      type(2, '50')
+
+      expect(screen.getByLabelText('Bill total')).toHaveValue('')
+    })
+
+    it('stops following once Bill total is edited by hand', async () => {
+      await hydroChosen()
+      type(1, '-120')
+      fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '200' } })
+      expect(amounts().slice(1, 4)).toEqual(['-200', '100', '-100'])
+
+      type(1, '-300')
+      expect(screen.getByLabelText('Bill total')).toHaveValue('200')
+    })
+
+    it('does not fire when editing a saved bill', async () => {
+      existingTransactions = [{
+        id: 9, date: '2026-10-03', memo: 'Hydro bill', payee_id: null, valuation_id: null, income_stream_id: null,
+        goal_id: null, goal_due_on: null, split_id: 5, paid_by_payee_id: 1, deposits: [],
+        account_lines: [
+          { id: 1, account_id: 1, cents: -10000, budget_cents: -10000 },
+          { id: 2, account_id: 3, cents: 5000, budget_cents: 5000 },
+        ],
+        category_lines: [{ id: 1, category_id: 10, cents: -5000, need_level: null }],
+      }]
+      renderLedger()
+      fireEvent.click(await screen.findByText('Hydro bill'))
+      await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('100'))
+      type(1, '-300')
+
+      expect(screen.getByLabelText('Bill total')).toHaveValue('100')
+      expect(amounts().slice(2, 4)).toEqual(['50', '-50'])
+    })
+
+    it('does not fire when the total is locked', async () => {
+      existingTransactions = [{
+        id: 9, date: '2026-10-03', memo: 'Hydro bill', payee_id: null, valuation_id: null, income_stream_id: null,
+        goal_id: null, goal_due_on: null, split_id: 5, paid_by_payee_id: 1, deposits: [],
+        account_lines: [
+          { id: 1, account_id: 1, cents: -10000, budget_cents: -10000 },
+          { id: 2, account_id: 3, cents: 4000, budget_cents: 4000 },
+          { id: 3, account_id: 4, cents: 2000, budget_cents: 2000 },
+        ],
+        category_lines: [{ id: 1, category_id: 10, cents: -4000, need_level: null }],
+      }]
+      renderLedger()
+      fireEvent.click(await screen.findByText('Hydro bill'))
+      expect(await screen.findByLabelText('Bill total')).toHaveAttribute('readonly')
+      const before = amounts()
+      type(1, '-300')
+
+      expect(amounts().slice(2)).toEqual(before.slice(2)) // the typed line itself is hand-editable; nothing else moves
+    })
+  })
 })

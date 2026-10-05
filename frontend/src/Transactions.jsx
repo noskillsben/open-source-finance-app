@@ -55,6 +55,10 @@ export default function Transactions({ pickerDate }) {
   // True while the filled-in category line follows the amount typed on the account line (a
   // plain transaction); a hand edit of the category's own amount ends it.
   const [categoryFollows, setCategoryFollows] = useState(false)
+  // True once a split is chosen and an amount typed on my own account line became the Bill total:
+  // each further keystroke there re-derives the total, because filling the lines rewrites them.
+  // A hand edit of Bill total, a member line or a category amount, or a new split, ends it.
+  const [totalFollows, setTotalFollows] = useState(false)
   // My paying account and the category, kept across Paid by changes.
   const ownPicks = useRef({ account_id: '', category_id: '' })
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -143,13 +147,31 @@ export default function Transactions({ pickerDate }) {
 
   function updateAccountLine(i, field, value) {
     prefillLockedPayee({ ...accountLines[i], [field]: value })
+    if (field === 'cents' && chosenSplit && editingId == null && !totalLocked) {
+      const isMember = chosenSplit.members.some((m) => String(m.account_id) === accountLines[i].account_id)
+      if (isMember) {
+        setTotalFollows(false)
+      } else if (paidById === mePayeeId && (totalFollows || billTotal.trim() === '')) {
+        const cents = parseCents(value)
+        if (cents !== null && cents !== 0) {
+          setTotalFollows(true)
+          setBillTotal(String(Math.abs(cents) / 100))
+          // The typed text stays on my line as typed ("-12." must not become "-12").
+          fillShared(chosenSplit, basisFromSplit(Math.abs(cents), chosenSplit), cents < 0 ? 1 : -1, mePayeeId, value)
+          return
+        }
+      }
+    }
     setAccountLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
     if (i === 0 && field === 'cents' && categoryFollows) {
       setCategoryLines((lines) => lines.map((l, idx) => (idx === 0 ? { ...l, cents: value } : l)))
     }
   }
   function updateCategoryLine(i, field, value) {
-    if (field === 'cents') setCategoryFollows(false)
+    if (field === 'cents') {
+      setCategoryFollows(false)
+      setTotalFollows(false)
+    }
     setCategoryLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
   }
 
@@ -216,7 +238,7 @@ export default function Transactions({ pickerDate }) {
   const chosenSplit = splitId ? splitsAll?.find((s) => String(s.id) === splitId) : null
 
   // Work the lines out from a breakdown (DESIGN.md § Splits). Every amount stays editable.
-  function fillShared(split, basis, sign, payerId) {
+  function fillShared(split, basis, sign, payerId, ownText) {
     const memberAccountIds = new Set(split.members.map((m) => m.account_id))
     const ownLine = accountLines.find((l) => l.account_id && !memberAccountIds.has(Number(l.account_id)))
     if (ownLine) ownPicks.current.account_id = ownLine.account_id
@@ -231,13 +253,19 @@ export default function Transactions({ pickerDate }) {
       categoryId: ownPicks.current.category_id,
     })
     setShareBasis(basis)
-    setAccountLines(lines.map((l) => ({ account_id: String(l.account_id ?? ''), cents: String(l.cents / 100) })))
+    setAccountLines(
+      lines.map((l, i) => ({
+        account_id: String(l.account_id ?? ''),
+        cents: i === 0 && ownText !== undefined && payerId === mePayeeId ? ownText : String(l.cents / 100),
+      }))
+    )
     setCategoryLines(cats.map((l) => ({ category_id: String(l.category_id ?? ''), cents: String(l.cents / 100) })))
   }
 
   function chooseSplit(id) {
     setSplitId(id)
     setCategoryFollows(false)
+    setTotalFollows(false)
     setTotalLocked(false)
     setShareBasis(null)
     if (!id) {
@@ -256,6 +284,7 @@ export default function Transactions({ pickerDate }) {
 
   function changeBillTotal(text) {
     if (totalLocked) return
+    setTotalFollows(false)
     setBillTotal(text)
     const cents = parseCents(text)
     if (totalLocked || !chosenSplit || cents === null || cents === 0) return
@@ -266,6 +295,7 @@ export default function Transactions({ pickerDate }) {
 
   function changePaidBy(payeeId) {
     setPaidById(payeeId)
+    setTotalFollows(false)
     if (!chosenSplit || !shareBasis) return
     fillShared(chosenSplit, shareBasis, (parseCents(billTotal) ?? 0) < 0 ? -1 : 1, payeeId)
   }
@@ -274,6 +304,7 @@ export default function Transactions({ pickerDate }) {
     setPayeeFill(null)
     pickedPayee.current = null
     setCategoryFollows(false)
+    setTotalFollows(false)
     setSplitId('')
     setTotalLocked(false)
     setPaidById(null)
@@ -299,6 +330,7 @@ export default function Transactions({ pickerDate }) {
     setPayeeFill(null)
     pickedPayee.current = null
     setCategoryFollows(false)
+    setTotalFollows(false)
     setPredatesCheckNotes([])
     setDeleteConfirm(null)
     setEditingId(t.id)
