@@ -126,7 +126,8 @@ def test_a_shared_bill_fills_in_the_split_and_my_account(db_session, client):
 def test_a_bill_the_roommate_paid_returns_no_account(db_session, client):
     _me, roommate, _cheque, owed, split = _household(db_session)
     heat, utilities = _payee(db_session, "Heat"), _category(db_session, "Utilities")
-    _post(client, heat, [(owed.id, -50_00)], [(utilities.id, -50_00)], split_id=split.id, paid_by_payee_id=roommate.id)
+    _post(client, heat, [(owed.id, -50_00)], [(utilities.id, -50_00)], split_id=split.id, paid_by_payee_id=roommate.id,
+          shared_total_cents=100_00)
 
     assert _fill(client, heat) == {"category_id": utilities.id, "account_id": None, "split_id": split.id}
 

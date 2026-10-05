@@ -47,7 +47,9 @@ export function linesFromBasis(basis, { sign = 1, payerIsMe, payerAccountId, pay
 }
 
 /** Read a saved shared bill back into a basis, so an edit rescales by the proportions on that
- * transaction. Returns null when the lines don't have the shape the form writes. */
+ * transaction — my share ÷ the bill total (my account line when I paid, `shared_total_cents` when
+ * someone else did). Returns null when the lines or the stored total don't have the shape the
+ * form writes, and the bill stays hand-editable. */
 export function basisFromTransaction(transaction, split, mePayeeId) {
   const memberByAccount = new Map(split.members.map((m) => [m.account_id, m]))
   const memberLines = transaction.account_lines.filter((l) => memberByAccount.has(l.account_id))
@@ -59,13 +61,24 @@ export function basisFromTransaction(transaction, split, mePayeeId) {
     const members = memberLines.map((l) => ({ account_id: l.account_id, cents: sign * l.cents }))
     return { sign, basis: { total, mine: total - members.reduce((sum, m) => sum + m.cents, 0), members } }
   }
-  // Paid by a member: only my share is on the lines, so the total is read back at the split's
-  // percentages. That only labels the "Bill total" box; every line still scales by its own ratio.
+  // Paid by a member: only my share is on the lines, and the whole bill is the stored
+  // `shared_total_cents`. A bill saved without it has nothing to rescale by, so it stays locked.
+  const total = transaction.shared_total_cents
+  if (total == null || total <= 0) return null
   if (ownLines.length !== 0 || memberLines.length !== 1 || memberLines[0].cents === 0) return null
   const sign = memberLines[0].cents < 0 ? 1 : -1
   const mine = Math.abs(memberLines[0].cents)
-  const myUnits = 1_000_000 - split.members.reduce((sum, m) => sum + (parsePercent(m.percent) ?? 0), 0)
-  const total = myUnits > 0 ? Math.round((mine * 1_000_000) / myUnits) : mine
-  const fresh = basisFromSplit(total, split)
-  return { sign, basis: { total, mine, members: fresh.members } }
+  if (mine > total) return null
+  // The others' side of the bill is only needed if Paid by is later switched to Me; it is spread
+  // over the split's members in proportion to their percentages, the last taking the remainder.
+  const others = total - mine
+  const units = split.members.reduce((sum, m) => sum + (parsePercent(m.percent) ?? 0), 0)
+  if (others > 0 && units === 0) return null
+  let left = others
+  const members = split.members.map((m, i) => {
+    const cents = i === split.members.length - 1 ? left : Math.round((others * (parsePercent(m.percent) ?? 0)) / units)
+    left -= cents
+    return { account_id: m.account_id, cents }
+  })
+  return { sign, basis: { total, mine, members } }
 }

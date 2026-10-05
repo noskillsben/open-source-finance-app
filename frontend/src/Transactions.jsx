@@ -293,6 +293,13 @@ export default function Transactions({ pickerDate }) {
     fillShared(chosenSplit, basis, cents < 0 ? -1 : 1, paidById)
   }
 
+  // The whole bill, sent only when someone other than Me paid — otherwise it is my account line.
+  function sharedTotalCents() {
+    if (!splitId || paidById == null || paidById === mePayeeId) return null
+    const cents = parseCents(billTotal)
+    return cents === null ? null : Math.abs(cents)
+  }
+
   function changePaidBy(payeeId) {
     setPaidById(payeeId)
     setTotalFollows(false)
@@ -489,6 +496,7 @@ export default function Transactions({ pickerDate }) {
       goal_due_on: billLink?.goal_due_on ?? null,
       split_id: splitId ? Number(splitId) : null,
       paid_by_payee_id: splitId ? paidById : null,
+      shared_total_cents: sharedTotalCents(),
       account_lines: parsedAccountLines,
       category_lines: parsedCategoryLines,
       deposits: parsedDeposits,

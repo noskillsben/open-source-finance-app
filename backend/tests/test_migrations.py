@@ -338,6 +338,21 @@ def _assert_c7d1f9a28e43(session):
     session.rollback()
 
 
+def _assert_d4e8b2a71f63(session):
+    from app.models import AccountLine
+
+    first, second = session.get(Transaction, 1), session.get(Transaction, 2)
+    assert (first.shared_total_cents, second.shared_total_cents) == (None, None)  # no backfill
+    assert (first.split_id, first.paid_by_payee_id, first.memo) == (1, 1, "Groceries")
+    assert [l.cents for l in session.query(AccountLine).order_by(AccountLine.id)] == [-3000, -10000, 5000]
+
+    # The new column takes a whole-bill amount against the migrated schema.
+    first.shared_total_cents = 6000
+    session.flush()
+    assert session.get(Transaction, 1).shared_total_cents == 6000
+    session.rollback()
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -364,6 +379,7 @@ ASSERTIONS = {
     "a2b7d9e41c36": _assert_a2b7d9e41c36,
     "b3c8e1f47a52": _assert_b3c8e1f47a52,
     "c7d1f9a28e43": _assert_c7d1f9a28e43,
+    "d4e8b2a71f63": _assert_d4e8b2a71f63,
 }
 
 
