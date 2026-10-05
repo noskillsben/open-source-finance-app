@@ -660,6 +660,30 @@ describe('Ledger form: picking a payee fills in the category, account and split'
     expect(calls.payeeFill).toHaveBeenCalledWith(30, '2026-10-03')
   })
 
+  it('does not put an account already on another line onto the empty one (settle up)', async () => {
+    calls.payeeFill.mockResolvedValue({ category_id: null, account_id: 3, split_id: null })
+    renderLedger({ settleUp: { account_id: 3, cents: 2050 } })
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
+    await pickHydro()
+
+    await waitFor(() => expect(calls.payeeFill).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByDisplayValue('Hydro')).toBeInTheDocument())
+    const selects = screen.getAllByRole('option', { name: 'Chequing' }).map((o) => o.closest('select'))
+    expect(selects[0]).toHaveValue('3')
+    expect(selects[1]).toHaveValue('')
+  })
+
+  it('still fills an account that is not on the form', async () => {
+    calls.payeeFill.mockResolvedValue({ category_id: null, account_id: 1, split_id: null })
+    renderLedger({ settleUp: { account_id: 3, cents: 2050 } })
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
+    await pickHydro()
+
+    const selects = screen.getAllByRole('option', { name: 'Chequing' }).map((o) => o.closest('select'))
+    await waitFor(() => expect(selects[1]).toHaveValue('1'))
+    expect(selects[0]).toHaveValue('3')
+  })
+
   it('fills in nothing for a payee never paid', async () => {
     renderLedger()
     await pickHydro()
