@@ -9,6 +9,7 @@ let existingPayees = []
 
 const calls = vi.hoisted(() => ({
   create: vi.fn(),
+  update: vi.fn(),
   payeeCreate: vi.fn(),
   dueDates: vi.fn(),
   lastPayment: vi.fn(),
@@ -51,7 +52,7 @@ vi.mock('./api.js', () => ({
     transactions: {
       list: () => Promise.resolve(existingTransactions),
       create: calls.create,
-      update: vi.fn(),
+      update: calls.update,
       remove: calls.remove,
     },
     goals: {
@@ -89,6 +90,8 @@ beforeEach(() => {
   existingPayees = []
   calls.payeeCreate.mockReset()
   calls.create.mockReset()
+  calls.update.mockReset()
+  calls.update.mockResolvedValue({ notes: [] })
   calls.create.mockResolvedValue({ notes: [] })
   calls.dueDates.mockReset()
   calls.dueDates.mockResolvedValue(DUE_DATES)
@@ -571,6 +574,33 @@ describe('Ledger form: a shared bill on a split', () => {
     fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '200' } })
 
     expect(amounts().slice(1, 4)).toEqual(['-200', '80', '-120'])
+  })
+
+  it('leaves a saved bill alone when its proportions cannot be read, such as a member since removed', async () => {
+    existingTransactions = [{
+      ...SAVED,
+      // Sam has been taken out of the split since: their receivable (account 4) is no longer a member account.
+      account_lines: [
+        { id: 1, account_id: 1, cents: -10000, budget_cents: -10000 },
+        { id: 2, account_id: 3, cents: 4000, budget_cents: 4000 },
+        { id: 3, account_id: 4, cents: 2000, budget_cents: 2000 },
+      ],
+      category_lines: [{ id: 1, category_id: 10, cents: -4000, need_level: null }],
+    }]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Hydro'))
+    const total = await screen.findByLabelText('Bill total')
+    expect(total).toHaveAttribute('readonly')
+    expect(screen.getByText(/no longer matches its split/)).toBeInTheDocument()
+    const before = amounts()
+
+    fireEvent.change(total, { target: { value: '200' } })
+    fireEvent.change(screen.getByLabelText('Paid by'), { target: { value: '20' } })
+
+    expect(amounts()).toEqual(before) // the lines, Sam's balance line included, are untouched
+    save()
+    await waitFor(() => expect(calls.update).toHaveBeenCalled())
+    expect(calls.update.mock.calls[0][1].account_lines).toHaveLength(3)
   })
 
   it('shows the split on the ledger row', async () => {

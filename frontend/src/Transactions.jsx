@@ -44,6 +44,9 @@ export default function Transactions({ pickerDate }) {
   const [paidById, setPaidById] = useState(null)
   const [billTotal, setBillTotal] = useState('')
   const [shareBasis, setShareBasis] = useState(null)
+  // A saved shared bill whose proportions cannot be read back: its lines are left for hand
+  // editing and the total is read-only. Never worked out again from the split's percentages.
+  const [totalLocked, setTotalLocked] = useState(false)
   // My paying account and the category, kept across Paid by changes.
   const ownPicks = useRef({ account_id: '', category_id: '' })
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -153,6 +156,7 @@ export default function Transactions({ pickerDate }) {
 
   function chooseSplit(id) {
     setSplitId(id)
+    setTotalLocked(false)
     setShareBasis(null)
     if (!id) {
       setPaidById(null)
@@ -169,9 +173,10 @@ export default function Transactions({ pickerDate }) {
   }
 
   function changeBillTotal(text) {
+    if (totalLocked) return
     setBillTotal(text)
     const cents = parseCents(text)
-    if (!chosenSplit || cents === null || cents === 0) return
+    if (totalLocked || !chosenSplit || cents === null || cents === 0) return
     const total = Math.abs(cents)
     const basis = (shareBasis && scaleBasis(shareBasis, total)) || basisFromSplit(total, chosenSplit)
     fillShared(chosenSplit, basis, cents < 0 ? -1 : 1, paidById)
@@ -185,6 +190,7 @@ export default function Transactions({ pickerDate }) {
 
   function resetForm() {
     setSplitId('')
+    setTotalLocked(false)
     setPaidById(null)
     setBillTotal('')
     setShareBasis(null)
@@ -235,6 +241,7 @@ export default function Transactions({ pickerDate }) {
     setSplitId(t.split_id != null ? String(t.split_id) : '')
     setPaidById(t.paid_by_payee_id)
     setShareBasis(saved?.basis ?? null)
+    setTotalLocked(t.split_id != null && !saved)
     setBillTotal(saved ? String((saved.sign * saved.basis.total) / 100) : '')
     const ownLine = split && t.account_lines.find((l) => !split.members.some((m) => m.account_id === l.account_id))
     ownPicks.current = {
@@ -543,6 +550,7 @@ export default function Transactions({ pickerDate }) {
                     aria-label="Bill total"
                     className="block w-28 rounded bg-ink px-2 py-1"
                     value={billTotal}
+                    readOnly={totalLocked}
                     onChange={(e) => changeBillTotal(e.target.value)}
                   />
                 </label>
@@ -560,6 +568,11 @@ export default function Transactions({ pickerDate }) {
                     ))}
                   </select>
                 </label>
+                {totalLocked && (
+                  <p className="basis-full text-xs text-paper-soft">
+                    This bill no longer matches its split, so change the amounts below by hand.
+                  </p>
+                )}
                 <p className="basis-full text-xs text-paper-soft">
                   Only your share is spending. Every amount below can still be changed before you save.
                 </p>
