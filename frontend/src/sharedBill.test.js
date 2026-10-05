@@ -49,10 +49,17 @@ describe('shared bill arithmetic', () => {
     expect(scaleBasis(basis, 20000)).toEqual({ total: 20000, mine: 12000, members: [{ account_id: 3, cents: 8000 }] })
   })
 
-  it('reads a bill someone else paid back at the percentages of the split', () => {
-    const transaction = { paid_by_payee_id: 20, account_lines: [{ account_id: 3, cents: -5000 }] }
-    const { basis } = basisFromTransaction(transaction, SPLIT, 1)
-    expect(basis.total).toBe(10000)
-    expect(basis.mine).toBe(5000)
+  it('reads a bill someone else paid from its stored total, whatever the split says now', () => {
+    // $90 Sam paid, my share $30 — a third, though the split is 50% now.
+    const transaction = { paid_by_payee_id: 20, shared_total_cents: 9000, account_lines: [{ account_id: 3, cents: -3000 }] }
+    const { basis, sign } = basisFromTransaction(transaction, SPLIT, 1)
+    expect(sign).toBe(1)
+    expect(basis).toEqual({ total: 9000, mine: 3000, members: [{ account_id: 3, cents: 6000 }] })
+    expect(scaleBasis(basis, 18000).mine).toBe(6000)
+  })
+
+  it('leaves a bill someone else paid locked when it has no stored total', () => {
+    const transaction = { paid_by_payee_id: 20, shared_total_cents: null, account_lines: [{ account_id: 3, cents: -5000 }] }
+    expect(basisFromTransaction(transaction, SPLIT, 1)).toBeNull()
   })
 })

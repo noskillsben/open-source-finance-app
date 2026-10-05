@@ -579,6 +579,52 @@ describe('Ledger form: a shared bill on a split', () => {
     expect(amounts().slice(1, 4)).toEqual(['-200', '80', '-120'])
   })
 
+  const SAM_PAID = {
+    ...SAVED,
+    paid_by_payee_id: 20,
+    shared_total_cents: 9000,
+    account_lines: [{ id: 1, account_id: 3, cents: -3000, budget_cents: -3000 }],
+    category_lines: [{ id: 1, category_id: 10, cents: -3000, need_level: null }],
+  }
+
+  it('a bill someone else paid reads its stored total back and rescales my share by it', async () => {
+    existingTransactions = [SAM_PAID]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Hydro'))
+    await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('90'))
+
+    fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '180' } })
+
+    expect(amounts().slice(1, 3)).toEqual(['-60', '-60'])
+    save()
+    await waitFor(() => expect(calls.update).toHaveBeenCalled())
+    expect(calls.update.mock.calls[0][1]).toMatchObject({ paid_by_payee_id: 20, shared_total_cents: 18000 })
+  })
+
+  it('sends the bill total only when someone else paid, and clears it when Paid by goes back to Me', async () => {
+    existingTransactions = [SAM_PAID]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Hydro'))
+    await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('90'))
+
+    fireEvent.change(screen.getByLabelText('Paid by'), { target: { value: '1' } })
+    save()
+    await waitFor(() => expect(calls.update).toHaveBeenCalled())
+    expect(calls.update.mock.calls[0][1]).toMatchObject({ paid_by_payee_id: 1, shared_total_cents: null })
+  })
+
+  it('a bill someone else paid with no stored total opens locked, and saves without one', async () => {
+    existingTransactions = [{ ...SAM_PAID, shared_total_cents: null }]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Hydro'))
+    expect(await screen.findByLabelText('Bill total')).toHaveAttribute('readonly')
+    expect(screen.getByText(/no longer matches its split/)).toBeInTheDocument()
+
+    save()
+    await waitFor(() => expect(calls.update).toHaveBeenCalled())
+    expect(calls.update.mock.calls[0][1]).toMatchObject({ paid_by_payee_id: 20, shared_total_cents: null })
+  })
+
   it('leaves a saved bill alone when its proportions cannot be read, such as a member since removed', async () => {
     existingTransactions = [{
       ...SAVED,

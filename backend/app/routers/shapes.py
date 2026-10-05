@@ -13,6 +13,7 @@ def _transaction_shape(t: Transaction, notes: list[str], deposits: list[dict] | 
         id=t.id, date=t.date, memo=t.memo, payee_id=t.payee_id, valuation_id=t.valuation_id,
         income_stream_id=t.income_stream_id, goal_id=t.goal_id, goal_due_on=t.goal_due_on,
         split_id=t.split_id, paid_by_payee_id=t.paid_by_payee_id,
+        shared_total_cents=t.shared_total_cents,
         account_lines=[
             AccountLineOut(id=l.id, account_id=l.account_id, cents=l.cents, budget_cents=l.budget_cents)
             for l in t.account_lines

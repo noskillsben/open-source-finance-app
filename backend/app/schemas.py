@@ -326,6 +326,7 @@ class TransactionCreate(BaseModel):
     goal_due_on: date | None = None
     split_id: int | None = None
     paid_by_payee_id: int | None = None
+    shared_total_cents: int | None = None
     account_lines: list[AccountLineIn] = Field(min_length=1)
     category_lines: list[CategoryLineIn] = []
     # Omitted or empty: "already earmarked" — no deposit lines (DESIGN.md § Linked categories).
@@ -350,6 +351,7 @@ class TransactionOut(BaseModel):
     goal_due_on: date | None
     split_id: int | None
     paid_by_payee_id: int | None
+    shared_total_cents: int | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
     deposits: list[DepositIn] = []

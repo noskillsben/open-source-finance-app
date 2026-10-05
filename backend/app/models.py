@@ -338,6 +338,10 @@ class Transaction(Base, Owned):
     paid_by_payee_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("payee.id"), nullable=True, index=True
     )
+    # The whole bill, unsigned cents, when someone other than Me paid it (DESIGN.md § Splits): no
+    # line carries it then, and the form reads it back as the Bill total to rescale my share.
+    # Shape only — nothing here generates or changes a line.
+    shared_total_cents: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
     valuation: Mapped["Valuation | None"] = relationship()
     account_lines: Mapped[list["AccountLine"]] = relationship(
