@@ -48,6 +48,13 @@ export default function Transactions({ pickerDate }) {
   // A saved shared bill whose proportions cannot be read back: its lines are left for hand
   // editing and the total is read-only. Never worked out again from the split's percentages.
   const [totalLocked, setTotalLocked] = useState(false)
+  // Picking a payee fills the form from their last payment (DESIGN.md § Payees): the lookup's
+  // answer waits here and is applied by an effect, so it sees the form as it is now.
+  const [payeeFill, setPayeeFill] = useState(null)
+  const pickedPayee = useRef(null)
+  // True while the filled-in category line follows the amount typed on the account line (a
+  // plain transaction); a hand edit of the category's own amount ends it.
+  const [categoryFollows, setCategoryFollows] = useState(false)
   // My paying account and the category, kept across Paid by changes.
   const ownPicks = useRef({ account_id: '', category_id: '' })
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -137,10 +144,64 @@ export default function Transactions({ pickerDate }) {
   function updateAccountLine(i, field, value) {
     prefillLockedPayee({ ...accountLines[i], [field]: value })
     setAccountLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
+    if (i === 0 && field === 'cents' && categoryFollows) {
+      setCategoryLines((lines) => lines.map((l, idx) => (idx === 0 ? { ...l, cents: value } : l)))
+    }
   }
   function updateCategoryLine(i, field, value) {
+    if (field === 'cents') setCategoryFollows(false)
     setCategoryLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
   }
+
+  // Only the person picking a payee fills the form — never Record now, the locked-payee
+  // prefill, an edit load or settle up, which set the payee some other way — and never when a
+  // bill link is set or a saved transaction is open.
+  async function pickPayee(id) {
+    setPayeeId(id)
+    pickedPayee.current = id
+    setPayeeFill(null)
+    if (id == null || billLink || editingId != null) return
+    try {
+      const fill = await api.payees.fill(id, pickerDate)
+      if (pickedPayee.current === id) setPayeeFill({ payeeId: id, ...fill })
+    } catch (err) {
+      setFormError(err.message)
+    }
+  }
+
+  // Fill only what is still empty; everything filled stays changeable and clearable.
+  useEffect(() => {
+    if (!payeeFill) return
+    setPayeeFill(null)
+    if (billLink || editingId != null || payeeId !== payeeFill.payeeId) return
+    const usable = (id, list) => id != null && list?.some((x) => x.id === id)
+    const accountId = usable(payeeFill.account_id, accounts) ? String(payeeFill.account_id) : ''
+    const categoryId = usable(payeeFill.category_id, categories) ? String(payeeFill.category_id) : ''
+    const split = splitId === '' && payeeFill.split_id != null ? splitsAll?.find((s) => s.id === payeeFill.split_id) : null
+
+    const emptyAccount = accountLines.findIndex((l) => !l.account_id)
+    if (accountId && emptyAccount !== -1) {
+      setAccountLines((lines) => lines.map((l, i) => (i === emptyAccount ? { ...l, account_id: accountId } : l)))
+    }
+    const hasCategory = categoryLines.some((l) => l.category_id)
+    if (categoryId && !hasCategory) {
+      const plain = !split && splitId === ''
+      const typed = plain ? accountLines[0]?.cents ?? '' : ''
+      const emptyCategory = categoryLines.findIndex((l) => !l.category_id)
+      setCategoryLines(
+        emptyCategory === -1
+          ? [{ category_id: categoryId, cents: typed }]
+          : categoryLines.map((l, i) => (i === emptyCategory ? { ...l, category_id: categoryId, cents: l.cents || typed } : l))
+      )
+      if (plain && (emptyCategory === -1 || !categoryLines[emptyCategory].cents)) setCategoryFollows(true)
+    }
+    if (split) {
+      // The split's own arithmetic takes my account and the category from the picks.
+      if (accountId && emptyAccount !== -1) ownPicks.current.account_id = accountId
+      if (categoryId && !hasCategory) ownPicks.current.category_id = categoryId
+      chooseSplit(String(split.id))
+    }
+  }, [payeeFill])
 
   function updateDeposit(i, field, value) {
     setDeposits((rows) => rows.map((d, idx) => (idx === i ? { ...d, [field]: value } : d)))
@@ -171,6 +232,7 @@ export default function Transactions({ pickerDate }) {
 
   function chooseSplit(id) {
     setSplitId(id)
+    setCategoryFollows(false)
     setTotalLocked(false)
     setShareBasis(null)
     if (!id) {
@@ -204,6 +266,9 @@ export default function Transactions({ pickerDate }) {
   }
 
   function resetForm() {
+    setPayeeFill(null)
+    pickedPayee.current = null
+    setCategoryFollows(false)
     setSplitId('')
     setTotalLocked(false)
     setPaidById(null)
@@ -226,6 +291,9 @@ export default function Transactions({ pickerDate }) {
   }
 
   function editTransaction(t) {
+    setPayeeFill(null)
+    pickedPayee.current = null
+    setCategoryFollows(false)
     setPredatesCheckNotes([])
     setDeleteConfirm(null)
     setEditingId(t.id)
@@ -455,7 +523,7 @@ export default function Transactions({ pickerDate }) {
               key={formKey}
               payees={payees}
               payeeId={payeeId}
-              onSelect={setPayeeId}
+              onSelect={pickPayee}
               onAdd={addPayee}
               onError={setFormError}
             />

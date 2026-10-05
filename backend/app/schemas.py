@@ -269,6 +269,15 @@ class PayeeOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PayeeFillOut(BaseModel):
+    """What picking a payee fills in on the Ledger form, from the last transaction naming them;
+    each null when nothing applies or what it names is archived."""
+
+    category_id: int | None = None
+    account_id: int | None = None
+    split_id: int | None = None
+
+
 class AccountLineIn(BaseModel):
     account_id: int
     cents: int

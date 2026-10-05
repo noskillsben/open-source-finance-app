@@ -13,6 +13,7 @@ const calls = vi.hoisted(() => ({
   payeeCreate: vi.fn(),
   dueDates: vi.fn(),
   lastPayment: vi.fn(),
+  payeeFill: vi.fn(),
   remove: vi.fn(),
   payBatchGet: vi.fn(),
   payBatchReplace: vi.fn(),
@@ -48,7 +49,7 @@ vi.mock('./api.js', () => ({
     accounts: { list: () => Promise.resolve(ACCOUNTS) },
     splits: { list: () => Promise.resolve(SPLITS) },
     categories: { list: () => Promise.resolve(CATEGORIES), create: vi.fn() },
-    payees: { list: () => Promise.resolve(existingPayees), create: calls.payeeCreate },
+    payees: { list: () => Promise.resolve(existingPayees), create: calls.payeeCreate, fill: calls.payeeFill },
     transactions: {
       list: () => Promise.resolve(existingTransactions),
       create: calls.create,
@@ -95,6 +96,8 @@ beforeEach(() => {
   calls.create.mockResolvedValue({ notes: [] })
   calls.dueDates.mockReset()
   calls.dueDates.mockResolvedValue(DUE_DATES)
+  calls.payeeFill.mockReset()
+  calls.payeeFill.mockResolvedValue({ category_id: null, account_id: null, split_id: null })
   calls.lastPayment.mockReset()
   calls.lastPayment.mockResolvedValue({ payee_id: null, account_id: null })
   calls.remove.mockReset()
@@ -628,5 +631,99 @@ describe("Ledger form: 'Settle up' from the Splits page", () => {
     await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
     const accountSelects = screen.getAllByRole('option', { name: 'Chequing' }).map((o) => o.closest('select'))
     expect(accountSelects[1]).toHaveValue('')
+  })
+})
+
+describe('Ledger form: picking a payee fills in the category, account and split', () => {
+  const HYDRO = { id: 30, name: 'Hydro', archived_on: null, is_me: false }
+  const ME = { id: 1, name: 'Me', archived_on: null, is_me: true }
+  const accountSelect = () => screen.getByRole('option', { name: 'Chequing' }).closest('select')
+  const categorySelect = () => screen.getByRole('option', { name: 'Groceries' }).closest('select')
+
+  beforeEach(() => {
+    existingPayees = [ME, HYDRO]
+  })
+
+  async function pickHydro() {
+    const box = await screen.findByPlaceholderText('Search payees…')
+    fireEvent.change(box, { target: { value: 'Hyd' } })
+    fireEvent.mouseDown(await screen.findByRole('button', { name: 'Hydro' }))
+  }
+
+  it('fills the empty account and category on pick, and asks as of the picker date', async () => {
+    calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: null })
+    renderLedger()
+    await pickHydro()
+
+    await waitFor(() => expect(accountSelect()).toHaveValue('1'))
+    expect(categorySelect()).toHaveValue('10')
+    expect(calls.payeeFill).toHaveBeenCalledWith(30, '2026-10-03')
+  })
+
+  it('fills in nothing for a payee never paid', async () => {
+    renderLedger()
+    await pickHydro()
+    await waitFor(() => expect(calls.payeeFill).toHaveBeenCalled())
+    expect(accountSelect()).toHaveValue('')
+    expect(screen.queryByText('Select category…')).not.toBeInTheDocument()
+  })
+
+  it('keeps what was already typed', async () => {
+    calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: null })
+    renderLedger()
+    await addCategoryLine('Rent')
+    fireEvent.change(screen.getByRole('option', { name: 'Starbucks card' }).closest('select'), { target: { value: '2' } })
+    await pickHydro()
+
+    await waitFor(() => expect(calls.payeeFill).toHaveBeenCalled())
+    await waitFor(() => expect(screen.getByDisplayValue('Hydro')).toBeInTheDocument())
+    expect(screen.getByRole('option', { name: 'Starbucks card' }).closest('select')).toHaveValue('2')
+    expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
+  })
+
+  it('does nothing when a bill link is set', async () => {
+    calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: null })
+    renderLedger({ recordBill: { goal_id: 7, goal_due_on: '2026-10-01', category_id: 11, amount_cents: 120000 } })
+    await screen.findByText(/Marked as paying/)
+    await pickHydro()
+
+    await waitFor(() => expect(screen.getByDisplayValue('Hydro')).toBeInTheDocument())
+    expect(calls.payeeFill).not.toHaveBeenCalled()
+    expect(accountSelect()).toHaveValue('')
+    expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
+  })
+
+  it('the filled category line follows the account amount until its own amount is edited', async () => {
+    calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: null })
+    renderLedger()
+    await pickHydro()
+    await waitFor(() => expect(categorySelect()).toHaveValue('10'))
+
+    const amounts = () => screen.getAllByPlaceholderText('0.00')
+    fireEvent.change(amounts()[0], { target: { value: '-80' } })
+    expect(amounts()[1]).toHaveValue('-80')
+
+    fireEvent.change(amounts()[1], { target: { value: '-60' } })
+    fireEvent.change(amounts()[0], { target: { value: '-90' } })
+    expect(amounts()[1]).toHaveValue('-60')
+  })
+
+  it('chooses the split, works the shares out from the typed amount, and leaves Paid by on Me', async () => {
+    calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: 5 })
+    renderLedger()
+    fireEvent.change(await screen.findAllByPlaceholderText('0.00').then((l) => l[0]), { target: { value: '-100' } })
+    await pickHydro()
+
+    await waitFor(() => expect(screen.getByLabelText('Split')).toHaveValue('5'))
+    await waitFor(() => expect(screen.getByLabelText('Paid by')).toHaveTextContent('Me'))
+    await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('100'))
+    fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
+
+    await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    expect(calls.create.mock.calls[0][0]).toMatchObject({
+      payee_id: 30, split_id: 5, paid_by_payee_id: 1,
+      account_lines: [{ account_id: 1, cents: -10000 }, { account_id: 3, cents: 5000 }],
+      category_lines: [{ category_id: 10, cents: -5000 }],
+    })
   })
 })

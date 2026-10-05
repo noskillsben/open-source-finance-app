@@ -10,8 +10,8 @@ from datetime import date, timedelta
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models import AccountLine, Category, CategoryLine, EarmarkLine, Goal, IncomeStream, Transaction
-from app.services.accounts import dollars
+from app.models import Category, CategoryLine, EarmarkLine, Goal, IncomeStream, Transaction
+from app.services.accounts import dollars, most_spent_account_id
 from app.services.archiving import _visible
 from app.services.cadence import CADENCES, step
 from app.services.categories import category_balance_cents
@@ -406,13 +406,7 @@ def last_payment(session: Session, goal: Goal) -> tuple[int | None, int | None] 
     ).first()
     if latest is None:
         return None
-    account_id = session.scalar(
-        select(AccountLine.account_id)
-        .where(AccountLine.transaction_id == latest.id)
-        .order_by(AccountLine.cents, AccountLine.id)
-        .limit(1)
-    )
-    return latest.payee_id, account_id
+    return latest.payee_id, most_spent_account_id(session, latest.id)
 
 
 def _short_date(day: date, *, as_of: date) -> str:

@@ -9,6 +9,22 @@ from sqlalchemy.orm import Session
 from app.models import Account, AccountLine, Transaction, Valuation
 
 
+def most_spent_account_id(
+    session: Session, transaction_id: int, *, excluding: frozenset[int] = frozenset()
+) -> int | None:
+    """The account the most money left on a transaction: its most negative account line, the
+    lowest line id on a tie. `excluding` skips accounts that are never the answer (a split's
+    member receivables). None when no line qualifies. The one copy of this pick: a bill's
+    "record now" and a payee's fill-in both read it.
+    """
+    return session.scalar(
+        select(AccountLine.account_id)
+        .where(AccountLine.transaction_id == transaction_id, AccountLine.account_id.not_in(excluding))
+        .order_by(AccountLine.cents, AccountLine.id)
+        .limit(1)
+    )
+
+
 def _opening_valuation(session: Session, account: Account) -> Valuation | None:
     """The account's opening valuation — its *earliest* (DESIGN.md § Opening balance and
     backfilling history), not the one matching `created_on`: that date itself moves when a
