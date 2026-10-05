@@ -17,7 +17,10 @@ const calls = vi.hoisted(() => ({
   payBatchReplace: vi.fn(),
 }))
 
-const ACCOUNTS = [{ id: 1, name: 'Chequing', linked_category_ids: [] }]
+const ACCOUNTS = [
+  { id: 1, name: 'Chequing', linked_category_ids: [] },
+  { id: 2, name: 'Starbucks card', linked_category_ids: [], locked_payee_id: 7 },
+]
 const CATEGORIES = [
   { id: 10, name: 'Groceries', archived_on: null },
   { id: 11, name: 'Rent', archived_on: null },
@@ -427,5 +430,53 @@ describe('Ledger form: choosing a payee with the keyboard', () => {
     await waitFor(() => expect(calls.create).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByPlaceholderText('Search payees…')).toHaveValue(''))
     expect(screen.getByLabelText('Memo')).toHaveValue('')
+  })
+})
+
+describe('Ledger form: an outflow from a payee-locked account', () => {
+  const payeeBox = () => screen.findByPlaceholderText('Search payees…')
+  function fillLockedLine(cents) {
+    const select = screen.getByRole('option', { name: 'Starbucks card' }).closest('select')
+    fireEvent.change(select, { target: { value: '2' } })
+    fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: cents } })
+  }
+
+  beforeEach(() => {
+    existingPayees = [{ id: 7, name: 'Starbucks' }, { id: 8, name: 'Walmart' }]
+  })
+
+  it('pre-fills the locked payee', async () => {
+    renderLedger()
+    const box = await payeeBox()
+    fillLockedLine('-5')
+
+    await waitFor(() => expect(box).toHaveValue('Starbucks'))
+  })
+
+  it('does not replace a payee already chosen', async () => {
+    renderLedger()
+    const box = await payeeBox()
+    fireEvent.focus(box)
+    fireEvent.mouseDown(await screen.findByText('Walmart'))
+    fillLockedLine('-5')
+
+    expect(box).toHaveValue('Walmart')
+  })
+
+  it('does not pre-fill for an inflow', async () => {
+    renderLedger()
+    const box = await payeeBox()
+    fillLockedLine('20')
+
+    expect(box).toHaveValue('')
+  })
+
+  it('does not pre-fill a payee archived since', async () => {
+    existingPayees = [{ id: 8, name: 'Walmart' }]
+    renderLedger()
+    const box = await payeeBox()
+    fillLockedLine('-5')
+
+    expect(box).toHaveValue('')
   })
 })

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
@@ -92,7 +92,21 @@ export default function Transactions({ pickerDate }) {
       .catch((e) => setFormError(e.message))
   }, [recordBill])
 
+  // Spending from an account locked to a payee pre-fills that payee (DESIGN.md § Payee-locked
+  // accounts) — only while none is chosen, and once per account per form, so clearing it sticks.
+  const prefilledFor = useRef(new Set())
+  function prefillLockedPayee(line) {
+    const account = accounts?.find((a) => String(a.id) === line.account_id)
+    const cents = parseCents(line.cents)
+    if (!account || account.locked_payee_id == null || cents === null || cents >= 0) return
+    if (payeeId !== null || prefilledFor.current.has(account.id)) return
+    if (!payees?.some((p) => p.id === account.locked_payee_id)) return // archived: not offered
+    prefilledFor.current.add(account.id)
+    setPayeeId(account.locked_payee_id)
+  }
+
   function updateAccountLine(i, field, value) {
+    prefillLockedPayee({ ...accountLines[i], [field]: value })
     setAccountLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
   }
   function updateCategoryLine(i, field, value) {
@@ -108,6 +122,7 @@ export default function Transactions({ pickerDate }) {
     setDate(pickerDate)
     setMemo('')
     setPayeeId(null)
+    prefilledFor.current = new Set()
     setFormKey((k) => k + 1)
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])
@@ -125,6 +140,7 @@ export default function Transactions({ pickerDate }) {
     setDate(t.date)
     setMemo(t.memo || '')
     setPayeeId(t.payee_id)
+    prefilledFor.current = new Set(t.account_lines.map((l) => l.account_id)) // an edit never re-fills
     setFormKey((k) => k + 1)
     setAccountLines(
       t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) }))

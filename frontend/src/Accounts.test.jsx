@@ -2,7 +2,9 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Accounts from './Accounts.jsx'
 
-const { checkBalance, createAccount } = vi.hoisted(() => ({ checkBalance: vi.fn(), createAccount: vi.fn() }))
+const { checkBalance, createAccount, updateAccount } = vi.hoisted(() => ({
+  checkBalance: vi.fn(), createAccount: vi.fn(), updateAccount: vi.fn(),
+}))
 
 const account = (overrides) => ({
   id: 1, name: 'Chequing', type: 'Chequing', on_budget: true, on_budget_floor_cents: 0,
@@ -12,6 +14,8 @@ const account = (overrides) => ({
 })
 
 let accounts = []
+let payees = [{ id: 7, name: 'Starbucks' }, { id: 8, name: 'Walmart' }]
+const archivedPayee = { id: 9, name: 'Old Shop' }
 
 vi.mock('./api.js', () => ({
   api: {
@@ -19,9 +23,11 @@ vi.mock('./api.js', () => ({
       list: () => Promise.resolve(accounts),
       checkBalance,
       create: createAccount,
+      update: updateAccount,
       checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: [] }),
     },
     categories: { list: () => Promise.resolve([{ id: 11, name: 'Rent' }]) },
+    payees: { list: (asOf, all) => Promise.resolve(all ? [...payees, archivedPayee] : payees) },
   },
 }))
 
@@ -148,5 +154,57 @@ describe('add an account: opening balance', () => {
     await fillAndSave('abc')
     expect(await screen.findByText('Opening balance must be a number.')).toBeTruthy()
     expect(createAccount).not.toHaveBeenCalled()
+  })
+})
+
+describe('payee-locked accounts', () => {
+  beforeEach(() => {
+    createAccount.mockReset()
+  })
+
+  it('groups accounts that share a locked payee onto one line with each balance', async () => {
+    accounts = [
+      account({ id: 1, name: 'Chequing', balance_cents: 50000 }),
+      account({ id: 2, name: 'Starbucks app', balance_cents: 1500, locked_payee_id: 7 }),
+      account({ id: 3, name: 'Starbucks card', balance_cents: 2000, locked_payee_id: 7 }),
+      account({ id: 4, name: 'Walmart card', balance_cents: 900, locked_payee_id: 8 }),
+    ]
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    expect(await screen.findByText('Locked to Starbucks')).toBeTruthy()
+    expect(screen.getByText('$15.00')).toBeTruthy()
+    expect(screen.getByText('$20.00')).toBeTruthy()
+    expect(screen.queryByText('Locked to Walmart')).toBeNull() // a lone locked account keeps its own row
+    expect(screen.getByText('Walmart card')).toBeTruthy()
+  })
+
+  it('sends the chosen payee when an account is added', async () => {
+    accounts = []
+    createAccount.mockResolvedValue({})
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Starbucks card' } })
+    fireEvent.focus(screen.getByPlaceholderText('Search payees…'))
+    fireEvent.mouseDown(await screen.findByText('Starbucks'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].locked_payee_id).toBe(7)
+  })
+})
+
+describe('an account locked to a payee archived since', () => {
+  it('shows the payee as archived in the box and keeps the lock on save', async () => {
+    updateAccount.mockReset()
+    updateAccount.mockResolvedValue({})
+    accounts = [account({ id: 5, name: 'Old shop card', locked_payee_id: 9 })]
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    fireEvent.click(await screen.findByText('Old shop card'))
+    await waitFor(() => expect(screen.getByPlaceholderText('Search payees…')).toHaveValue('Old Shop (archived)'))
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(updateAccount).toHaveBeenCalled())
+    expect(updateAccount.mock.calls[0][1].locked_payee_id).toBe(9)
   })
 })

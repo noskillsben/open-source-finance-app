@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import { DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, TRACKING_TYPES } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
+import PayeePicker from './PayeePicker.jsx'
 
 const VALUE_TYPES = ['Asset', 'Investment']
 
@@ -17,6 +18,7 @@ function emptyForm(pickerDate) {
     on_budget: DEFAULT_ON_BUDGET[ON_BUDGET_TYPES[0]],
     on_budget_floor_cents: '0',
     credit_limit_cents: creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[ON_BUDGET_TYPES[0]]),
+    locked_payee_id: null,
     opening_balance_cents: '',
     created_on: pickerDate,
   }
@@ -29,6 +31,10 @@ function emptyCheckForm(pickerDate) {
 export default function Accounts({ pickerDate }) {
   const [accounts, setAccounts] = useState(null)
   const [categories, setCategories] = useState(null)
+  const [payees, setPayees] = useState(null) // not archived at the picker date: the lock picker's choices
+  const [payeesAll, setPayeesAll] = useState(null) // names for a lock on a payee archived since
+  // Bumped when the form resets or loads an account so the payee picker remounts with fresh text.
+  const [formKey, setFormKey] = useState(0)
   const [error, setError] = useState(null)
   const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
@@ -56,6 +62,8 @@ export default function Accounts({ pickerDate }) {
   function refresh() {
     api.accounts.list(pickerDate, showArchived).then(setAccounts).catch((e) => setError(e.message))
     api.categories.list().then(setCategories).catch((e) => setError(e.message))
+    api.payees.list(pickerDate).then(setPayees).catch((e) => setError(e.message))
+    api.payees.list(undefined, true).then(setPayeesAll).catch((e) => setError(e.message))
   }
 
   useEffect(refresh, [pickerDate, showArchived])
@@ -86,15 +94,18 @@ export default function Accounts({ pickerDate }) {
       on_budget: a.on_budget,
       on_budget_floor_cents: String(a.on_budget_floor_cents / 100),
       credit_limit_cents: creditLimitText(a.terms.credit_limit_cents),
+      locked_payee_id: a.locked_payee_id,
       opening_balance_cents: '',
       created_on: a.created_on,
     })
+    setFormKey((k) => k + 1)
     setFormError(null)
   }
 
   function resetForm() {
     setEditingId(null)
     setForm(emptyForm(pickerDate))
+    setFormKey((k) => k + 1)
     setFormError(null)
   }
 
@@ -246,6 +257,7 @@ export default function Accounts({ pickerDate }) {
           type: form.type,
           on_budget: form.on_budget,
           on_budget_floor_cents: floorCents,
+          locked_payee_id: form.locked_payee_id,
           // Keep the account's other terms as they are; only the limit is editable here.
           terms: { ...accounts.find((a) => a.id === editingId).terms, credit_limit_cents: creditLimitCents },
         })
@@ -262,6 +274,7 @@ export default function Accounts({ pickerDate }) {
           on_budget: form.on_budget,
           on_budget_floor_cents: floorCents,
           opening_balance_cents: openingBalanceCents,
+          locked_payee_id: form.locked_payee_id,
           terms: { credit_limit_cents: creditLimitCents },
         })
       }
@@ -272,6 +285,88 @@ export default function Accounts({ pickerDate }) {
     } finally {
       setSaving(false)
     }
+  }
+
+  // Accounts locked to the same payee read as one line with a balance each (DESIGN.md § Payee-locked
+  // accounts). Derived here from the list, at read time: a lone locked account keeps its own row.
+  const rows = []
+  const groups = new Map()
+  for (const a of accounts ?? []) {
+    const shared = a.locked_payee_id != null && accounts.filter((o) => o.locked_payee_id === a.locked_payee_id).length > 1
+    if (!shared) rows.push({ account: a })
+    else if (!groups.has(a.locked_payee_id)) {
+      const row = { payeeId: a.locked_payee_id, group: [] }
+      groups.set(a.locked_payee_id, row)
+      rows.push(row)
+    }
+    if (shared) groups.get(a.locked_payee_id).group.push(a)
+  }
+
+  // A lock on a payee archived since stays visible in the picker, labelled, and saves unchanged
+  // (DESIGN.md § General concepts): archived entities leave pickers but not where they are referenced.
+  const lockedArchived =
+    form.locked_payee_id != null && payees && !payees.some((p) => p.id === form.locked_payee_id)
+      ? payeesAll?.find((p) => p.id === form.locked_payee_id)
+      : null
+  const pickerPayees = lockedArchived ? [...payees, { ...lockedArchived, name: `${lockedArchived.name} (archived)` }] : payees
+
+  function accountNotes(a) {
+    return (
+      <>
+        {a.archived_on && <div className="text-xs text-paper-soft">archived {formatDate(a.archived_on)}</div>}
+        {a.checked_on && (
+          <div className="text-xs text-paper-soft">
+            {VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'} {formatDate(a.checked_on)}
+            {a.entries_added_since_check > 0 &&
+              ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
+            {!a.checked_is_opening && (
+              <>
+                {' — '}
+                <button type="button" className="text-accent underline" onClick={(e) => undoCheck(e, a)}>
+                  Undo check
+                </button>
+              </>
+            )}
+          </div>
+        )}
+        {a.notes.map((note) => (
+          <div key={note} className="text-xs text-bad">{note}</div>
+        ))}
+      </>
+    )
+  }
+
+  function accountActions(a) {
+    return (
+      <>
+        <button
+          type="button"
+          className="text-xs text-accent"
+          onClick={(e) => {
+            e.stopPropagation()
+            startCheck(a)
+          }}
+        >
+          {VALUE_TYPES.includes(a.type) ? 'Update value' : 'Check balance'}
+        </button>
+        {a.archived_on ? (
+          <button type="button" className="text-xs text-accent" onClick={(e) => unarchiveAccount(e, a)}>
+            Unarchive
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="text-xs text-accent"
+            onClick={(e) => {
+              e.stopPropagation()
+              startArchive(a)
+            }}
+          >
+            Archive
+          </button>
+        )}
+      </>
+    )
   }
 
   return (
@@ -300,71 +395,46 @@ export default function Accounts({ pickerDate }) {
               </tr>
             </thead>
             <tbody>
-              {accounts.map((a) => (
-                <tr key={a.id} className="cursor-pointer hover:bg-ink" onClick={() => editAccount(a)}>
-                  <td className="py-1">
-                    {a.name}
-                    {a.archived_on && (
-                      <div className="text-xs text-paper-soft">archived {formatDate(a.archived_on)}</div>
-                    )}
-                    {a.checked_on && (
+              {rows.map((row) =>
+                row.group ? (
+                  <tr key={`payee-${row.payeeId}`}>
+                    <td colSpan={5} className="py-1">
                       <div className="text-xs text-paper-soft">
-                        {VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'} {formatDate(a.checked_on)}
-                        {a.entries_added_since_check > 0 &&
-                          ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
-                        {!a.checked_is_opening && (
-                          <>
-                            {' — '}
-                            <button
-                              type="button"
-                              className="text-accent underline"
-                              onClick={(e) => undoCheck(e, a)}
-                            >
-                              Undo check
-                            </button>
-                          </>
-                        )}
+                        Locked to {payeesAll?.find((p) => p.id === row.payeeId)?.name ?? `#${row.payeeId}`}
                       </div>
-                    )}
-                    {a.notes.map((note) => (
-                      <div key={note} className="text-xs text-bad">{note}</div>
-                    ))}
-                  </td>
-                  <td className="py-1">{a.type}</td>
-                  <td className="py-1">{a.on_budget ? 'On-budget' : 'Tracking'}</td>
-                  <td className={`py-1 text-right ${a.balance_cents < 0 ? 'text-bad' : ''}`}>
-                    {formatCents(a.balance_cents)}
-                  </td>
-                  <td className="py-1 text-right space-x-2">
-                    <button
-                      type="button"
-                      className="text-xs text-accent"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        startCheck(a)
-                      }}
-                    >
-                      {VALUE_TYPES.includes(a.type) ? 'Update value' : 'Check balance'}
-                    </button>
-                    {a.archived_on ? (
-                      <button type="button" className="text-xs text-accent" onClick={(e) => unarchiveAccount(e, a)}>
-                        Unarchive
-                      </button>
-                    ) : (
-                      <button
-                        type="button"
-                        className="text-xs text-accent"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          startArchive(a)
-                        }}
-                      >
-                        Archive
-                      </button>
-                    )}
-                  </td>
-                </tr>
-              ))}
+                      {row.group.map((a) => (
+                        <div
+                          key={a.id}
+                          className="flex flex-wrap items-start justify-between gap-2 cursor-pointer hover:bg-ink"
+                          onClick={() => editAccount(a)}
+                        >
+                          <div>
+                            {a.name}
+                            {accountNotes(a)}
+                          </div>
+                          <div className="flex items-center gap-3">
+                            <span className={a.balance_cents < 0 ? 'text-bad' : ''}>{formatCents(a.balance_cents)}</span>
+                            <span className="space-x-2">{accountActions(a)}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </td>
+                  </tr>
+                ) : (
+                  <tr key={row.account.id} className="cursor-pointer hover:bg-ink" onClick={() => editAccount(row.account)}>
+                    <td className="py-1">
+                      {row.account.name}
+                      {accountNotes(row.account)}
+                    </td>
+                    <td className="py-1">{row.account.type}</td>
+                    <td className="py-1">{row.account.on_budget ? 'On-budget' : 'Tracking'}</td>
+                    <td className={`py-1 text-right ${row.account.balance_cents < 0 ? 'text-bad' : ''}`}>
+                      {formatCents(row.account.balance_cents)}
+                    </td>
+                    <td className="py-1 text-right space-x-2">{accountActions(row.account)}</td>
+                  </tr>
+                ),
+              )}
             </tbody>
           </table>
         )}
@@ -574,6 +644,17 @@ export default function Accounts({ pickerDate }) {
               value={form.credit_limit_cents}
               onChange={(e) => updateField('credit_limit_cents', e.target.value)}
               placeholder="0.00"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-sm">Locked to a payee (optional — a gift card or store credit only spends there)</span>
+            <PayeePicker
+              key={formKey}
+              payees={pickerPayees}
+              payeeId={form.locked_payee_id}
+              onSelect={(id) => updateField('locked_payee_id', id)}
+              onError={setFormError}
             />
           </label>
 
