@@ -569,3 +569,60 @@ class GoalProgressOut(BaseModel):
     last_paid_due_on: date | None = None
     last_paid_cents: int | None = None
     last_paid_text: str | None = None
+
+
+class SplitMemberIn(BaseModel):
+    """One other person in a split. No `account_id` means their account: the one they already
+    have from another split, else a new on-budget account named after them.
+    """
+
+    payee_id: int
+    account_id: int | None = None
+    percent: Decimal
+
+
+class SplitCreate(BaseModel):
+    name: str = Field(min_length=1)
+    description: str | None = None
+    created_on: date
+    members: list[SplitMemberIn] = []
+
+
+class SplitUpdate(BaseModel):
+    name: str = Field(min_length=1)
+    description: str | None = None
+    # The picker date: when a member added or removed by this edit joins or leaves.
+    as_of: date
+    members: list[SplitMemberIn] = []
+
+
+def _percent_as_string(value: Decimal) -> str:
+    """Percents leave the API as exact strings at the column's four places ("33.3333")."""
+    return format(value.quantize(Decimal("0.0001")), "f")
+
+
+class SplitMemberOut(BaseModel):
+    id: int
+    payee_id: int
+    payee_name: str
+    account_id: int
+    account_name: str
+    percent: Decimal
+
+    @field_serializer("percent")
+    def _percent(self, value: Decimal) -> str:
+        return _percent_as_string(value)
+
+
+class SplitOut(BaseModel):
+    id: int
+    name: str
+    description: str | None
+    created_on: date
+    archived_on: date | None
+    members: list[SplitMemberOut]
+    my_share_percent: Decimal
+
+    @field_serializer("my_share_percent")
+    def _my_share(self, value: Decimal) -> str:
+        return _percent_as_string(value)

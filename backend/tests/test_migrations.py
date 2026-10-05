@@ -298,6 +298,29 @@ def _assert_a2b7d9e41c36(session):
     assert session.get(Transaction, 1).payee_id == 1
 
 
+def _assert_b3c8e1f47a52(session):
+    from app.models import Account, AccountLine, Payee, Split, SplitMember
+
+    assert session.query(Split).count() == 0  # the tables this revision adds, empty
+    assert session.query(SplitMember).count() == 0
+    assert session.get(Payee, 1).name == "Roommate"
+    assert session.get(Account, 3).locked_payee_id == 1
+    assert session.get(Account, 2).archived_on == datetime.date(2026, 6, 1)
+    assert session.get(AccountLine, 1).cents == 50000
+    assert session.get(Transaction, 1).payee_id == 1
+
+    # The new tables take rows against the migrated schema.
+    split = Split(name="Rent", created_on=datetime.date(2026, 2, 1))
+    session.add(split)
+    session.flush()
+    session.add(SplitMember(
+        split_id=split.id, payee_id=1, account_id=3, percent=50, created_on=datetime.date(2026, 2, 1),
+    ))
+    session.flush()
+    assert session.query(SplitMember).one().percent == 50
+    session.rollback()
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -322,6 +345,7 @@ ASSERTIONS = {
     "e9c3a7d15b84": _assert_e9c3a7d15b84,
     "f1a6c2e84d97": _assert_f1a6c2e84d97,
     "a2b7d9e41c36": _assert_a2b7d9e41c36,
+    "b3c8e1f47a52": _assert_b3c8e1f47a52,
 }
 
 

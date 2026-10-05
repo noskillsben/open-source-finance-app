@@ -11,6 +11,7 @@ const GROUPS = [
       { label: 'Categories', to: '/categories' },
       { label: 'Accounts', to: '/accounts' },
       { label: 'Payees', to: '/payees' },
+      { label: 'Splits', to: '/splits' },
       { label: 'Domains', to: '/domains' },
     ],
   },

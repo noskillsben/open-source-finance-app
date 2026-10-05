@@ -132,6 +132,55 @@ class Category(Base, Owned, NonLedger):
     )
 
 
+class Split(Base, Owned, NonLedger):
+    """A rule for sharing costs with other people (DESIGN.md § Splits). I am never a member:
+    my share is whatever the members leave. Nothing reads the rule yet but its own page.
+    """
+
+    __tablename__ = "split"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(String, nullable=True)
+
+    members: Mapped[list["SplitMember"]] = relationship(back_populates="split", order_by="SplitMember.id")
+
+    __table_args__ = (
+        Index(
+            "ix_split_owner_lower_name", "owner_id", func.lower(name),
+            unique=True, postgresql_where=text("archived_on IS NULL"),
+        ),
+        _seeded_key_index("split"),
+    )
+
+
+class SplitMember(Base, Owned, NonLedger):
+    """One other person in a split: their payee, the on-budget account holding their running
+    balance (one person, one account across splits), and their percent — stored at four
+    decimal places, `Numeric(7, 4)`, rounded half-even.
+    """
+
+    __tablename__ = "split_member"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    split_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("split.id"), nullable=False, index=True)
+    payee_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("payee.id"), nullable=False, index=True)
+    account_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("account.id"), nullable=False, index=True)
+    percent: Mapped[Decimal] = mapped_column(Numeric(7, 4), nullable=False)
+
+    split: Mapped["Split"] = relationship(back_populates="members")
+    payee: Mapped["Payee"] = relationship()
+    account: Mapped["Account"] = relationship()
+
+    __table_args__ = (
+        Index(
+            "ix_split_member_split_payee", "split_id", "payee_id",
+            unique=True, postgresql_where=text("archived_on IS NULL"),
+        ),
+        _seeded_key_index("split_member"),
+    )
+
+
 class CategoryAccountLink(Base, Owned):
     """Where a category's money physically lives (DESIGN.md § Accounts → Linked categories).
     A pure join, so no `NonLedger` mixin: archiving either side just removes its rows. The
