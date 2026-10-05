@@ -332,6 +332,12 @@ class Transaction(Base, Owned):
     # bill) — stated by the user, never inferred, and set together or not at all.
     goal_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("goal.id"), nullable=True, index=True)
     goal_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    # Which split the form used and who paid (DESIGN.md § Splits): provenance only. The lines
+    # are ordinary lines the form worked out; nothing here regenerates them.
+    split_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("split.id"), nullable=True, index=True)
+    paid_by_payee_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("payee.id"), nullable=True, index=True
+    )
 
     valuation: Mapped["Valuation | None"] = relationship()
     account_lines: Mapped[list["AccountLine"]] = relationship(

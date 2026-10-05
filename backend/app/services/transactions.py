@@ -9,10 +9,11 @@ from datetime import date
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Account, AccountLine, Category, CategoryAccountLink, CategoryLine, EarmarkLine, Goal, Payee, Transaction
+from app.models import Account, AccountLine, Category, CategoryAccountLink, CategoryLine, EarmarkLine, Goal, Payee, Split, SplitMember, Transaction
 from app.services.accounts import backfill_opening_balance
 from app.services.categories import category_balance_cents, pool_chain
 from app.services.goals import is_bill_due_date
+from app.seed import is_me
 from app.services.links import linked_category_ids
 
 
@@ -243,6 +244,31 @@ def _check_bill_link(session: Session, goal_id: int | None, goal_due_on: date | 
         raise TransactionError(f"{goal_due_on} is not one of {goal.name!r}'s due dates.")
 
 
+def _check_split(session: Session, split_id: int | None, paid_by_payee_id: int | None) -> None:
+    """The shape of a shared bill (DESIGN.md § Splits): the split exists, and Paid by is Me or a
+    member of that split. Paid by without a split is refused. Only the shape is checked — the
+    lines are the form's arithmetic and are stored as given, never generated here.
+    """
+    if split_id is None:
+        if paid_by_payee_id is not None:
+            raise TransactionError("Paid by only applies to a shared bill: choose a split, or leave Paid by empty.")
+        return
+    if session.get(Split, split_id) is None:
+        raise TransactionError(f"Unknown split id: {split_id}")
+    if paid_by_payee_id is None:
+        raise TransactionError("A shared bill needs Paid by: choose Me or one of the split's people.")
+    payee = session.get(Payee, paid_by_payee_id)
+    if payee is None:
+        raise TransactionError(f"Unknown payee id: {paid_by_payee_id}")
+    if is_me(payee):
+        return
+    member = session.scalars(
+        select(SplitMember.id).where(SplitMember.split_id == split_id, SplitMember.payee_id == paid_by_payee_id).limit(1)
+    ).first()
+    if member is None:
+        raise TransactionError(f"{payee.name} is not in that split, so they can't be Paid by.")
+
+
 def write_transaction(
     session: Session,
     *,
@@ -256,6 +282,8 @@ def write_transaction(
     income_stream_id: int | None = None,
     goal_id: int | None = None,
     goal_due_on: date | None = None,
+    split_id: int | None = None,
+    paid_by_payee_id: int | None = None,
     deposits: list[dict] | None = None,
 ) -> Transaction:
     """Create (transaction=None) or edit (transaction=existing row) a transaction: recompute
@@ -272,6 +300,8 @@ def write_transaction(
     never reassigned on an edit. `goal_id` and `goal_due_on` (the bill this paid and which of its
     due dates, DESIGN.md § Goals → Paying a bill) are the user's statement and so are replaced
     on every write, an edit included; a caller that doesn't mean to change them passes them back.
+    So are `split_id` and `paid_by_payee_id` (DESIGN.md § Splits): provenance the form states, whose
+    lines arrive as ordinary lines — the service only checks the shape (`_check_split`).
     """
     if not account_lines:
         raise TransactionError("A transaction needs at least one account line.")
@@ -281,6 +311,7 @@ def write_transaction(
         raise TransactionError(f"Unknown payee id: {payee_id}")
 
     _check_bill_link(session, goal_id, goal_due_on)
+    _check_split(session, split_id, paid_by_payee_id)
 
     exclude_id = transaction.id if transaction is not None else None
 
@@ -296,6 +327,7 @@ def write_transaction(
             date=txn_date, memo=memo, payee_id=payee_id,
             valuation_id=valuation_id, income_stream_id=income_stream_id,
             goal_id=goal_id, goal_due_on=goal_due_on,
+            split_id=split_id, paid_by_payee_id=paid_by_payee_id,
         )
         session.add(transaction)
     else:
@@ -304,6 +336,8 @@ def write_transaction(
         transaction.payee_id = payee_id
         transaction.goal_id = goal_id
         transaction.goal_due_on = goal_due_on
+        transaction.split_id = split_id
+        transaction.paid_by_payee_id = paid_by_payee_id
         transaction.account_lines.clear()
         transaction.category_lines.clear()
         clear_generated_earmarks(session, transaction.id, keep_deposits=deposits is None)

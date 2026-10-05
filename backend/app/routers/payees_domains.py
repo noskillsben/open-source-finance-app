@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 from app.db import get_session
 from app.models import Domain, Payee
 from app.schemas import ArchiveIn, ArchiveOut, DomainCreate, DomainOut, DomainUpdate, PayeeCreate, PayeeOut
-from app.seed import guard_not_me
+from app.seed import guard_not_me, is_me
 from app.services.archiving import Archivable, ArchiveError, _visible, archive, unarchive
 from app.services.payees import payee_latest_ledger_date
 
@@ -90,7 +90,7 @@ def list_payees(
         select(Payee).where(_visible(Payee, as_of, include_archived)).order_by(Payee.name)
     ).all()
     return [
-        PayeeOut(id=p.id, name=p.name, created_on=p.created_on, archived_on=p.archived_on)
+        PayeeOut(id=p.id, name=p.name, created_on=p.created_on, archived_on=p.archived_on, is_me=is_me(p))
         for p in payees
     ]
 
