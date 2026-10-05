@@ -35,7 +35,7 @@ Work on a branch named `issue-N-<short-slug>`, push it, and open the pull reques
 **Backend**
 - Pydantic models are the API shape; SQLAlchemy models are the stored shape. Never persist a Pydantic model; never return an ORM object from a router.
 - All data access through the per-request session (`app/db.py`); no raw SQL or file I/O in a router. Commit on normal return, roll back on any exception; validate everything, then persist.
-- Create and edit share one write path. Lines a rule generates (splits, pool draws, deposit moves) are regenerated on edit, never hand-edited.
+- Create and edit share one write path. Lines a rule generates (pool draws, deposit moves) are regenerated on edit, never hand-edited. A split's lines are not generated: the form works them out and the backend stores them as ordinary lines (DESIGN.md § Splits).
 - Every table has `owner_id` (default 1 in single-user mode), `created_at`, `updated_at`. Enums are plain strings. Every FK column is indexed. The DB enforces only what the service already enforces with a matching 4xx.
 - Every schema change is an Alembic revision. Migrations run at container start behind an automatic `pg_dump`; the app refuses to start if the database is newer than the code. Test fixtures live under `backend/tests/fixtures/`, never in runtime data.
 - **A column ships with its surface.** A new column lands in the revision of the issue that gives it a form control, a display, or a rule that reads it — never earlier, and never as a bare nullable placeholder for a later epic. A column no surface touches is deleted, not kept (DESIGN.md decision log, 2026-09-21). Two exceptions: the `NonLedger` mixin, born with every non-ledger table, and the grandfathered debt terms block.
