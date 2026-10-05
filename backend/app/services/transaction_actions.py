@@ -29,6 +29,8 @@ def re_save_transaction(session: Session, transaction: Transaction) -> Transacti
         payee_id=transaction.payee_id,
         goal_id=transaction.goal_id,
         goal_due_on=transaction.goal_due_on,
+        split_id=transaction.split_id,
+        paid_by_payee_id=transaction.paid_by_payee_id,
         account_lines=account_lines,
         category_lines=category_lines,
     )

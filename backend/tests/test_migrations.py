@@ -321,6 +321,23 @@ def _assert_b3c8e1f47a52(session):
     session.rollback()
 
 
+def _assert_c7d1f9a28e43(session):
+    from app.models import AccountLine, Split, SplitMember
+
+    txn = session.get(Transaction, 1)
+    assert (txn.split_id, txn.paid_by_payee_id) == (None, None)  # the columns this revision adds, left null
+    assert (txn.memo, txn.payee_id) == ("Electricity", 1)
+    assert [l.cents for l in session.query(AccountLine).order_by(AccountLine.id)] == [-10000, 5000]
+    assert session.get(Split, 1).name == "Household"
+    assert session.get(SplitMember, 1).percent == 50
+
+    # The new columns take a split and a payer against the migrated schema.
+    txn.split_id, txn.paid_by_payee_id = 1, 1
+    session.flush()
+    assert session.get(Transaction, 1).split_id == 1
+    session.rollback()
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -346,6 +363,7 @@ ASSERTIONS = {
     "f1a6c2e84d97": _assert_f1a6c2e84d97,
     "a2b7d9e41c36": _assert_a2b7d9e41c36,
     "b3c8e1f47a52": _assert_b3c8e1f47a52,
+    "c7d1f9a28e43": _assert_c7d1f9a28e43,
 }
 
 

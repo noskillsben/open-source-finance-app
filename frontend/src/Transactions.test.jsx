@@ -9,6 +9,7 @@ let existingPayees = []
 
 const calls = vi.hoisted(() => ({
   create: vi.fn(),
+  update: vi.fn(),
   payeeCreate: vi.fn(),
   dueDates: vi.fn(),
   lastPayment: vi.fn(),
@@ -20,6 +21,13 @@ const calls = vi.hoisted(() => ({
 const ACCOUNTS = [
   { id: 1, name: 'Chequing', linked_category_ids: [] },
   { id: 2, name: 'Starbucks card', linked_category_ids: [], locked_payee_id: 7 },
+  { id: 3, name: 'Roommate', linked_category_ids: [] },
+]
+const SPLITS = [
+  {
+    id: 5, name: 'Household', archived_on: null, my_share_percent: '50.0000',
+    members: [{ id: 1, payee_id: 20, payee_name: 'Roommate', account_id: 3, account_name: 'Roommate', percent: '50.0000' }],
+  },
 ]
 const CATEGORIES = [
   { id: 10, name: 'Groceries', archived_on: null },
@@ -38,12 +46,13 @@ const DUE_DATES = [
 vi.mock('./api.js', () => ({
   api: {
     accounts: { list: () => Promise.resolve(ACCOUNTS) },
+    splits: { list: () => Promise.resolve(SPLITS) },
     categories: { list: () => Promise.resolve(CATEGORIES), create: vi.fn() },
     payees: { list: () => Promise.resolve(existingPayees), create: calls.payeeCreate },
     transactions: {
       list: () => Promise.resolve(existingTransactions),
       create: calls.create,
-      update: vi.fn(),
+      update: calls.update,
       remove: calls.remove,
     },
     goals: {
@@ -81,6 +90,8 @@ beforeEach(() => {
   existingPayees = []
   calls.payeeCreate.mockReset()
   calls.create.mockReset()
+  calls.update.mockReset()
+  calls.update.mockResolvedValue({ notes: [] })
   calls.create.mockResolvedValue({ notes: [] })
   calls.dueDates.mockReset()
   calls.dueDates.mockResolvedValue(DUE_DATES)
@@ -478,5 +489,124 @@ describe('Ledger form: an outflow from a payee-locked account', () => {
     fillLockedLine('-5')
 
     expect(box).toHaveValue('')
+  })
+})
+
+describe('Ledger form: a shared bill on a split', () => {
+  const ME = { id: 1, name: 'Me', is_me: true }
+  const ROOMMATE = { id: 20, name: 'Roommate', is_me: false }
+  const SAVED = {
+    id: 9, date: '2026-10-03', memo: 'Hydro', payee_id: null, valuation_id: null, income_stream_id: null,
+    goal_id: null, goal_due_on: null, split_id: 5, paid_by_payee_id: 1, deposits: [],
+    account_lines: [
+      { id: 1, account_id: 1, cents: -10000, budget_cents: -10000 },
+      { id: 2, account_id: 3, cents: 4000, budget_cents: 4000 }, // a one-off 60/40
+    ],
+    category_lines: [{ id: 1, category_id: 10, cents: -6000, need_level: null }],
+  }
+  const pickSplit = async () => {
+    const select = await screen.findByLabelText('Split')
+    await screen.findByRole('option', { name: 'Household' })
+    fireEvent.change(select, { target: { value: '5' } })
+  }
+  const amounts = () => screen.getAllByPlaceholderText('0.00').map((i) => i.value)
+  const save = () => fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
+
+  beforeEach(() => {
+    existingPayees = [ME, ROOMMATE]
+  })
+
+  it('hides Paid by with no split, and fills the lines from the percentages when one is chosen', async () => {
+    renderLedger()
+    await screen.findByLabelText('Split')
+    expect(screen.queryByLabelText('Paid by')).not.toBeInTheDocument()
+
+    await addCategoryLine('Groceries')
+    fillAccountLine('-100')
+    await pickSplit()
+    expect(screen.getByLabelText('Bill total')).toHaveValue('100') // taken from the account line
+
+    expect(screen.getByLabelText('Paid by')).toHaveValue('1') // Me
+    expect(amounts().slice(1, 4)).toEqual(['-100', '50', '-50']) // I pay, Roommate owes, my share is the category
+  })
+
+  it('always sends Paid by with a split, Me included', async () => {
+    renderLedger()
+    await pickSplit()
+    await addCategoryLine('Groceries')
+    fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '100' } })
+    save()
+
+    await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    expect(calls.create.mock.calls[0][0]).toMatchObject({ split_id: 5, paid_by_payee_id: 1 })
+  })
+
+  it('sends no split and no Paid by on an ordinary transaction', async () => {
+    renderLedger()
+    await addCategoryLine('Groceries')
+    fillAccountLine('-10')
+    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '-10' } })
+    save()
+
+    await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    expect(calls.create.mock.calls[0][0]).toMatchObject({ split_id: null, paid_by_payee_id: null })
+  })
+
+  it('writes no line on my accounts when someone else paid', async () => {
+    renderLedger()
+    await pickSplit()
+    await addCategoryLine('Groceries')
+    fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '100' } })
+    fireEvent.change(screen.getByLabelText('Paid by'), { target: { value: '20' } })
+
+    expect(amounts().slice(1, 3)).toEqual(['-50', '-50'])
+    const accountValues = screen.getAllByRole('combobox').map((s) => s.value)
+    expect(accountValues).toContain('3') // the roommate's receivable
+    expect(accountValues).not.toContain('1') // never Chequing
+  })
+
+  it('editing the total rescales by the proportions on the saved bill, not by the split', async () => {
+    existingTransactions = [SAVED]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Hydro'))
+    await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('100'))
+
+    fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '200' } })
+
+    expect(amounts().slice(1, 4)).toEqual(['-200', '80', '-120'])
+  })
+
+  it('leaves a saved bill alone when its proportions cannot be read, such as a member since removed', async () => {
+    existingTransactions = [{
+      ...SAVED,
+      // Sam has been taken out of the split since: their receivable (account 4) is no longer a member account.
+      account_lines: [
+        { id: 1, account_id: 1, cents: -10000, budget_cents: -10000 },
+        { id: 2, account_id: 3, cents: 4000, budget_cents: 4000 },
+        { id: 3, account_id: 4, cents: 2000, budget_cents: 2000 },
+      ],
+      category_lines: [{ id: 1, category_id: 10, cents: -4000, need_level: null }],
+    }]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Hydro'))
+    const total = await screen.findByLabelText('Bill total')
+    expect(total).toHaveAttribute('readonly')
+    expect(screen.getByText(/no longer matches its split/)).toBeInTheDocument()
+    const before = amounts()
+
+    fireEvent.change(total, { target: { value: '200' } })
+    fireEvent.change(screen.getByLabelText('Paid by'), { target: { value: '20' } })
+
+    expect(amounts()).toEqual(before) // the lines, Sam's balance line included, are untouched
+    save()
+    await waitFor(() => expect(calls.update).toHaveBeenCalled())
+    expect(calls.update.mock.calls[0][1].account_lines).toHaveLength(3)
+  })
+
+  it('shows the split on the ledger row', async () => {
+    existingTransactions = [SAVED]
+    renderLedger()
+
+    expect(await screen.findByText('Split: Household')).toBeInTheDocument()
   })
 })

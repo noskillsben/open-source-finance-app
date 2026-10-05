@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 import PayeePicker from './PayeePicker.jsx'
+import { basisFromSplit, basisFromTransaction, linesFromBasis, scaleBasis } from './sharedBill.js'
 
 const emptyLine = { account_id: '', cents: '' }
 const emptyCategoryLine = { category_id: '', cents: '' }
@@ -23,6 +24,7 @@ export default function Transactions({ pickerDate }) {
   const [categoriesAll, setCategoriesAll] = useState(null)
   const [payeesAll, setPayeesAll] = useState(null)
   const [goalsAll, setGoalsAll] = useState(null)
+  const [splitsAll, setSplitsAll] = useState(null)
 
   const [date, setDate] = useState(pickerDate)
   const [memo, setMemo] = useState('')
@@ -36,6 +38,17 @@ export default function Transactions({ pickerDate }) {
   const [billLink, setBillLink] = useState(null)
   const [declinedBills, setDeclinedBills] = useState([])
   const [billDueDates, setBillDueDates] = useState(null)
+  // A shared bill (DESIGN.md § Splits): the split chosen, who paid, the bill total, and the
+  // unsigned breakdown the lines were last worked out from (null until there is a total).
+  const [splitId, setSplitId] = useState('')
+  const [paidById, setPaidById] = useState(null)
+  const [billTotal, setBillTotal] = useState('')
+  const [shareBasis, setShareBasis] = useState(null)
+  // A saved shared bill whose proportions cannot be read back: its lines are left for hand
+  // editing and the total is read-only. Never worked out again from the split's percentages.
+  const [totalLocked, setTotalLocked] = useState(false)
+  // My paying account and the category, kept across Paid by changes.
+  const ownPicks = useRef({ account_id: '', category_id: '' })
   const [newCategoryName, setNewCategoryName] = useState('')
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
@@ -54,6 +67,7 @@ export default function Transactions({ pickerDate }) {
     api.categories.list(undefined, true).then(setCategoriesAll).catch((e) => setError(e.message))
     api.payees.list(undefined, true).then(setPayeesAll).catch((e) => setError(e.message))
     api.goals.list(pickerDate, true, true).then(setGoalsAll).catch((e) => setError(e.message))
+    api.splits.list(undefined, true).then(setSplitsAll).catch((e) => setError(e.message))
   }
 
   async function addPayee(name) {
@@ -117,7 +131,70 @@ export default function Transactions({ pickerDate }) {
     setDeposits((rows) => rows.map((d, idx) => (idx === i ? { ...d, [field]: value } : d)))
   }
 
+  const mePayeeId = payees?.find((p) => p.is_me)?.id ?? null
+  const chosenSplit = splitId ? splitsAll?.find((s) => String(s.id) === splitId) : null
+
+  // Work the lines out from a breakdown (DESIGN.md § Splits). Every amount stays editable.
+  function fillShared(split, basis, sign, payerId) {
+    const memberAccountIds = new Set(split.members.map((m) => m.account_id))
+    const ownLine = accountLines.find((l) => l.account_id && !memberAccountIds.has(Number(l.account_id)))
+    if (ownLine) ownPicks.current.account_id = ownLine.account_id
+    const categoryLine = categoryLines.find((l) => l.category_id)
+    if (categoryLine) ownPicks.current.category_id = categoryLine.category_id
+    const payerMember = split.members.find((m) => m.payee_id === payerId)
+    const { accountLines: lines, categoryLines: cats } = linesFromBasis(basis, {
+      sign,
+      payerIsMe: payerId === mePayeeId,
+      payerAccountId: ownPicks.current.account_id,
+      payerMemberAccountId: payerMember?.account_id,
+      categoryId: ownPicks.current.category_id,
+    })
+    setShareBasis(basis)
+    setAccountLines(lines.map((l) => ({ account_id: String(l.account_id ?? ''), cents: String(l.cents / 100) })))
+    setCategoryLines(cats.map((l) => ({ category_id: String(l.category_id ?? ''), cents: String(l.cents / 100) })))
+  }
+
+  function chooseSplit(id) {
+    setSplitId(id)
+    setTotalLocked(false)
+    setShareBasis(null)
+    if (!id) {
+      setPaidById(null)
+      setBillTotal('')
+      return
+    }
+    setPaidById(mePayeeId)
+    // A total already typed on an account line becomes the bill total.
+    const typed = accountLines.map((l) => parseCents(l.cents)).find((c) => c !== null && c !== 0)
+    setBillTotal(typed == null ? '' : String(Math.abs(typed) / 100))
+    if (typed == null) return
+    const split = splitsAll.find((s) => String(s.id) === id)
+    fillShared(split, basisFromSplit(Math.abs(typed), split), typed < 0 ? 1 : -1, mePayeeId)
+  }
+
+  function changeBillTotal(text) {
+    if (totalLocked) return
+    setBillTotal(text)
+    const cents = parseCents(text)
+    if (totalLocked || !chosenSplit || cents === null || cents === 0) return
+    const total = Math.abs(cents)
+    const basis = (shareBasis && scaleBasis(shareBasis, total)) || basisFromSplit(total, chosenSplit)
+    fillShared(chosenSplit, basis, cents < 0 ? -1 : 1, paidById)
+  }
+
+  function changePaidBy(payeeId) {
+    setPaidById(payeeId)
+    if (!chosenSplit || !shareBasis) return
+    fillShared(chosenSplit, shareBasis, (parseCents(billTotal) ?? 0) < 0 ? -1 : 1, payeeId)
+  }
+
   function resetForm() {
+    setSplitId('')
+    setTotalLocked(false)
+    setPaidById(null)
+    setBillTotal('')
+    setShareBasis(null)
+    ownPicks.current = { account_id: '', category_id: '' }
     setEditingId(null)
     setDate(pickerDate)
     setMemo('')
@@ -158,6 +235,19 @@ export default function Transactions({ pickerDate }) {
     setBillLink(t.goal_id != null ? { goal_id: t.goal_id, goal_due_on: t.goal_due_on } : null)
     setDeclinedBills([])
     setFormError(null)
+    // A saved shared bill reads its own proportions back, so a new total rescales by them.
+    const split = t.split_id != null ? splitsAll?.find((s) => s.id === t.split_id) : null
+    const saved = split ? basisFromTransaction(t, split, mePayeeId) : null
+    setSplitId(t.split_id != null ? String(t.split_id) : '')
+    setPaidById(t.paid_by_payee_id)
+    setShareBasis(saved?.basis ?? null)
+    setTotalLocked(t.split_id != null && !saved)
+    setBillTotal(saved ? String((saved.sign * saved.basis.total) / 100) : '')
+    const ownLine = split && t.account_lines.find((l) => !split.members.some((m) => m.account_id === l.account_id))
+    ownPicks.current = {
+      account_id: ownLine ? String(ownLine.account_id) : '',
+      category_id: t.category_lines[0] ? String(t.category_lines[0].category_id) : '',
+    }
   }
 
   async function openDeleteConfirm() {
@@ -241,6 +331,11 @@ export default function Transactions({ pickerDate }) {
     if (!match) return fallback
     return match.archived_on ? `${match.name} (archived)` : match.name
   }
+  function splitLabel(id) {
+    const match = splitsAll?.find((s) => s.id === id)
+    if (!match) return `split #${id}`
+    return match.archived_on ? `${match.name} (archived)` : match.name
+  }
   function billLabel(goalId) {
     const match = goalsAll?.find((g) => g.goal.id === goalId)
     if (!match) return `bill #${goalId}`
@@ -284,12 +379,16 @@ export default function Transactions({ pickerDate }) {
       }
     }
 
+    if (splitId && paidById == null) return setFormError('Choose who paid.')
+
     const body = {
       date,
       memo: memo.trim() || null,
       payee_id: payeeId,
       goal_id: billLink?.goal_id ?? null,
       goal_due_on: billLink?.goal_due_on ?? null,
+      split_id: splitId ? Number(splitId) : null,
+      paid_by_payee_id: splitId ? paidById : null,
       account_lines: parsedAccountLines,
       category_lines: parsedCategoryLines,
       deposits: parsedDeposits,
@@ -365,6 +464,9 @@ export default function Transactions({ pickerDate }) {
                         {entityLabel(categoriesAll, l.category_id, `#${l.category_id}`)}: {formatCents(l.cents)}
                       </div>
                     ))}
+                    {t.split_id != null && (
+                      <div className="text-xs text-paper-soft">Split: {splitLabel(t.split_id)}</div>
+                    )}
                     {t.goal_id != null && (
                       <div className="text-xs text-paper-soft">
                         pays {billLabel(t.goal_id)}, due {formatDate(t.goal_due_on)}
@@ -420,6 +522,63 @@ export default function Transactions({ pickerDate }) {
               onError={setFormError}
             />
           </label>
+
+          <div className="space-y-2">
+            <label className="block space-y-1">
+              <span className="text-sm">Split (a shared bill — optional)</span>
+              <select
+                className="w-full rounded bg-ink px-2 py-1"
+                aria-label="Split"
+                value={splitId}
+                onChange={(e) => chooseSplit(e.target.value)}
+              >
+                <option value="">No split</option>
+                {splitsAll
+                  ?.filter((s) => !s.archived_on || String(s.id) === splitId)
+                  .map((s) => (
+                    <option key={s.id} value={s.id}>{s.name}{s.archived_on ? ' (archived)' : ''}</option>
+                  ))}
+              </select>
+            </label>
+            {chosenSplit && (
+              <div className="flex flex-wrap gap-2">
+                <label className="space-y-1">
+                  <span className="text-sm">Bill total</span>
+                  <input
+                    inputMode="decimal"
+                    placeholder="0.00"
+                    aria-label="Bill total"
+                    className="block w-28 rounded bg-ink px-2 py-1"
+                    value={billTotal}
+                    readOnly={totalLocked}
+                    onChange={(e) => changeBillTotal(e.target.value)}
+                  />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-sm">Paid by</span>
+                  <select
+                    className="block rounded bg-ink px-2 py-1"
+                    aria-label="Paid by"
+                    value={paidById ?? ''}
+                    onChange={(e) => changePaidBy(Number(e.target.value))}
+                  >
+                    {mePayeeId != null && <option value={mePayeeId}>Me</option>}
+                    {chosenSplit.members.map((m) => (
+                      <option key={m.payee_id} value={m.payee_id}>{m.payee_name}</option>
+                    ))}
+                  </select>
+                </label>
+                {totalLocked && (
+                  <p className="basis-full text-xs text-paper-soft">
+                    This bill no longer matches its split, so change the amounts below by hand.
+                  </p>
+                )}
+                <p className="basis-full text-xs text-paper-soft">
+                  Only your share is spending. Every amount below can still be changed before you save.
+                </p>
+              </div>
+            )}
+          </div>
 
           <div className="space-y-2">
             <span className="text-sm">Account lines (which accounts this touched)</span>

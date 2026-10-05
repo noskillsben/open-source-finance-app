@@ -264,6 +264,7 @@ class PayeeOut(BaseModel):
     name: str
     created_on: date
     archived_on: date | None
+    is_me: bool = False
 
     model_config = {"from_attributes": True}
 
@@ -314,6 +315,8 @@ class TransactionCreate(BaseModel):
     income_stream_id: int | None = None
     goal_id: int | None = None
     goal_due_on: date | None = None
+    split_id: int | None = None
+    paid_by_payee_id: int | None = None
     account_lines: list[AccountLineIn] = Field(min_length=1)
     category_lines: list[CategoryLineIn] = []
     # Omitted or empty: "already earmarked" — no deposit lines (DESIGN.md § Linked categories).
@@ -336,6 +339,8 @@ class TransactionOut(BaseModel):
     income_stream_id: int | None
     goal_id: int | None
     goal_due_on: date | None
+    split_id: int | None
+    paid_by_payee_id: int | None
     account_lines: list[AccountLineOut]
     category_lines: list[CategoryLineOut]
     deposits: list[DepositIn] = []
