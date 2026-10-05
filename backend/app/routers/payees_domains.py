@@ -7,10 +7,10 @@ from sqlalchemy.orm import Session
 
 from app.db import get_session
 from app.models import Domain, Payee
-from app.schemas import ArchiveIn, ArchiveOut, DomainCreate, DomainOut, DomainUpdate, PayeeCreate, PayeeOut
+from app.schemas import ArchiveIn, ArchiveOut, DomainCreate, DomainOut, DomainUpdate, PayeeCreate, PayeeFillOut, PayeeOut
 from app.seed import guard_not_me, is_me
 from app.services.archiving import Archivable, ArchiveError, _visible, archive, unarchive
-from app.services.payees import payee_latest_ledger_date
+from app.services.payees import payee_fill, payee_latest_ledger_date
 
 router = APIRouter()
 
@@ -104,6 +104,16 @@ def create_payee(payload: PayeeCreate, session: Session = Depends(get_session)) 
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"A payee named {payload.name!r} already exists.")
     return PayeeOut(id=payee.id, name=payee.name, created_on=payee.created_on, archived_on=payee.archived_on)
+
+
+@router.get("/api/payees/{payee_id}/fill", response_model=PayeeFillOut)
+def get_payee_fill(payee_id: int, as_of: date, session: Session = Depends(get_session)) -> PayeeFillOut:
+    """The category, account and split the Ledger form fills in when this payee is picked,
+    read from their last transaction as of the picker date (DESIGN.md § Payees); nothing is stored."""
+    if session.get(Payee, payee_id) is None:
+        raise HTTPException(status_code=404, detail=f"No payee with id {payee_id}.")
+    fill = payee_fill(session, payee_id, as_of=as_of)
+    return PayeeFillOut(category_id=fill.category_id, account_id=fill.account_id, split_id=fill.split_id)
 
 
 @router.post("/api/payees/{payee_id}/archive", response_model=ArchiveOut)
