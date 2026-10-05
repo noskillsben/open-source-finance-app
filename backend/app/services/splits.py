@@ -18,7 +18,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.models import Account, Payee, Split, SplitMember
+from app.models import Account, AccountLine, Payee, Split, SplitMember, Transaction
 from app.schemas import SplitMemberIn
 from app.seed import is_me
 from app.services.accounts import create_account_with_opening_valuation
@@ -229,3 +229,41 @@ def shown_members(split: Split, as_of: date | None) -> list[SplitMember]:
         if (live or went_with_split) and (as_of is None or m.created_on <= as_of):
             shown.append(m)
     return shown
+
+
+def balance_since_zero(session: Session, account_id: int, as_of: date | None) -> tuple[int, list[Transaction]]:
+    """A member account's balance at `as_of` and the transactions that built it: those since the
+    balance last stood at zero (DESIGN.md § Splits → The Splits page). Read time only, nothing
+    stored, nothing marks a settle-up. The balance is an end-of-day running sum of the account's
+    lines, so lines on one day that net to zero are never a standing balance. A balance that has
+    never stood at zero lists from the first line; one that is zero now lists nothing.
+    """
+    stmt = (
+        select(Transaction.date, func.sum(AccountLine.cents))
+        .join(AccountLine, AccountLine.transaction_id == Transaction.id)
+        .where(AccountLine.account_id == account_id)
+        .group_by(Transaction.date)
+        .order_by(Transaction.date)
+    )
+    if as_of is not None:
+        stmt = stmt.where(Transaction.date <= as_of)
+    running = 0
+    zero_on: date | None = None
+    for day, cents in session.execute(stmt):
+        running += cents
+        if running == 0:
+            zero_on = day
+    if running == 0:
+        return 0, []
+    txn_stmt = (
+        select(Transaction)
+        .join(AccountLine, AccountLine.transaction_id == Transaction.id)
+        .where(AccountLine.account_id == account_id)
+        .distinct()
+        .order_by(Transaction.date, Transaction.id)
+    )
+    if as_of is not None:
+        txn_stmt = txn_stmt.where(Transaction.date <= as_of)
+    if zero_on is not None:
+        txn_stmt = txn_stmt.where(Transaction.date > zero_on)
+    return running, list(session.scalars(txn_stmt))

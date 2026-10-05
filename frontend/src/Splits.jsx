@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { api } from './api.js'
+import LedgerTable, { useLedgerNames } from './LedgerTable.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
-import { formatDate, formatPercent, parsePercent } from './utils/format.js'
+import { formatCents, formatDate, formatPercent, parsePercent } from './utils/format.js'
 
 const HUNDRED = 1000000 // 100% in ten-thousandths
 
@@ -21,6 +23,11 @@ export default function Splits({ pickerDate }) {
   const [saving, setSaving] = useState(false)
   const [formKey, setFormKey] = useState(0)
   const nextKey = useRef(1)
+  const navigate = useNavigate()
+  const names = useLedgerNames(pickerDate)
+  // Each member account's balance and what built it, by account id: a person in two splits shows
+  // the same balance under each (DESIGN.md § Splits).
+  const [balances, setBalances] = useState({})
 
   function refresh() {
     api.splits.list(pickerDate, showArchived).then(setSplits).catch((e) => setError(e.message))
@@ -29,6 +36,20 @@ export default function Splits({ pickerDate }) {
   }
 
   useEffect(refresh, [pickerDate, showArchived])
+
+  useEffect(() => {
+    if (!splits) return
+    const ids = [...new Set(splits.filter((s) => !s.archived_on).flatMap((s) => s.members.map((m) => m.account_id)))]
+    Promise.all(ids.map((id) => api.splits.balance(id, pickerDate)))
+      .then((all) => setBalances(Object.fromEntries(all.map((b) => [b.account_id, b]))))
+      .catch((e) => setError(e.message))
+  }, [splits, pickerDate])
+
+  // Settle up is a plain transfer for the full balance, opened on the Ledger form (DESIGN.md § Splits):
+  // their account takes the opposite of what they owe, mine is left for the user to pick.
+  function settleUp(member, balance) {
+    navigate('/ledger', { state: { settleUp: { account_id: member.account_id, cents: -balance.balance_cents } } })
+  }
 
   function newMember(member = {}) {
     return { key: nextKey.current++, payeeId: null, accountId: null, accountText: '', percent: '', ...member }
@@ -215,7 +236,17 @@ export default function Splits({ pickerDate }) {
                 </div>
                 <ul className="mt-1 space-y-0.5 text-paper-soft">
                   {s.members.map((m) => (
-                    <li key={m.id}>{m.payee_name} — {formatPercent(parsePercent(m.percent))}</li>
+                    <li key={m.id}>
+                      {m.payee_name} — {formatPercent(parsePercent(m.percent))}
+                      {!s.archived_on && balances[m.account_id] && (
+                        <MemberBalance
+                          member={m}
+                          balance={balances[m.account_id]}
+                          names={names}
+                          onSettle={() => settleUp(m, balances[m.account_id])}
+                        />
+                      )}
+                    </li>
                   ))}
                   <li>You — {formatPercent(parsePercent(s.my_share_percent))}</li>
                 </ul>
@@ -224,6 +255,30 @@ export default function Splits({ pickerDate }) {
           </ul>
         )}
       </section>
+    </div>
+  )
+}
+
+// What a member owes, a Settle up button, and the transactions since the balance last stood at zero.
+function MemberBalance({ member, balance, names, onSettle }) {
+  const cents = balance.balance_cents
+  const text =
+    cents > 0 ? `${member.payee_name} owes you ${formatCents(cents)}`
+    : cents < 0 ? `You owe ${member.payee_name} ${formatCents(-cents)}`
+    : 'Settled up'
+  return (
+    <div className="mt-1 space-y-2 text-paper">
+      <div className="flex items-center gap-3">
+        <span>{text}</span>
+        {cents !== 0 && (
+          <button type="button" className="text-xs text-accent" onClick={onSettle}>Settle up</button>
+        )}
+      </div>
+      {balance.transactions.length > 0 && (
+        <div className="overflow-x-auto">
+          <LedgerTable transactions={balance.transactions} names={names} />
+        </div>
+      )}
     </div>
   )
 }

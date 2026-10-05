@@ -93,6 +93,9 @@ export const api = {
     update: (id, split) => request(`/api/splits/${id}`, { method: 'PUT', body: split }),
     archive: (id, archivedOn) => request(`/api/splits/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/splits/${id}/unarchive`, { method: 'POST' }),
+    // A member account's balance at the picker date and what built it since it last stood at zero.
+    balance: (accountId, asOf) =>
+      request(`/api/splits/accounts/${accountId}/balance${asOf ? `?as_of=${asOf}` : ''}`),
   },
   incomeStreams: {
     list: (asOf, includeArchived = false) => request(listPath('/api/income-streams', asOf, includeArchived)),

@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
+import LedgerTable from './LedgerTable.jsx'
 import PayeePicker from './PayeePicker.jsx'
 import { basisFromSplit, basisFromTransaction, linesFromBasis, scaleBasis } from './sharedBill.js'
 
@@ -105,6 +106,20 @@ export default function Transactions({ pickerDate }) {
       })
       .catch((e) => setFormError(e.message))
   }, [recordBill])
+
+  // "Settle up" on the Splits page lands here with their account and the signed cents to put on it
+  // (DESIGN.md § Splits): a plain transfer, no category, my account left for the user to pick. The
+  // amount is editable and the user still saves it.
+  const settleUp = location.state?.settleUp
+  useEffect(() => {
+    if (!settleUp) return
+    const theirs = String(settleUp.cents / 100)
+    const mine = String(-settleUp.cents / 100)
+    setDate(pickerDate)
+    setAccountLines([{ account_id: String(settleUp.account_id), cents: theirs }, { account_id: '', cents: mine }])
+    setCategoryLines([])
+    navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
+  }, [settleUp])
 
   // Spending from an account locked to a payee pre-fills that payee (DESIGN.md § Payee-locked
   // accounts) — only while none is chosen, and once per account per form, so clearing it sticks.
@@ -322,26 +337,6 @@ export default function Transactions({ pickerDate }) {
   const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
   const depositTotal = deposits.reduce((sum, d) => sum + (parseCents(d.cents) ?? 0), 0)
 
-  // Ledger name lookups: resolve from the "all" (archived-included) lists so a row that names an
-  // archived entity still shows its name, marked "(archived)", instead of falling back to `#id`
-  // (DESIGN.md § General concepts).
-  function entityLabel(list, id, fallback) {
-    if (id == null) return null
-    const match = list?.find((e) => e.id === id)
-    if (!match) return fallback
-    return match.archived_on ? `${match.name} (archived)` : match.name
-  }
-  function splitLabel(id) {
-    const match = splitsAll?.find((s) => s.id === id)
-    if (!match) return `split #${id}`
-    return match.archived_on ? `${match.name} (archived)` : match.name
-  }
-  function billLabel(goalId) {
-    const match = goalsAll?.find((g) => g.goal.id === goalId)
-    if (!match) return `bill #${goalId}`
-    return match.goal.archived_on ? `${match.goal.name} (archived)` : match.goal.name
-  }
-
   async function submit(e) {
     e.preventDefault()
     setFormError(null)
@@ -415,68 +410,11 @@ export default function Transactions({ pickerDate }) {
         {!error && !transactions && <p>Loading…</p>}
         {transactions && transactions.length === 0 && <p className="text-paper-soft">No transactions yet.</p>}
         {transactions && transactions.length > 0 && (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-paper-soft">
-                <th className="pb-1">Date</th>
-                <th className="pb-1">Memo</th>
-                <th className="pb-1">Payee</th>
-                <th className="pb-1">Account lines</th>
-                <th className="pb-1">Category lines</th>
-              </tr>
-            </thead>
-            <tbody>
-              {transactions.map((t) => (
-                <tr
-                  key={t.id}
-                  className="cursor-pointer hover:bg-ink"
-                  onClick={() => editTransaction(t)}
-                >
-                  <td className="py-1 align-top">
-                    {formatDate(t.date)}
-                    {t.income_stream_id != null && (
-                      <div>
-                        <Link
-                          className="text-xs text-accent"
-                          to={`/pay/${t.income_stream_id}/record?date=${t.date}`}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          Re-open pay
-                        </Link>
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-1 align-top">{t.memo || '—'}</td>
-                  <td className="py-1 align-top">
-                    {t.payee_id != null ? entityLabel(payeesAll, t.payee_id, `#${t.payee_id}`) : '—'}
-                  </td>
-                  <td className="py-1 align-top">
-                    {t.account_lines.map((l) => (
-                      <div key={l.id}>
-                        {entityLabel(accountsAll, l.account_id, `#${l.account_id}`)}: {formatCents(l.cents)}
-                      </div>
-                    ))}
-                  </td>
-                  <td className="py-1 align-top">
-                    {t.category_lines.length === 0 && <span className="text-paper-soft">unassigned</span>}
-                    {t.category_lines.map((l) => (
-                      <div key={l.id}>
-                        {entityLabel(categoriesAll, l.category_id, `#${l.category_id}`)}: {formatCents(l.cents)}
-                      </div>
-                    ))}
-                    {t.split_id != null && (
-                      <div className="text-xs text-paper-soft">Split: {splitLabel(t.split_id)}</div>
-                    )}
-                    {t.goal_id != null && (
-                      <div className="text-xs text-paper-soft">
-                        pays {billLabel(t.goal_id)}, due {formatDate(t.goal_due_on)}
-                      </div>
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <LedgerTable
+            transactions={transactions}
+            names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
+            onSelect={editTransaction}
+          />
         )}
       </section>
 

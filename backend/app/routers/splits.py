@@ -5,11 +5,12 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db import get_session
-from app.models import Split
-from app.schemas import ArchiveIn, ArchiveOut, SplitCreate, SplitMemberOut, SplitOut, SplitUpdate
+from app.models import Account, Split
+from app.routers.shapes import _transaction_shape
+from app.schemas import ArchiveIn, ArchiveOut, MemberBalanceOut, SplitCreate, SplitMemberOut, SplitOut, SplitUpdate
 from app.services.archiving import _visible
 from app.services.splits import (
-    SplitError, archive_split, create_split, my_share_percent, shown_members, unarchive_split_checked, update_split,
+    SplitError, archive_split, balance_since_zero, create_split, my_share_percent, shown_members, unarchive_split_checked, update_split,
 )
 
 router = APIRouter()
@@ -46,6 +47,17 @@ def list_splits(
         select(Split).where(_visible(Split, as_of, include_archived)).order_by(Split.name)
     ).all()
     return [_split_out(s, as_of) for s in splits]
+
+
+@router.get("/api/splits/accounts/{account_id}/balance", response_model=MemberBalanceOut)
+def member_balance(account_id: int, as_of: date | None = None, session: Session = Depends(get_session)) -> MemberBalanceOut:
+    if session.get(Account, account_id) is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    balance, transactions = balance_since_zero(session, account_id, as_of)
+    return MemberBalanceOut(
+        account_id=account_id, balance_cents=balance,
+        transactions=[_transaction_shape(t, []) for t in transactions],
+    )
 
 
 @router.post("/api/splits", response_model=SplitOut, status_code=201)

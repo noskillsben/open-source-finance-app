@@ -619,6 +619,16 @@ class SplitMemberOut(BaseModel):
         return _percent_as_string(value)
 
 
+class MemberBalanceOut(BaseModel):
+    """A member account's balance at the picker date (positive: they owe me) and the transactions
+    since it last stood at zero — read time only (DESIGN.md § Splits).
+    """
+
+    account_id: int
+    balance_cents: int
+    transactions: list[TransactionOut]
+
+
 class SplitOut(BaseModel):
     id: int
     name: str
