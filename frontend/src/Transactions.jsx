@@ -175,7 +175,12 @@ export default function Transactions({ pickerDate }) {
     setPayeeFill(null)
     if (billLink || editingId != null || payeeId !== payeeFill.payeeId) return
     const usable = (id, list) => id != null && list?.some((x) => x.id === id)
-    const accountId = usable(payeeFill.account_id, accounts) ? String(payeeFill.account_id) : ''
+    // An account already on another line stays there only: settle up must not get the same
+    // account on both sides of the transfer.
+    const accountId =
+      usable(payeeFill.account_id, accounts) && !accountLines.some((l) => String(l.account_id) === String(payeeFill.account_id))
+        ? String(payeeFill.account_id)
+        : ''
     const categoryId = usable(payeeFill.category_id, categories) ? String(payeeFill.category_id) : ''
     const split = splitId === '' && payeeFill.split_id != null ? splitsAll?.find((s) => s.id === payeeFill.split_id) : null
 
