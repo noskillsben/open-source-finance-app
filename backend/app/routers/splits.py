@@ -76,13 +76,15 @@ def create_split_route(payload: SplitCreate, session: Session = Depends(get_sess
 def update_split_route(split_id: int, payload: SplitUpdate, session: Session = Depends(get_session)) -> SplitOut:
     split = _get(session, split_id)
     try:
-        update_split(
+        _, warnings = update_split(
             session, split, name=payload.name, description=payload.description,
             as_of=payload.as_of, members=payload.members,
         )
     except SplitError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc))
-    return _split_out(split)
+    out = _split_out(split)
+    out.warnings = warnings
+    return out
 
 
 @router.post("/api/splits/{split_id}/archive", response_model=ArchiveOut)
@@ -91,11 +93,11 @@ def archive_split_route(
 ) -> ArchiveOut:
     split = _get(session, split_id)
     try:
-        archive_split(session, split, payload.archived_on)
+        warnings = archive_split(session, split, payload.archived_on)
     except ArchiveError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     session.flush()
-    return ArchiveOut(id=split.id, archived_on=split.archived_on, warnings=[])
+    return ArchiveOut(id=split.id, archived_on=split.archived_on, warnings=warnings)
 
 
 @router.post("/api/splits/{split_id}/unarchive", response_model=ArchiveOut)
