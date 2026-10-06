@@ -9,6 +9,27 @@
 // going up; my share is whatever the members leave, so the parts always add to the total.
 import { parsePercent } from './utils/format.js'
 
+/** Spread `amount` cents across rows in proportion to their (unsigned) `weights`. Each part is
+ * rounded toward zero; the leftover cents go to the row with the largest weight, the first row
+ * when weights tie, so the parts always add to `amount`. With no weight at all (nothing typed
+ * yet) the first row takes the lot. Used for my share across categories (by receipt amount) and
+ * for rescaling the receipt amounts when the Bill total changes. */
+export function spreadCents(amount, weights) {
+  if (weights.length === 0) return []
+  const sum = weights.reduce((a, w) => a + w, 0)
+  if (sum === 0) return weights.map((_, i) => (i === 0 ? amount : 0))
+  const parts = weights.map((w) => {
+    const product = amount * w
+    return (product - (product % sum)) / sum
+  })
+  let largest = 0
+  weights.forEach((w, i) => {
+    if (w > weights[largest]) largest = i
+  })
+  parts[largest] += amount - parts.reduce((a, c) => a + c, 0)
+  return parts
+}
+
 /** A fresh bill: each member's share from the split's percentages, mine the remainder. */
 export function basisFromSplit(total, split) {
   const members = split.members.map((m) => ({
@@ -29,10 +50,18 @@ export function scaleBasis(basis, newTotal) {
   return { total: newTotal, mine: newTotal - members.reduce((sum, m) => sum + m.cents, 0), members }
 }
 
-/** The lines for a basis. Paid by me: my account pays the whole bill, each member's receivable
+/** Receipt amounts (unsigned cents) for a bill of `total`: the typed ones when they already add
+ * to it, otherwise rescaled by the same ratio, so a new Bill total moves every category together. */
+export function receiptsForTotal(total, typed) {
+  return typed.reduce((a, c) => a + c, 0) === total ? typed : spreadCents(total, typed)
+}
+
+/** The lines for a basis. `categories` is one `{ category_id, receipt }` per category row, the
+ * receipt amounts (unsigned cents) adding to the total; my share is spread across them pro rata
+ * (`spreadCents`). `categoryId` alone is one row carrying the whole bill. Paid by me: my account pays the whole bill, each member's receivable
  * takes their share, and only my share is a category line. Paid by a member: nothing touches
  * my accounts — their receivable goes down by my share, and my share is the category line. */
-export function linesFromBasis(basis, { sign = 1, payerIsMe, payerAccountId, payerMemberAccountId, categoryId }) {
+export function linesFromBasis(basis, { sign = 1, payerIsMe, payerAccountId, payerMemberAccountId, categoryId, categories }) {
   const accountLines = []
   if (payerIsMe) {
     accountLines.push({ account_id: payerAccountId, cents: -sign * basis.total })
@@ -42,7 +71,12 @@ export function linesFromBasis(basis, { sign = 1, payerIsMe, payerAccountId, pay
   } else {
     accountLines.push({ account_id: payerMemberAccountId, cents: -sign * basis.mine })
   }
-  const categoryLines = basis.mine === 0 ? [] : [{ category_id: categoryId, cents: -sign * basis.mine }]
+  const rows = categories ?? [{ category_id: categoryId, receipt: basis.total }]
+  const shares = spreadCents(basis.mine, rows.map((r) => r.receipt))
+  const categoryLines =
+    basis.mine === 0
+      ? []
+      : rows.map((r, i) => ({ category_id: r.category_id, cents: shares[i] === 0 ? 0 : -sign * shares[i] }))
   return { accountLines, categoryLines }
 }
 
