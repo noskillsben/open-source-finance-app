@@ -7,7 +7,8 @@ on the way in, and the 100% limit is checked on the stored (rounded) values, so 
 shows is exactly what was compared.
 
 One person, one balance: a member's account is created on their first membership and reused
-while they are a member of any other live split, or it is one the user picks.
+while they are a member of any other live split, or when they are added back after leaving (their
+most recent membership's account, if it is not archived), or it is one the user picks.
 """
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -45,9 +46,14 @@ def my_share_percent(percents: list[Decimal]) -> Decimal:
     return HUNDRED - sum(percents, Decimal(0))
 
 
-def live_account_of_payee(session: Session, payee_id: int, *, exclude_split_id: int | None = None) -> int | None:
-    """The account this person already uses in another live split, if any."""
-    query = (
+def live_account_of_payee(
+    session: Session, payee_id: int, *, exclude_split_id: int | None = None, live_only: bool = False
+) -> int | None:
+    """The account this person already uses: first a live membership in another live split,
+    else (unless `live_only`) the account of their most recent membership of any split, live or
+    archived, in any split including the one being edited, as long as that account is not archived.
+    If the newest one is archived we do not look further back."""
+    live = (
         select(SplitMember.account_id)
         .join(Split, Split.id == SplitMember.split_id)
         .where(SplitMember.payee_id == payee_id, SplitMember.archived_on.is_(None), Split.archived_on.is_(None))
@@ -55,8 +61,21 @@ def live_account_of_payee(session: Session, payee_id: int, *, exclude_split_id: 
         .limit(1)
     )
     if exclude_split_id is not None:
-        query = query.where(Split.id != exclude_split_id)
-    return session.scalar(query)
+        live = live.where(Split.id != exclude_split_id)
+    found = session.scalar(live)
+    if found is not None or live_only:
+        return found
+    past = (
+        select(SplitMember.account_id)
+        .where(SplitMember.payee_id == payee_id)
+        .order_by(SplitMember.created_on.desc(), SplitMember.id.desc())
+        .limit(1)
+    )
+    account_id = session.scalar(past)
+    if account_id is None:
+        return None
+    account = session.get(Account, account_id)
+    return account_id if account is not None and account.archived_on is None else None
 
 
 def leaving_notes(session: Session, split: Split, leaving: list[SplitMember], as_of: date) -> list[str]:
@@ -67,7 +86,7 @@ def leaving_notes(session: Session, split: Split, leaving: list[SplitMember], as
     """
     notes = []
     for member in sorted(leaving, key=lambda m: m.payee.name):
-        if live_account_of_payee(session, member.payee_id, exclude_split_id=split.id) is not None:
+        if live_account_of_payee(session, member.payee_id, exclude_split_id=split.id, live_only=True) is not None:
             continue
         cents = account_balance_cents(session, member.account_id, as_of=as_of)
         if cents == 0:
@@ -180,7 +199,6 @@ def update_split(
     computed once the edit is accepted, so a refused edit has none."""
     if split.archived_on is not None:
         raise SplitError("This split is archived. Unarchive it to change it.")
-    resolved = _validate_members(session, members, split_id=split.id)
     live_before = {m.payee_id: m for m in split.members if m.archived_on is None}
     for member in members:
         current = live_before.get(member.payee_id)
@@ -189,6 +207,7 @@ def update_split(
                 "A person's account can't be changed once they're in a split. "
                 "Remove them and add them again."
             )
+    resolved = _validate_members(session, members, split_id=split.id)
     with _name_must_be_free(session, name):
         split.name = name
         split.description = description

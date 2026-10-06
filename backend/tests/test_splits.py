@@ -552,3 +552,104 @@ def test_archiving_a_split_gives_one_note_per_member_who_leaves_with_a_balance(d
         "You still owe Kit $5.00; their balance stays on Accounts.",
         "Sam still owes you $60.00; their balance stays on Accounts.",
     ]
+
+
+# --- Someone added back keeps their old account (DESIGN.md § Splits → One person, one balance) -----
+
+
+def test_someone_taken_out_of_every_split_and_added_back_keeps_their_account(db_session):
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}]).json()
+        old_account = split["members"][0]["account_id"]
+        _edit(client, split, [])
+        back = _edit(client, split, [{"payee_id": sam.id, "percent": "40"}])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert back.status_code == 200
+    live = [m for m in back.json()["members"] if m["payee_id"] == sam.id and m.get("archived_on") is None]
+    assert [m["account_id"] for m in live] == [old_account]
+    assert len(_live_accounts(db_session, "Sam")) == 1
+
+
+def test_an_archived_old_account_is_not_brought_back(db_session):
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}]).json()
+        old_id = split["members"][0]["account_id"]
+        _edit(client, split, [])
+        db_session.get(Account, old_id).archived_on = datetime.date(2026, 5, 2)
+        db_session.flush()
+        _owed(db_session, "Sam", 0)
+        # The name is taken by a live account, so today's 409 stands.
+        taken = _edit(client, split, [{"payee_id": sam.id, "percent": "40"}])
+        db_session.query(Account).filter(Account.archived_on.is_(None), Account.name == "Sam").one().name = "Elsewhere"
+        db_session.flush()
+        back = _edit(client, split, [{"payee_id": sam.id, "percent": "40"}])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert back.status_code == 200
+    assert back.json()["members"][0]["account_id"] != old_id  # a new account, as before
+    assert taken.status_code == 409
+
+
+def test_a_live_membership_elsewhere_beats_a_past_one(db_session):
+    sam = _payee(db_session, "Sam")
+    past, current = _owed(db_session, "Sam past", 0), _owed(db_session, "Sam now", 0)
+    rent = Split(name="Rent", created_on=DAY)
+    trips = Split(name="Trips", created_on=DAY)
+    db_session.add_all([rent, trips])
+    db_session.flush()
+    # Older data can hold two accounts for one person; the live one is the one that counts.
+    db_session.add_all([
+        SplitMember(split_id=rent.id, payee_id=sam.id, account_id=past.id, percent=50, created_on=DAY,
+                    archived_on=datetime.date(2026, 4, 1)),
+        SplitMember(split_id=trips.id, payee_id=sam.id, account_id=current.id, percent=40,
+                    created_on=datetime.date(2026, 3, 15)),
+    ])
+    db_session.flush()
+    client = _client(db_session)
+    try:
+        back = _edit(client, {"id": rent.id, "name": "Rent"}, [{"payee_id": sam.id, "percent": "30"}])
+        refused = _edit(client, {"id": rent.id, "name": "Rent"},
+                        [{"payee_id": sam.id, "account_id": past.id, "percent": "30"}])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert back.status_code == 200
+    assert {m["account_id"] for m in back.json()["members"]} == {current.id}
+    assert refused.status_code == 400
+
+
+def test_a_different_account_for_a_returning_member_is_refused(db_session):
+    sam = _payee(db_session, "Sam")
+    other = _owed(db_session, "Another", 0)
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}]).json()
+        _edit(client, split, [])
+        refused = _edit(client, split, [{"payee_id": sam.id, "account_id": other.id, "percent": "50"}])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert refused.status_code == 400
+    assert "one person, one balance" in refused.json()["detail"]
+
+
+def test_the_leaving_note_still_appears_for_someone_with_a_past_membership(db_session):
+    sam = _payee(db_session, "Sam")
+    owed = _owed(db_session, "Sam", 60_00)
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "account_id": owed.id, "percent": "50"}]).json()
+        _edit(client, split, [])
+        _edit(client, split, [{"payee_id": sam.id, "percent": "50"}])
+        leaving = _edit(client, split, [])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert leaving.json()["warnings"] == ["Sam still owes you $60.00; their balance stays on Accounts."]
