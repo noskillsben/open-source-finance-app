@@ -7,7 +7,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Category, EarmarkLine, Goal, Payee, Transaction
-from app.services.accounts import account_balance_cents, credit_limit_note, dollars
+from app.services.accounts import _opening_valuation, account_balance_cents, credit_limit_note, dollars, long_date
 from app.services.categories import category_balance_cents
 from app.services.links import linked_money_note
 from app.services.valuations import latest_valuation
@@ -29,7 +29,8 @@ def linked_money_notes(session: Session, transaction: Transaction) -> list[str]:
 
 def transaction_notes(session: Session, transaction: Transaction) -> list[str]:
     """Advisory notes for a save: "This predates your <date> check" (DESIGN.md § Balance
-    checks) for each account whose latest check is on or after this transaction's date, and a
+    checks) for each account whose latest check is on or after this transaction's date (the
+    opening valuation is not a check and never notes), and a
     credit-limit note (DESIGN.md § Credit limit — the floor of reality) when the balance on
     this transaction's own date, after this save, is past the account's credit limit. The
     check's own adjustment never notes itself. Also one note per archived payee, category or
@@ -67,8 +68,9 @@ def transaction_notes(session: Session, transaction: Transaction) -> list[str]:
             valuation is not None
             and transaction.date <= valuation.date
             and transaction.valuation_id != valuation.id
+            and valuation is not _opening_valuation(session, line.account)
         ):
-            notes.append(f"This predates your {valuation.date} check on {line.account.name}.")
+            notes.append(f"This predates your {long_date(valuation.date)} check on {line.account.name}.")
         balance_cents = account_balance_cents(session, line.account_id, as_of=transaction.date)
         limit_note = credit_limit_note(balance_cents, line.account.credit_limit_cents)
         if limit_note is not None:

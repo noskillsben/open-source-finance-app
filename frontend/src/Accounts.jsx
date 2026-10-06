@@ -316,7 +316,8 @@ export default function Accounts({ pickerDate }) {
         {a.archived_on && <div className="text-xs text-paper-soft">archived {formatDate(a.archived_on)}</div>}
         {a.checked_on && (
           <div className="text-xs text-paper-soft">
-            {VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'} {formatDate(a.checked_on)}
+            {a.checked_is_opening ? 'opened' : VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'}{' '}
+            {formatDate(a.checked_on)}
             {a.entries_added_since_check > 0 &&
               ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
             {!a.checked_is_opening && (

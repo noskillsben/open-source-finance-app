@@ -103,14 +103,15 @@ describe('balance check on an on-budget account', () => {
 })
 
 describe('undo check link', () => {
-  it('is hidden when the latest check is the opening balance, shown otherwise', async () => {
+  it('is hidden, and the badge reads opened, when the latest check is the opening balance', async () => {
     accounts = [
       account({ id: 1, name: 'Opening only', checked_on: '2026-01-01', checked_valuation_id: 5, checked_is_opening: true }),
       account({ id: 2, name: 'Later check', checked_on: '2026-02-01', checked_valuation_id: 6, checked_is_opening: false }),
     ]
     render(<Accounts pickerDate="2026-10-03" />)
 
-    expect(await screen.findAllByText(/balance checked/)).toHaveLength(2)
+    expect(await screen.findAllByText(/balance checked/)).toHaveLength(1)
+    expect(screen.getAllByText(/opened Jan 1, 2026/)).toHaveLength(1)
     expect(screen.getAllByRole('button', { name: 'Undo check' })).toHaveLength(1)
   })
 })
