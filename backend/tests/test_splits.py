@@ -378,3 +378,82 @@ def test_a_member_archived_earlier_keeps_its_own_date_through_archive_and_unarch
     assert archived_dates == (datetime.date(2026, 5, 1), datetime.date(2026, 6, 1))
     assert kit_member.archived_on == datetime.date(2026, 5, 1)
     assert sam_member.archived_on is None
+
+
+def _member_account_id(db_session, payee_id):
+    return db_session.query(SplitMember).filter(SplitMember.payee_id == payee_id).first().account_id
+
+
+def test_a_payee_in_a_live_split_cannot_be_archived_until_taken_out(db_session):
+    sam, kit = _payee(db_session, "Sam"), _payee(db_session, "Kit")
+    client = _client(db_session)
+    try:
+        split = _create(
+            client, "Household", [{"payee_id": sam.id, "percent": "50"}, {"payee_id": kit.id, "percent": "20"}]
+        ).json()
+        refused = client.post(f"/api/payees/{sam.id}/archive", json={"archived_on": "2026-06-01"})
+        client.put(
+            f"/api/splits/{split['id']}",
+            json={"name": "Household", "as_of": "2026-05-01", "members": [{"payee_id": kit.id, "percent": "20"}]},
+        )
+        allowed = client.post(f"/api/payees/{sam.id}/archive", json={"archived_on": "2026-06-01"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == "Sam is in Household. Take them out of the split first."
+    assert allowed.status_code == 200
+
+
+def test_an_account_holding_a_members_balance_cannot_be_archived_until_taken_out(db_session):
+    sam, kit = _payee(db_session, "Sam"), _payee(db_session, "Kit")
+    client = _client(db_session)
+    try:
+        split = _create(
+            client, "Household", [{"payee_id": sam.id, "percent": "50"}, {"payee_id": kit.id, "percent": "20"}]
+        ).json()
+        account_id = _member_account_id(db_session, sam.id)
+        refused = client.post(f"/api/accounts/{account_id}/archive", json={"archived_on": "2026-06-01"})
+        client.put(
+            f"/api/splits/{split['id']}",
+            json={"name": "Household", "as_of": "2026-05-01", "members": [{"payee_id": kit.id, "percent": "20"}]},
+        )
+        allowed = client.post(f"/api/accounts/{account_id}/archive", json={"archived_on": "2026-06-01"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert refused.status_code == 400
+    assert refused.json()["detail"] == "Sam is in Household. Take them out of the split first."
+    assert allowed.status_code == 200
+
+
+def test_an_archived_split_no_longer_holds_its_members(db_session):
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        split = _create(client, "Household", [{"payee_id": sam.id, "percent": "50"}]).json()
+        account_id = _member_account_id(db_session, sam.id)
+        client.post(f"/api/splits/{split['id']}/archive", json={"archived_on": "2026-06-01"})
+        payee = client.post(f"/api/payees/{sam.id}/archive", json={"archived_on": "2026-06-01"})
+        account = client.post(f"/api/accounts/{account_id}/archive", json={"archived_on": "2026-06-01"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert payee.status_code == 200 and account.status_code == 200
+
+
+def test_two_live_splits_are_both_named(db_session):
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}])
+        _create(client, "Groceries", [{"payee_id": sam.id, "percent": "50"}])
+        account_id = _member_account_id(db_session, sam.id)
+        payee = client.post(f"/api/payees/{sam.id}/archive", json={"archived_on": "2026-06-01"})
+        account = client.post(f"/api/accounts/{account_id}/archive", json={"archived_on": "2026-06-01"})
+    finally:
+        app.dependency_overrides.clear()
+
+    expected = "Sam is in Groceries and Rent. Take them out of the splits first."
+    assert payee.status_code == account.status_code == 400
+    assert payee.json()["detail"] == account.json()["detail"] == expected

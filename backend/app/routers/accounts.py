@@ -30,6 +30,7 @@ from app.services.accounts import (
     reject_floor_below_credit_limit,
     update_account,
 )
+from app.services.splits import live_split_block
 from app.services.archiving import Archivable, ArchiveError, _visible, archive, unarchive
 from app.services.links import drift_cents, drift_note, linked_category_ids, prune_archived_links, suggest_split
 from app.services.transactions import TransactionError
@@ -209,6 +210,7 @@ def archive_account(
         entity=account,
         latest_ledger_date=account_latest_ledger_date(session, account_id),
         balance_cents=account_balance_cents(session, account_id, as_of=payload.archived_on),
+        blocked=live_split_block(session, account_id=account_id),
     )
     try:
         warnings = archive(target, payload.archived_on)

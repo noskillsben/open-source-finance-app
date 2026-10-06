@@ -10,6 +10,7 @@ from app.models import Domain, Payee
 from app.schemas import ArchiveIn, ArchiveOut, DomainCreate, DomainOut, DomainUpdate, PayeeCreate, PayeeFillOut, PayeeOut
 from app.seed import guard_not_me, is_me
 from app.services.archiving import Archivable, ArchiveError, _visible, archive, unarchive
+from app.services.splits import live_split_block
 from app.services.payees import payee_fill, payee_latest_ledger_date
 
 router = APIRouter()
@@ -125,7 +126,11 @@ def archive_payee(
         raise HTTPException(status_code=404, detail=f"No payee with id {payee_id}.")
     try:
         guard_not_me(payee)
-        target = Archivable(entity=payee, latest_ledger_date=payee_latest_ledger_date(session, payee_id))
+        target = Archivable(
+            entity=payee,
+            latest_ledger_date=payee_latest_ledger_date(session, payee_id),
+            blocked=live_split_block(session, payee_id=payee_id),
+        )
         warnings = archive(target, payload.archived_on)
     except ArchiveError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
