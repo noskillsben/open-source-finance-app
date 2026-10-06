@@ -47,6 +47,7 @@ class Archivable:
     entity: object
     latest_ledger_date: date | None
     balance_cents: int | None = None
+    blocked: str | None = None  # a planning-surface rule that refuses the archive outright
     children: Sequence["Archivable"] = field(default_factory=tuple)
 
 
@@ -62,6 +63,9 @@ def archive(target: Archivable, archived_on: date) -> list[str]:
             f"cannot archive on {archived_on}: a ledger row dated {target.latest_ledger_date} "
             "still references it"
         )
+
+    if target.blocked:
+        raise ArchiveError(target.blocked)
 
     warnings = []
     if target.balance_cents:

@@ -208,6 +208,33 @@ def split_latest_ledger_date(session: Session, split_id: int) -> date | None:
     return session.scalar(select(func.max(Transaction.date)).where(Transaction.split_id == split_id))
 
 
+def live_split_block(session: Session, *, payee_id: int | None = None, account_id: int | None = None) -> str | None:
+    """DESIGN.md § Splits → One person, one balance: while someone is a live member of a live
+    split, their payee and the account holding their balance cannot be archived. Returns the
+    refusal naming every such split, or None.
+    """
+    stmt = (
+        select(Payee.name, Split.name)
+        .join(SplitMember, SplitMember.payee_id == Payee.id)
+        .join(Split, Split.id == SplitMember.split_id)
+        .where(SplitMember.archived_on.is_(None), Split.archived_on.is_(None))
+        .order_by(Payee.name, Split.name)
+    )
+    stmt = stmt.where(SplitMember.payee_id == payee_id if payee_id is not None else SplitMember.account_id == account_id)
+    by_person: dict[str, list[str]] = {}
+    for person, split_name in session.execute(stmt):
+        by_person.setdefault(person, []).append(split_name)
+    if not by_person:
+        return None
+    sentences = [f"{person} is in {_join_names(names)}." for person, names in by_person.items()]
+    plural = any(len(names) > 1 for names in by_person.values())
+    return " ".join(sentences) + f" Take them out of the {'splits' if plural else 'split'} first."
+
+
+def _join_names(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
+
+
 def archive_split(session: Session, split: Split, archived_on: date) -> None:
     """Archive through the one archive mechanism: refused (`ArchiveError`) on or before the date
     of a bill that used the split. Its live members go with it, dated the same, so unarchiving
