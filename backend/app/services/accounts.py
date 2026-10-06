@@ -76,6 +76,11 @@ def dollars(cents: int) -> str:
     return sign + "$" + format(whole, ",") + "." + format(part, "02d")
 
 
+def long_date(day: date) -> str:
+    """A date as "Oct 5, 2026" for the notes the backend words itself (display layer only)."""
+    return f"{day:%b} {day.day}, {day.year}"
+
+
 def opening_adjustment(account: Account, valuation: Valuation) -> Transaction:
     """The one line the app maintains for the user (DESIGN.md § Opening balance and
     backfilling history): an unassigned account line for the valuation's stated balance,

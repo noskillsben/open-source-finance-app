@@ -269,4 +269,52 @@ def test_predates_note_ignores_the_picker(db_session):
 
     # The picker at Aug 6 hides the Aug 11 check from the badge, not from the note.
     assert _listed(db_session, account.id, datetime.date(2026, 8, 6))["checked_on"] == TODAY.isoformat()
-    assert "This predates your 2026-08-11 check on Chequing." in transaction_notes(db_session, txn)
+    assert "This predates your Aug 11, 2026 check on Chequing." in transaction_notes(db_session, txn)
+
+
+def test_opening_valuation_is_not_a_check(db_session):
+    from app.services.transaction_notes import transaction_notes
+
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+    opening = latest_valuation(db_session, account.id)
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -5_00}], category_lines=[],
+    )
+    db_session.flush()
+    txn.created_at = opening.created_at + datetime.timedelta(seconds=1)
+    db_session.flush()
+
+    assert not any("predates" in note for note in transaction_notes(db_session, txn))
+    assert entries_added_since_check(db_session, account.id, opening) == 0
+    listed = _listed(db_session, account.id, TODAY)
+    assert listed["checked_is_opening"] is True
+    assert listed["entries_added_since_check"] == 0
+
+
+def test_after_a_real_check_a_backdated_entry_gets_the_note_and_the_count(db_session):
+    from app.services.transaction_notes import transaction_notes
+
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+    check, _, _ = check_balance(
+        db_session, account_id=account.id, check_date=datetime.date(2026, 8, 11),
+        stated_balance_cents=100_00, category_id=None,
+    )
+    db_session.flush()
+    txn = _backdated_entry(db_session, account, datetime.date(2026, 8, 1), after=check)
+
+    assert "This predates your Aug 11, 2026 check on Chequing." in transaction_notes(db_session, txn)
+    assert entries_added_since_check(db_session, account.id, check) == 1
+
+
+def test_backfilling_before_the_opening_date_has_no_predates_note(db_session):
+    from app.services.transaction_notes import transaction_notes
+
+    account = make_account(db_session, "Chequing", opening_balance=100_00)
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=datetime.date(2026, 1, 15), memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -5_00}], category_lines=[],
+    )
+    db_session.flush()
+
+    assert not any("predates" in note for note in transaction_notes(db_session, txn))

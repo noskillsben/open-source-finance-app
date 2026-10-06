@@ -73,8 +73,11 @@ def entries_added_since_check(session: Session, account_id: int, valuation: Valu
     """How many transactions touching this account were recorded (by wall clock) after this
     check but dated on or before it — the badge's "N entries added since" (DESIGN.md §
     Balance checks: "derived from the wall-clock created_at, never a stored flag"). The
-    adjustment the check itself produced is excluded — it isn't an entry added since.
+    adjustment the check itself produced is excluded — it isn't an entry added since. The
+    opening valuation is not a check (DESIGN.md § Balance checks), so it counts nothing.
     """
+    if valuation is _opening_valuation(session, valuation.account):
+        return 0
     return session.scalar(
         select(func.count(func.distinct(Transaction.id)))
         .join(AccountLine, AccountLine.transaction_id == Transaction.id)
