@@ -22,7 +22,7 @@ from app.models import Account, AccountLine, Payee, Split, SplitMember, Transact
 from app.schemas import SplitMemberIn
 from app.seed import is_me
 from app.services.archiving import Archivable, archive
-from app.services.accounts import create_account_with_opening_valuation
+from app.services.accounts import account_balance_cents, create_account_with_opening_valuation, dollars
 
 HUNDRED = Decimal("100")
 PERCENT_PLACES = Decimal("0.0001")
@@ -57,6 +57,25 @@ def live_account_of_payee(session: Session, payee_id: int, *, exclude_split_id: 
     if exclude_split_id is not None:
         query = query.where(Split.id != exclude_split_id)
     return session.scalar(query)
+
+
+def leaving_notes(session: Session, split: Split, leaving: list[SplitMember], as_of: date) -> list[str]:
+    """DESIGN.md § Splits → The Splits page: a warning, never a block, for each person leaving
+    with a balance that is not zero. Said only when that leaves them in no other live split,
+    since otherwise their balance is still on the Splits page. Read at `as_of` with the plain
+    account balance; the same wording serves the edit and the archive.
+    """
+    notes = []
+    for member in sorted(leaving, key=lambda m: m.payee.name):
+        if live_account_of_payee(session, member.payee_id, exclude_split_id=split.id) is not None:
+            continue
+        cents = account_balance_cents(session, member.account_id, as_of=as_of)
+        if cents == 0:
+            continue
+        name = member.payee.name
+        who = f"{name} still owes you {dollars(cents)}" if cents > 0 else f"You still owe {name} {dollars(-cents)}"
+        notes.append(f"{who}; their balance stays on Accounts.")
+    return notes
 
 
 @dataclass
@@ -156,7 +175,9 @@ def create_split(
 def update_split(
     session: Session, split: Split, *, name: str, description: str | None, as_of: date,
     members: list[SplitMemberIn],
-) -> Split:
+) -> tuple[Split, list[str]]:
+    """Returns the split and the notes for anyone this edit took out (see `leaving_notes`),
+    computed once the edit is accepted, so a refused edit has none."""
     if split.archived_on is not None:
         raise SplitError("This split is archived. Unarchive it to change it.")
     resolved = _validate_members(session, members, split_id=split.id)
@@ -174,16 +195,16 @@ def update_split(
 
     live = {m.payee_id: m for m in split.members if m.archived_on is None}
     wanted = {r.payee.id for r in resolved}
-    for payee_id, member in live.items():
-        if payee_id not in wanted:
-            member.archived_on = as_of
+    leaving = [member for payee_id, member in live.items() if payee_id not in wanted]
+    for member in leaving:
+        member.archived_on = as_of
     # An existing member keeps their row; a changed percent is the only edit that reaches them.
     for r in resolved:
         if r.payee.id in live:
             live[r.payee.id].percent = r.percent
     session.flush()
     _persist_members(session, split, [r for r in resolved if r.payee.id not in live], as_of)
-    return split
+    return split, leaving_notes(session, split, leaving, as_of)
 
 
 def _persist_members(session: Session, split: Split, resolved: list[_Resolved], created_on: date) -> None:
@@ -235,18 +256,19 @@ def _join_names(names: list[str]) -> str:
     return names[0] if len(names) == 1 else ", ".join(names[:-1]) + " and " + names[-1]
 
 
-def archive_split(session: Session, split: Split, archived_on: date) -> None:
+def archive_split(session: Session, split: Split, archived_on: date) -> list[str]:
     """Archive through the one archive mechanism: refused (`ArchiveError`) on or before the date
     of a bill that used the split. Its live members go with it, dated the same, so unarchiving
     brings back the rule as it stood; a member archived earlier is left alone and keeps its date.
+    Returns the notes for the people who go with it (see `leaving_notes`).
     """
-    members = [
-        Archivable(entity=m, latest_ledger_date=None) for m in split.members if m.archived_on is None
-    ]
+    leaving = [m for m in split.members if m.archived_on is None]
+    members = [Archivable(entity=m, latest_ledger_date=None) for m in leaving]
     archive(
         Archivable(entity=split, latest_ledger_date=split_latest_ledger_date(session, split.id), children=members),
         archived_on,
     )
+    return leaving_notes(session, split, leaving, archived_on)
 
 
 def unarchive_split(split: Split) -> None:

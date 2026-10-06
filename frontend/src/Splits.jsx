@@ -15,6 +15,7 @@ export default function Splits({ pickerDate }) {
   const [payees, setPayees] = useState([])
   const [accounts, setAccounts] = useState([])
   const [error, setError] = useState(null)
+  const [warnings, setWarnings] = useState([])
   const [showArchived, setShowArchived] = useState(false)
   const [editing, setEditing] = useState(null)
   const [name, setName] = useState('')
@@ -74,6 +75,7 @@ export default function Splits({ pickerDate }) {
     )
     setFormKey((k) => k + 1)
     setError(null)
+    setWarnings([])
   }
 
   function changeMember(key, change) {
@@ -88,6 +90,7 @@ export default function Splits({ pickerDate }) {
     e.preventDefault()
     if (saving) return
     setError(null)
+    setWarnings([])
     if (!name.trim()) return setError('Name is required.')
     const body = []
     for (const m of members) {
@@ -100,7 +103,8 @@ export default function Splits({ pickerDate }) {
     setSaving(true)
     try {
       if (editing) {
-        await api.splits.update(editing.id, { name: name.trim(), description: description.trim() || null, as_of: pickerDate, members: body })
+        const saved = await api.splits.update(editing.id, { name: name.trim(), description: description.trim() || null, as_of: pickerDate, members: body })
+        setWarnings(saved.warnings ?? [])
       } else {
         await api.splits.create({ name: name.trim(), description: description.trim() || null, created_on: pickerDate, members: body })
       }
@@ -115,9 +119,10 @@ export default function Splits({ pickerDate }) {
 
   async function toggleArchive(split) {
     setError(null)
+    setWarnings([])
     try {
       if (split.archived_on) await api.splits.unarchive(split.id)
-      else await api.splits.archive(split.id, pickerDate)
+      else setWarnings((await api.splits.archive(split.id, pickerDate)).warnings)
       if (editing?.id === split.id) reset()
       refresh()
     } catch (err) {
@@ -137,6 +142,9 @@ export default function Splits({ pickerDate }) {
           you are never a member, your share is whatever they leave.
         </p>
         {error && <p className="text-bad">{error}</p>}
+        {warnings.map((w) => (
+          <p key={w} className="text-sm text-bad">{w}</p>
+        ))}
         <form key={formKey} onSubmit={submit} className="space-y-3">
           <label className="block text-sm">
             <span className="text-paper-soft">{editing ? `Edit ${editing.name}` : 'Split name'}</span>

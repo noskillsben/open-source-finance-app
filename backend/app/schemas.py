@@ -648,6 +648,7 @@ class SplitOut(BaseModel):
     archived_on: date | None
     members: list[SplitMemberOut]
     my_share_percent: Decimal
+    warnings: list[str] = []  # set by the edit route only
 
     @field_serializer("my_share_percent")
     def _my_share(self, value: Decimal) -> str:

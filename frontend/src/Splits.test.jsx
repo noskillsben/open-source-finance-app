@@ -4,13 +4,17 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Splits from './Splits.jsx'
 import { formatPercent, parsePercent } from './utils/format.js'
 
-const { createSplit, balances } = vi.hoisted(() => ({ createSplit: vi.fn(), balances: {} }))
+const { createSplit, updateSplit, archiveSplit, balances } = vi.hoisted(() => ({
+  createSplit: vi.fn(), updateSplit: vi.fn(), archiveSplit: vi.fn(), balances: {},
+}))
 
 vi.mock('./api.js', () => ({
   api: {
     splits: {
       list: () => Promise.resolve(balances.splits ?? []),
       create: createSplit,
+      update: updateSplit,
+      archive: archiveSplit,
       balance: (id) => Promise.resolve(balances[id] ?? { account_id: id, balance_cents: 0, transactions: [] }),
     },
     categories: { list: () => Promise.resolve([{ id: 1, name: 'Groceries' }]) },
@@ -73,6 +77,8 @@ describe('percent parsing', () => {
 describe('the Splits page', () => {
   beforeEach(() => {
     createSplit.mockReset()
+    updateSplit.mockReset()
+    archiveSplit.mockReset()
     for (const key of Object.keys(balances)) delete balances[key]
   })
 
@@ -141,5 +147,29 @@ describe('the Splits page', () => {
       members: [{ payee_id: 7, account_id: null, percent: '50' }],
     })
     await waitFor(() => expect(screen.getByRole('button', { name: 'Add split' })).not.toBeDisabled())
+  })
+
+  it('keeps the note about someone leaving after Save, and clears it on the next edit', async () => {
+    balances.splits = household().slice(0, 1)
+    updateSplit.mockResolvedValue({ ...household()[0], members: [], warnings: ['Sam still owes you $60.00; their balance stays on Accounts.'] })
+    renderSplits()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    expect(await screen.findByText('Sam still owes you $60.00; their balance stays on Accounts.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add split' })).toBeInTheDocument() // the form was reset, the note stayed
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    expect(screen.queryByText(/still owes you/)).not.toBeInTheDocument()
+  })
+
+  it('shows the notes the archive returns', async () => {
+    balances.splits = household().slice(0, 1)
+    archiveSplit.mockResolvedValue({ id: 5, archived_on: '2026-10-05', warnings: ['You still owe Sam $5.00; their balance stays on Accounts.'] })
+    renderSplits()
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+
+    expect(await screen.findByText('You still owe Sam $5.00; their balance stays on Accounts.')).toBeInTheDocument()
   })
 })

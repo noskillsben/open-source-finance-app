@@ -457,3 +457,98 @@ def test_two_live_splits_are_both_named(db_session):
     expected = "Sam is in Groceries and Rent. Take them out of the splits first."
     assert payee.status_code == account.status_code == 400
     assert payee.json()["detail"] == account.json()["detail"] == expected
+
+
+# --- Notes for people leaving a split (DESIGN.md § Splits → The Splits page) ---------------------
+
+
+def _owed(db_session, name, cents):
+    return create_account_with_opening_valuation(
+        db_session, name=name, created_on=DAY, type="Cash", on_budget=True,
+        on_budget_floor_cents=0, opening_balance_cents=cents,
+    )
+
+
+def _edit(client, split, members, as_of="2026-05-01"):
+    return client.put(
+        f"/api/splits/{split['id']}", json={"name": split["name"], "as_of": as_of, "members": members}
+    )
+
+
+def test_removing_a_member_who_owes_you_and_is_in_no_other_split_says_so(db_session):
+    sam = _payee(db_session, "Sam")
+    owed = _owed(db_session, "Sam", 60_00)
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "account_id": owed.id, "percent": "50"}]).json()
+        edited = _edit(client, split, [])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert edited.status_code == 200
+    assert edited.json()["warnings"] == ["Sam still owes you $60.00; their balance stays on Accounts."]
+    assert db_session.query(SplitMember).one().archived_on == datetime.date(2026, 5, 1)  # saved all the same
+
+
+def test_a_negative_balance_is_worded_from_the_other_side(db_session):
+    sam = _payee(db_session, "Sam")
+    owed = _owed(db_session, "Sam", -60_00)
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "account_id": owed.id, "percent": "50"}]).json()
+        edited = _edit(client, split, [])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert edited.json()["warnings"] == ["You still owe Sam $60.00; their balance stays on Accounts."]
+
+
+def test_no_note_when_the_member_is_still_in_another_live_split_or_owes_nothing(db_session):
+    sam, kit = _payee(db_session, "Sam"), _payee(db_session, "Kit")
+    sam_account, kit_account = _owed(db_session, "Sam", 60_00), _owed(db_session, "Kit", 0)
+    client = _client(db_session)
+    try:
+        rent = _create(client, "Rent", [
+            {"payee_id": sam.id, "account_id": sam_account.id, "percent": "30"},
+            {"payee_id": kit.id, "account_id": kit_account.id, "percent": "30"},
+        ]).json()
+        _create(client, "Trips", [{"payee_id": sam.id, "percent": "40"}])
+        edited = _edit(client, rent, [])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert edited.status_code == 200
+    assert edited.json()["warnings"] == []  # Sam is in Trips; Kit owes nothing
+
+
+def test_a_refused_edit_returns_no_notes(db_session):
+    sam, kit = _payee(db_session, "Sam"), _payee(db_session, "Kit")
+    owed = _owed(db_session, "Sam", 60_00)
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [{"payee_id": sam.id, "account_id": owed.id, "percent": "50"}]).json()
+        refused = _edit(client, split, [{"payee_id": kit.id, "percent": "101"}])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert refused.status_code == 400
+    assert "warnings" not in refused.json()
+
+
+def test_archiving_a_split_gives_one_note_per_member_who_leaves_with_a_balance(db_session):
+    sam, kit, lee = _payee(db_session, "Sam"), _payee(db_session, "Kit"), _payee(db_session, "Lee")
+    accounts = {"Sam": _owed(db_session, "Sam", 60_00), "Kit": _owed(db_session, "Kit", -5_00), "Lee": _owed(db_session, "Lee", 0)}
+    client = _client(db_session)
+    try:
+        split = _create(client, "Rent", [
+            {"payee_id": p.id, "account_id": accounts[p.name].id, "percent": "20"} for p in (sam, kit, lee)
+        ]).json()
+        archived = client.post(f"/api/splits/{split['id']}/archive", json={"archived_on": "2026-05-01"})
+    finally:
+        app.dependency_overrides.clear()
+
+    assert archived.status_code == 200
+    assert archived.json()["warnings"] == [
+        "You still owe Kit $5.00; their balance stays on Accounts.",
+        "Sam still owes you $60.00; their balance stays on Accounts.",
+    ]
