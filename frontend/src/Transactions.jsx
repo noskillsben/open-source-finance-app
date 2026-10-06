@@ -4,10 +4,10 @@ import { api } from './api.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 import LedgerTable from './LedgerTable.jsx'
 import PayeePicker from './PayeePicker.jsx'
-import { basisFromSplit, basisFromTransaction, linesFromBasis, scaleBasis } from './sharedBill.js'
+import { basisFromSplit, basisFromTransaction, linesFromBasis, receiptsForTotal, scaleBasis, spreadCents } from './sharedBill.js'
 
 const emptyLine = { account_id: '', cents: '' }
-const emptyCategoryLine = { category_id: '', cents: '' }
+const emptyCategoryLine = { category_id: '', cents: '', receipt: '' }
 const emptyDeposit = { category_id: '', cents: '', other_category_id: '' }
 
 export default function Transactions({ pickerDate }) {
@@ -237,20 +237,31 @@ export default function Transactions({ pickerDate }) {
   const mePayeeId = payees?.find((p) => p.is_me)?.id ?? null
   const chosenSplit = splitId ? splitsAll?.find((s) => String(s.id) === splitId) : null
 
-  // Work the lines out from a breakdown (DESIGN.md § Splits). Every amount stays editable.
-  function fillShared(split, basis, sign, payerId, ownText) {
+  // Work the lines out from a breakdown (DESIGN.md § Splits). Every amount stays editable. Each
+  // category row carries the receipt amount typed for it; my share is spread across the rows by
+  // them, and a total that no longer matches them rescales them all by the same ratio.
+  function fillShared(split, basis, sign, payerId, ownText, rows = categoryLines) {
     const memberAccountIds = new Set(split.members.map((m) => m.account_id))
     const ownLine = accountLines.find((l) => l.account_id && !memberAccountIds.has(Number(l.account_id)))
     if (ownLine) ownPicks.current.account_id = ownLine.account_id
-    const categoryLine = categoryLines.find((l) => l.category_id)
+    const categoryLine = rows.find((l) => l.category_id)
     if (categoryLine) ownPicks.current.category_id = categoryLine.category_id
+    const cents = (text) => Math.abs(parseCents(text ?? '') ?? 0)
+    let typed = rows.map((r) => cents(r.receipt))
+    // Rows with no receipt yet (a plain transaction that just became a shared bill) weigh by their amounts.
+    if (typed.every((c) => c === 0)) typed = rows.map((r) => cents(r.cents))
+    const receipts = receiptsForTotal(basis.total, typed)
+    const sourceRows = rows.length ? rows : [{ category_id: ownPicks.current.category_id }]
     const payerMember = split.members.find((m) => m.payee_id === payerId)
     const { accountLines: lines, categoryLines: cats } = linesFromBasis(basis, {
       sign,
       payerIsMe: payerId === mePayeeId,
       payerAccountId: ownPicks.current.account_id,
       payerMemberAccountId: payerMember?.account_id,
-      categoryId: ownPicks.current.category_id,
+      categories: sourceRows.map((r, i) => ({
+        category_id: rows.length ? r.category_id : ownPicks.current.category_id,
+        receipt: rows.length ? receipts[i] : basis.total,
+      })),
     })
     setShareBasis(basis)
     setAccountLines(
@@ -259,7 +270,20 @@ export default function Transactions({ pickerDate }) {
         cents: i === 0 && ownText !== undefined && payerId === mePayeeId ? ownText : String(l.cents / 100),
       }))
     )
-    setCategoryLines(cats.map((l) => ({ category_id: String(l.category_id ?? ''), cents: String(l.cents / 100) })))
+    setCategoryLines(
+      cats.map((l, i) => ({
+        category_id: String(l.category_id ?? ''),
+        // A share of 0 worked out from a typed receipt is a stated 0; only a row with no receipt stays blank.
+        cents: l.cents === 0 && !(rows.length ? receipts[i] > 0 : basis.total > 0) ? '' : String(l.cents / 100),
+        // The text typed in a receipt box stays as typed ("12." must not become "12").
+        receipt:
+          rows.length && receipts[i] === 0
+            ? ''
+            : rows.length && cents(rows[i].receipt) === receipts[i]
+              ? rows[i].receipt
+              : String((rows.length ? receipts[i] : basis.total) / 100),
+      }))
+    )
   }
 
   function chooseSplit(id) {
@@ -291,6 +315,20 @@ export default function Transactions({ pickerDate }) {
     const total = Math.abs(cents)
     const basis = (shareBasis && scaleBasis(shareBasis, total)) || basisFromSplit(total, chosenSplit)
     fillShared(chosenSplit, basis, cents < 0 ? -1 : 1, paidById)
+  }
+
+  // A receipt amount typed on a category row: the Bill total becomes the sum of them and every
+  // share is spread again. Sign follows the Bill total, as when it is typed by hand.
+  function changeReceipt(i, text) {
+    setTotalFollows(false)
+    setCategoryFollows(false)
+    const rows = categoryLines.map((l, idx) => (idx === i ? { ...l, receipt: text } : l))
+    const total = rows.reduce((sum, l) => sum + Math.abs(parseCents(l.receipt) ?? 0), 0)
+    if (!chosenSplit || totalLocked || total === 0) return setCategoryLines(rows)
+    const sign = (parseCents(billTotal) ?? 0) < 0 ? -1 : 1
+    setBillTotal(String((sign * total) / 100))
+    const basis = (shareBasis && scaleBasis(shareBasis, total)) || basisFromSplit(total, chosenSplit)
+    fillShared(chosenSplit, basis, sign, paidById, undefined, rows)
   }
 
   // The whole bill, sent only when someone other than Me paid — otherwise it is my account line.
@@ -350,7 +388,7 @@ export default function Transactions({ pickerDate }) {
       t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) }))
     )
     setCategoryLines(
-      t.category_lines.map((l) => ({ category_id: String(l.category_id), cents: String(l.cents / 100) }))
+      t.category_lines.map((l) => ({ category_id: String(l.category_id), cents: String(l.cents / 100), receipt: '' }))
     )
     setDeposits(
       (t.deposits ?? []).map((d) => ({
@@ -370,6 +408,13 @@ export default function Transactions({ pickerDate }) {
     setShareBasis(saved?.basis ?? null)
     setTotalLocked(t.split_id != null && !saved)
     setBillTotal(saved ? String((saved.sign * saved.basis.total) / 100) : '')
+    if (saved) {
+      // Each category's receipt amount is its line × (total ÷ my share): my lines' proportions of the total.
+      const receipts = spreadCents(saved.basis.total, t.category_lines.map((l) => Math.abs(l.cents)))
+      setCategoryLines(
+        t.category_lines.map((l, i) => ({ category_id: String(l.category_id), cents: String(l.cents / 100), receipt: String(receipts[i] / 100) }))
+      )
+    }
     const ownLine = split && t.account_lines.find((l) => !split.members.some((m) => m.account_id === l.account_id))
     ownPicks.current = {
       account_id: ownLine ? String(ownLine.account_id) : '',
@@ -677,9 +722,20 @@ export default function Transactions({ pickerDate }) {
                     <option key={c.id} value={c.id}>{c.name}</option>
                   ))}
                 </select>
+                {chosenSplit && !totalLocked && (
+                  <input
+                    inputMode="decimal"
+                    placeholder="Receipt"
+                    aria-label="Receipt amount"
+                    className="w-24 rounded bg-ink px-2 py-1"
+                    value={line.receipt ?? ''}
+                    onChange={(e) => changeReceipt(i, e.target.value)}
+                  />
+                )}
                 <input
                   inputMode="decimal"
                   placeholder="0.00"
+                  aria-label={chosenSplit && !totalLocked ? 'Your share' : undefined}
                   className="w-28 rounded bg-ink px-2 py-1"
                   value={line.cents}
                   onChange={(e) => updateCategoryLine(i, 'cents', e.target.value)}

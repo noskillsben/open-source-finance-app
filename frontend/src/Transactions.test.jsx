@@ -652,6 +652,130 @@ describe('Ledger form: a shared bill on a split', () => {
     expect(calls.update.mock.calls[0][1].account_lines).toHaveLength(3)
   })
 
+  describe('one bill across several categories', () => {
+    const share = () => screen.getAllByLabelText('Your share').map((i) => i.value)
+    const receipt = () => screen.getAllByLabelText('Receipt amount').map((i) => i.value)
+    const accountAmounts = () => amounts().slice(1, amounts().length - share().length) // [0] is Bill total
+    const TWO = {
+      ...SAVED,
+      account_lines: [
+        { id: 1, account_id: 1, cents: -15000, budget_cents: -15000 },
+        { id: 2, account_id: 3, cents: 7500, budget_cents: 7500 },
+      ],
+      category_lines: [
+        { id: 1, category_id: 10, cents: -5000, need_level: null },
+        { id: 2, category_id: 11, cents: -2500, need_level: null },
+      ],
+    }
+
+    it('works the lines out from the receipt amount typed on each category', async () => {
+      renderLedger()
+      await pickSplit()
+      fireEvent.click(await screen.findByText('+ add category line'))
+      fireEvent.click(await screen.findByText('+ add category line'))
+      const selects = () => screen.getAllByRole('combobox').filter((s) => s.querySelector('option[value="11"]'))
+      fireEvent.change(selects()[0], { target: { value: '10' } })
+      fireEvent.change(selects()[1], { target: { value: '11' } })
+
+      fireEvent.change(screen.getAllByLabelText('Receipt amount')[0], { target: { value: '100' } })
+      fireEvent.change(screen.getAllByLabelText('Receipt amount')[1], { target: { value: '50' } })
+
+      expect(screen.getByLabelText('Bill total')).toHaveValue('150')
+      expect(accountAmounts()).toEqual(['-150', '75'])
+      expect(share()).toEqual(['-50', '-25'])
+      save()
+      await waitFor(() => expect(calls.create).toHaveBeenCalled())
+      expect(calls.create.mock.calls[0][0].category_lines).toEqual([
+        { category_id: 10, cents: -5000 },
+        { category_id: 11, cents: -2500 },
+      ])
+    })
+
+    it('reads each receipt amount back on an edit, and a new total rescales them all together', async () => {
+      existingTransactions = [TWO]
+      renderLedger()
+      fireEvent.click(await screen.findByText('Hydro'))
+      await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('150'))
+      expect(receipt()).toEqual(['100', '50'])
+
+      fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '300' } })
+
+      expect(receipt()).toEqual(['200', '100'])
+      expect(share()).toEqual(['-100', '-50'])
+      expect(accountAmounts()).toEqual(['-300', '150'])
+    })
+
+    it('changing one receipt amount re-spreads my share and moves the total', async () => {
+      existingTransactions = [TWO]
+      renderLedger()
+      fireEvent.click(await screen.findByText('Hydro'))
+      await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('150'))
+
+      fireEvent.change(screen.getAllByLabelText('Receipt amount')[1], { target: { value: '100' } })
+
+      expect(screen.getByLabelText('Bill total')).toHaveValue('200')
+      expect(share()).toEqual(['-50', '-50'])
+    })
+
+    it('a bill Sam paid keeps both categories and its stored total', async () => {
+      existingTransactions = [{
+        ...TWO,
+        paid_by_payee_id: 20,
+        shared_total_cents: 15000,
+        account_lines: [{ id: 1, account_id: 3, cents: -7500, budget_cents: -7500 }],
+      }]
+      renderLedger()
+      fireEvent.click(await screen.findByText('Hydro'))
+      await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('150'))
+      expect(receipt()).toEqual(['100', '50'])
+
+      fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '300' } })
+      expect(share()).toEqual(['-100', '-50'])
+      save()
+      await waitFor(() => expect(calls.update).toHaveBeenCalled())
+      expect(calls.update.mock.calls[0][1]).toMatchObject({
+        shared_total_cents: 30000,
+        account_lines: [{ account_id: 3, cents: -15000 }],
+        category_lines: [{ category_id: 10, cents: -10000 }, { category_id: 11, cents: -5000 }],
+      })
+    })
+
+    it('a typed receipt whose share rounds to 0 is saved as a 0 line, not refused', async () => {
+      renderLedger()
+      await pickSplit()
+      fireEvent.click(await screen.findByText('+ add category line'))
+      fireEvent.click(await screen.findByText('+ add category line'))
+      const selects = () => screen.getAllByRole('combobox').filter((s) => s.querySelector('option[value="11"]'))
+      fireEvent.change(selects()[0], { target: { value: '10' } })
+      fireEvent.change(selects()[1], { target: { value: '11' } })
+      fireEvent.change(screen.getAllByLabelText('Receipt amount')[0], { target: { value: '100' } })
+      fireEvent.change(screen.getAllByLabelText('Receipt amount')[1], { target: { value: '0.01' } })
+
+      expect(share()).toEqual(['-50', '0'])
+      save()
+      await waitFor(() => expect(calls.create).toHaveBeenCalled())
+      expect(calls.create.mock.calls[0][0].category_lines).toEqual([
+        { category_id: 10, cents: -5000 },
+        { category_id: 11, cents: 0 },
+      ])
+    })
+
+    it('a single category behaves as before: its receipt amount is the Bill total', async () => {
+      renderLedger()
+      await pickSplit()
+      await addCategoryLine('Groceries')
+
+      fireEvent.change(screen.getByLabelText('Receipt amount'), { target: { value: '100' } })
+
+      expect(screen.getByLabelText('Bill total')).toHaveValue('100')
+      expect(accountAmounts()).toEqual(['-100', '50'])
+      expect(share()).toEqual(['-50'])
+      fireEvent.change(screen.getByLabelText('Bill total'), { target: { value: '200' } })
+      expect(receipt()).toEqual(['200'])
+      expect(share()).toEqual(['-100'])
+    })
+  })
+
   it('shows the split on the ledger row', async () => {
     existingTransactions = [SAVED]
     renderLedger()

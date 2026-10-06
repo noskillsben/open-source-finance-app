@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { basisFromSplit, basisFromTransaction, linesFromBasis, scaleBasis } from './sharedBill.js'
+import { basisFromSplit, basisFromTransaction, linesFromBasis, scaleBasis, spreadCents } from './sharedBill.js'
 
 const SPLIT = {
   id: 5,
@@ -18,7 +18,7 @@ describe('shared bill arithmetic', () => {
     const basis = basisFromSplit(10000, SPLIT)
     expect(basis).toEqual({ total: 10000, mine: 5000, members: [{ account_id: 3, cents: 5000 }] })
     const { accountLines, categoryLines } = linesFromBasis(basis, {
-      payerIsMe: true, payerAccountId: 1, categoryId: 10,
+      payerIsMe: true, payerAccountId: 1, categories: [{ category_id: 10, receipt: 10000 }],
     })
     expect(accountLines).toEqual([{ account_id: 1, cents: -10000 }, { account_id: 3, cents: 5000 }])
     expect(categoryLines).toEqual([{ category_id: 10, cents: -5000 }])
@@ -32,7 +32,7 @@ describe('shared bill arithmetic', () => {
 
   it('when someone else paid, only their account and my share are written', () => {
     const { accountLines, categoryLines } = linesFromBasis(basisFromSplit(10000, SPLIT), {
-      payerIsMe: false, payerMemberAccountId: 3, categoryId: 10,
+      payerIsMe: false, payerMemberAccountId: 3, categories: [{ category_id: 10, receipt: 10000 }],
     })
     expect(accountLines).toEqual([{ account_id: 3, cents: -5000 }])
     expect(categoryLines).toEqual([{ category_id: 10, cents: -5000 }])
@@ -61,5 +61,44 @@ describe('shared bill arithmetic', () => {
   it('leaves a bill someone else paid locked when it has no stored total', () => {
     const transaction = { paid_by_payee_id: 20, shared_total_cents: null, account_lines: [{ account_id: 3, cents: -5000 }] }
     expect(basisFromTransaction(transaction, SPLIT, 1)).toBeNull()
+  })
+})
+
+describe('one bill across several categories', () => {
+  const cats = (...receipts) => receipts.map((receipt, i) => ({ category_id: 10 + i, receipt }))
+
+  it('a $150 run as Groceries 100 and Household 50 at 50/50 is −50 and −25, with Sam +75', () => {
+    const { accountLines, categoryLines } = linesFromBasis(basisFromSplit(15000, SPLIT), {
+      payerIsMe: true, payerAccountId: 1, categories: cats(10000, 5000),
+    })
+    expect(accountLines).toEqual([{ account_id: 1, cents: -15000 }, { account_id: 3, cents: 7500 }])
+    expect(categoryLines).toEqual([{ category_id: 10, cents: -5000 }, { category_id: 11, cents: -2500 }])
+  })
+
+  it('odd cents across three categories still add up exactly to my share', () => {
+    const basis = basisFromSplit(333, SPLIT) // Sam 167 (half rounds up), me 166
+    const { categoryLines } = linesFromBasis(basis, { payerIsMe: true, payerAccountId: 1, categories: cats(111, 111, 111) })
+    expect(categoryLines.map((l) => l.cents)).toEqual([-56, -55, -55]) // leftover cent to the first of a tie
+    expect(categoryLines.reduce((sum, l) => sum + l.cents, 0)).toBe(-basis.mine)
+  })
+
+  it('leftover cents go to the largest receipt amount', () => {
+    expect(spreadCents(100, [1, 1, 1])).toEqual([34, 33, 33])
+    expect(spreadCents(101, [1, 2, 1])).toEqual([25, 51, 25])
+  })
+
+  it('a bill someone else paid spreads my share the same way, off their account', () => {
+    const { accountLines, categoryLines } = linesFromBasis(basisFromSplit(15000, SPLIT), {
+      payerIsMe: false, payerMemberAccountId: 3, categories: cats(10000, 5000),
+    })
+    expect(accountLines).toEqual([{ account_id: 3, cents: -7500 }])
+    expect(categoryLines.map((l) => l.cents)).toEqual([-5000, -2500])
+  })
+
+  it('a refund flips every line', () => {
+    const { categoryLines } = linesFromBasis(basisFromSplit(15000, SPLIT), {
+      sign: -1, payerIsMe: true, payerAccountId: 1, categories: cats(10000, 5000),
+    })
+    expect(categoryLines.map((l) => l.cents)).toEqual([5000, 2500])
   })
 })
