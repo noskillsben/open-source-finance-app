@@ -58,10 +58,11 @@ export function receiptsForTotal(total, typed) {
 
 /** The lines for a basis. `categories` is one `{ category_id, receipt }` per category row, the
  * receipt amounts (unsigned cents) adding to the total; my share is spread across them pro rata
- * (`spreadCents`). `categoryId` alone is one row carrying the whole bill. Paid by me: my account pays the whole bill, each member's receivable
+ * (`spreadCents`).
+ * Paid by me: my account pays the whole bill, each member's receivable
  * takes their share, and only my share is a category line. Paid by a member: nothing touches
  * my accounts — their receivable goes down by my share, and my share is the category line. */
-export function linesFromBasis(basis, { sign = 1, payerIsMe, payerAccountId, payerMemberAccountId, categoryId, categories }) {
+export function linesFromBasis(basis, { sign = 1, payerIsMe, payerAccountId, payerMemberAccountId, categories }) {
   const accountLines = []
   if (payerIsMe) {
     accountLines.push({ account_id: payerAccountId, cents: -sign * basis.total })
@@ -71,7 +72,7 @@ export function linesFromBasis(basis, { sign = 1, payerIsMe, payerAccountId, pay
   } else {
     accountLines.push({ account_id: payerMemberAccountId, cents: -sign * basis.mine })
   }
-  const rows = categories ?? [{ category_id: categoryId, receipt: basis.total }]
+  const rows = categories
   const shares = spreadCents(basis.mine, rows.map((r) => r.receipt))
   const categoryLines =
     basis.mine === 0

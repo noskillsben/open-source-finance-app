@@ -273,7 +273,8 @@ export default function Transactions({ pickerDate }) {
     setCategoryLines(
       cats.map((l, i) => ({
         category_id: String(l.category_id ?? ''),
-        cents: l.cents === 0 ? '' : String(l.cents / 100),
+        // A share of 0 worked out from a typed receipt is a stated 0; only a row with no receipt stays blank.
+        cents: l.cents === 0 && !(rows.length ? receipts[i] > 0 : basis.total > 0) ? '' : String(l.cents / 100),
         // The text typed in a receipt box stays as typed ("12." must not become "12").
         receipt:
           rows.length && receipts[i] === 0

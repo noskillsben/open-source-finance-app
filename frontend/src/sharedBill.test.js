@@ -18,7 +18,7 @@ describe('shared bill arithmetic', () => {
     const basis = basisFromSplit(10000, SPLIT)
     expect(basis).toEqual({ total: 10000, mine: 5000, members: [{ account_id: 3, cents: 5000 }] })
     const { accountLines, categoryLines } = linesFromBasis(basis, {
-      payerIsMe: true, payerAccountId: 1, categoryId: 10,
+      payerIsMe: true, payerAccountId: 1, categories: [{ category_id: 10, receipt: 10000 }],
     })
     expect(accountLines).toEqual([{ account_id: 1, cents: -10000 }, { account_id: 3, cents: 5000 }])
     expect(categoryLines).toEqual([{ category_id: 10, cents: -5000 }])
@@ -32,7 +32,7 @@ describe('shared bill arithmetic', () => {
 
   it('when someone else paid, only their account and my share are written', () => {
     const { accountLines, categoryLines } = linesFromBasis(basisFromSplit(10000, SPLIT), {
-      payerIsMe: false, payerMemberAccountId: 3, categoryId: 10,
+      payerIsMe: false, payerMemberAccountId: 3, categories: [{ category_id: 10, receipt: 10000 }],
     })
     expect(accountLines).toEqual([{ account_id: 3, cents: -5000 }])
     expect(categoryLines).toEqual([{ category_id: 10, cents: -5000 }])

@@ -740,6 +740,26 @@ describe('Ledger form: a shared bill on a split', () => {
       })
     })
 
+    it('a typed receipt whose share rounds to 0 is saved as a 0 line, not refused', async () => {
+      renderLedger()
+      await pickSplit()
+      fireEvent.click(await screen.findByText('+ add category line'))
+      fireEvent.click(await screen.findByText('+ add category line'))
+      const selects = () => screen.getAllByRole('combobox').filter((s) => s.querySelector('option[value="11"]'))
+      fireEvent.change(selects()[0], { target: { value: '10' } })
+      fireEvent.change(selects()[1], { target: { value: '11' } })
+      fireEvent.change(screen.getAllByLabelText('Receipt amount')[0], { target: { value: '100' } })
+      fireEvent.change(screen.getAllByLabelText('Receipt amount')[1], { target: { value: '0.01' } })
+
+      expect(share()).toEqual(['-50', '0'])
+      save()
+      await waitFor(() => expect(calls.create).toHaveBeenCalled())
+      expect(calls.create.mock.calls[0][0].category_lines).toEqual([
+        { category_id: 10, cents: -5000 },
+        { category_id: 11, cents: 0 },
+      ])
+    })
+
     it('a single category behaves as before: its receipt amount is the Bill total', async () => {
       renderLedger()
       await pickSplit()
