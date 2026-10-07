@@ -45,6 +45,10 @@ export default function Transactions({ pickerDate }) {
   const [paidById, setPaidById] = useState(null)
   const [billTotal, setBillTotal] = useState('')
   const [shareBasis, setShareBasis] = useState(null)
+  // The breakdown a saved bill was opened with: every new total is scaled from it, never from the
+  // last result, so typing a total digit by digit lands where entering it whole would. Null for a
+  // new bill, which works its shares out from the split's percentages each time.
+  const [shareStart, setShareStart] = useState(null)
   // A saved shared bill whose proportions cannot be read back: its lines are left for hand
   // editing and the total is read-only. Never worked out again from the split's percentages.
   const [totalLocked, setTotalLocked] = useState(false)
@@ -292,6 +296,7 @@ export default function Transactions({ pickerDate }) {
     setTotalFollows(false)
     setTotalLocked(false)
     setShareBasis(null)
+    setShareStart(null)
     if (!id) {
       setPaidById(null)
       setBillTotal('')
@@ -313,7 +318,7 @@ export default function Transactions({ pickerDate }) {
     const cents = parseCents(text)
     if (totalLocked || !chosenSplit || cents === null || cents === 0) return
     const total = Math.abs(cents)
-    const basis = (shareBasis && scaleBasis(shareBasis, total)) || basisFromSplit(total, chosenSplit)
+    const basis = (shareStart && scaleBasis(shareStart, total)) || basisFromSplit(total, chosenSplit)
     fillShared(chosenSplit, basis, cents < 0 ? -1 : 1, paidById)
   }
 
@@ -327,7 +332,7 @@ export default function Transactions({ pickerDate }) {
     if (!chosenSplit || totalLocked || total === 0) return setCategoryLines(rows)
     const sign = (parseCents(billTotal) ?? 0) < 0 ? -1 : 1
     setBillTotal(String((sign * total) / 100))
-    const basis = (shareBasis && scaleBasis(shareBasis, total)) || basisFromSplit(total, chosenSplit)
+    const basis = (shareStart && scaleBasis(shareStart, total)) || basisFromSplit(total, chosenSplit)
     fillShared(chosenSplit, basis, sign, paidById, undefined, rows)
   }
 
@@ -355,6 +360,7 @@ export default function Transactions({ pickerDate }) {
     setPaidById(null)
     setBillTotal('')
     setShareBasis(null)
+    setShareStart(null)
     ownPicks.current = { account_id: '', category_id: '' }
     setEditingId(null)
     setDate(pickerDate)
@@ -406,6 +412,7 @@ export default function Transactions({ pickerDate }) {
     setSplitId(t.split_id != null ? String(t.split_id) : '')
     setPaidById(t.paid_by_payee_id)
     setShareBasis(saved?.basis ?? null)
+    setShareStart(saved?.basis ?? null)
     setTotalLocked(t.split_id != null && !saved)
     setBillTotal(saved ? String((saved.sign * saved.basis.total) / 100) : '')
     if (saved) {
