@@ -23,11 +23,19 @@ const ACCOUNTS = [
   { id: 1, name: 'Chequing', linked_category_ids: [] },
   { id: 2, name: 'Starbucks card', linked_category_ids: [], locked_payee_id: 7 },
   { id: 3, name: 'Roommate', linked_category_ids: [] },
+  { id: 4, name: 'Sam', linked_category_ids: [] },
 ]
 const SPLITS = [
   {
     id: 5, name: 'Household', archived_on: null, my_share_percent: '50.0000',
     members: [{ id: 1, payee_id: 20, payee_name: 'Roommate', account_id: 3, account_name: 'Roommate', percent: '50.0000' }],
+  },
+  {
+    id: 6, name: 'Thirds', archived_on: null, my_share_percent: '33.3334',
+    members: [
+      { id: 2, payee_id: 20, payee_name: 'Roommate', account_id: 3, account_name: 'Roommate', percent: '33.3333' },
+      { id: 3, payee_id: 21, payee_name: 'Sam', account_id: 4, account_name: 'Sam', percent: '33.3333' },
+    ],
   },
 ]
 const CATEGORIES = [
@@ -650,6 +658,56 @@ describe('Ledger form: a shared bill on a split', () => {
     save()
     await waitFor(() => expect(calls.update).toHaveBeenCalled())
     expect(calls.update.mock.calls[0][1].account_lines).toHaveLength(3)
+  })
+
+  describe('typing a total one key at a time', () => {
+    const typeKeys = (label, text, index = 0) => {
+      for (let n = 1; n <= text.length; n++) {
+        fireEvent.change(screen.getAllByLabelText(label)[index], { target: { value: text.slice(0, n) } })
+      }
+    }
+
+    it('a new bill ends where the whole number would: 100 on thirds', async () => {
+      renderLedger()
+      const select = await screen.findByLabelText('Split')
+      await screen.findByRole('option', { name: 'Thirds' })
+      fireEvent.change(select, { target: { value: '6' } })
+      await addCategoryLine('Groceries')
+
+      typeKeys('Bill total', '100')
+
+      expect(amounts().slice(1, 5)).toEqual(['-100', '33.33', '33.33', '-33.34'])
+    })
+
+    it('a saved bill Sam paid, retyped as 137, ends at my share of 45.67', async () => {
+      existingTransactions = [SAM_PAID]
+      renderLedger()
+      fireEvent.click(await screen.findByText('Hydro'))
+      await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('90'))
+
+      typeKeys('Bill total', '137')
+
+      expect(amounts().slice(1, 3)).toEqual(['-45.67', '-45.67'])
+    })
+
+    it('receipt amounts typed a digit at a time end where the whole numbers would', async () => {
+      renderLedger()
+      const select = await screen.findByLabelText('Split')
+      await screen.findByRole('option', { name: 'Thirds' })
+      fireEvent.change(select, { target: { value: '6' } })
+      fireEvent.click(await screen.findByText('+ add category line'))
+      fireEvent.click(await screen.findByText('+ add category line'))
+      const selects = () => screen.getAllByRole('combobox').filter((s) => s.querySelector('option[value="11"]'))
+      fireEvent.change(selects()[0], { target: { value: '10' } })
+      fireEvent.change(selects()[1], { target: { value: '11' } })
+
+      typeKeys('Receipt amount', '100', 0)
+      typeKeys('Receipt amount', '50', 1)
+
+      expect(screen.getByLabelText('Bill total')).toHaveValue('150')
+      expect(screen.getAllByLabelText('Your share').map((i) => i.value)).toEqual(['-33.34', '-16.66'])
+      expect(amounts().slice(1, 4)).toEqual(['-150', '50', '50'])
+    })
   })
 
   describe('one bill across several categories', () => {
