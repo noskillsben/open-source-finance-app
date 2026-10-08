@@ -1,11 +1,12 @@
 """Pydantic models — the API shape. Never persisted."""
 from datetime import date
-from decimal import Decimal
+from decimal import ROUND_HALF_EVEN, Decimal
 
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
 
 from app.account_types import ACCOUNT_TYPES
 from app.need_levels import NEED_LEVELS
+from app.term_options import COMPOUNDING_RULES, PREPAYMENT_MODELS
 
 
 class Health(BaseModel):
@@ -28,6 +29,49 @@ class DebtTerms(BaseModel):
     promo_expiry_date: date | None = None
     deferred_rate: Decimal | None = None
     minimum_payment_rule: str | None = None
+
+    @field_validator("annual_rate", "deferred_rate")
+    @classmethod
+    def _rate_is_not_negative(cls, value: Decimal | None) -> Decimal | None:
+        """A rate is 0 or more (a stated 0 is a 0% plan, not unknown). Rounded half-even to the
+        column's four decimal places here, so what is stored is what the API reads back.
+        """
+        if value is None:
+            return None
+        if not value.is_finite() or value < 0:
+            raise ValueError("a rate must be 0 or more")
+        rounded = value.quantize(Decimal("0.0001"), rounding=ROUND_HALF_EVEN)
+        if rounded >= Decimal("100000"):  # Numeric(9, 4) holds up to 99999.9999
+            raise ValueError("a rate this large is not a percent")
+        return rounded
+
+    @field_validator("statement_close_day")
+    @classmethod
+    def _close_day_is_a_day_of_the_month(cls, value: int | None) -> int | None:
+        if value is not None and not 1 <= value <= 31:
+            raise ValueError("statement close day must be 1 to 31")
+        return value
+
+    @field_validator("grace_days")
+    @classmethod
+    def _grace_days_are_not_negative(cls, value: int | None) -> int | None:
+        if value is not None and value < 0:
+            raise ValueError("grace days must be 0 or more")
+        return value
+
+    @field_validator("compounding_rule")
+    @classmethod
+    def _compounding_rule_is_known(cls, value: str | None) -> str | None:
+        if value is not None and value not in COMPOUNDING_RULES:
+            raise ValueError(f"compounding rule must be one of {', '.join(COMPOUNDING_RULES)}")
+        return value
+
+    @field_validator("prepayment_model")
+    @classmethod
+    def _prepayment_model_is_known(cls, value: str | None) -> str | None:
+        if value is not None and value not in PREPAYMENT_MODELS:
+            raise ValueError(f"prepayment model must be one of {', '.join(PREPAYMENT_MODELS)}")
+        return value
 
     @field_serializer("annual_rate", "deferred_rate")
     def _rate_as_string(self, value: Decimal | None) -> str | None:
