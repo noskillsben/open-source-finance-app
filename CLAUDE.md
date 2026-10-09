@@ -16,7 +16,7 @@ Every issue closes with a comment that answers two gates aloud. Silence is not a
 - **Schema:** nothing changed / additive with a default / migration written, tested on a *populated* database, and idempotent on a second run. "Tested on a populated database" means naming the revision and the fixture: *revision `abc123`, fixture `backend/tests/fixtures/abc123.sql`, migration test passes.* A claim with no fixture behind it is not an answer.
 - **User guide:** which bullet in `docs/user/README.md` was added or changed, or "no user-facing change".
 
-Work on a branch named `issue-N-<short-slug>`, push it, and open the pull request with `gh pr create --fill` (the template asks for both gates). `Fixes #N` in the PR body so the merge closes the issue. A reviewer subagent checks the PR in the order in `manager.md` § Reviewing and posts a verdict. Nothing in Claude Code approves or merges a PR; Ben merges. During the trial (#256) the claude.ai Manager can still review.
+Start from the latest `main`: `git fetch origin`, then `git checkout main` and `git pull --ff-only` (Ben squash-merges, so a branch cut from a stale `main` or an old feature branch conflicts with its own squashed commits). If the working tree is dirty or `main` won't fast-forward, stop and tell Ben rather than work around it. Then work on a branch named `issue-N-<short-slug>`, push it, and open the pull request with `gh pr create --fill` (the template asks for both gates). `Fixes #N` in the PR body so the merge closes the issue. A reviewer subagent checks the PR in the order in `manager.md` § Reviewing and posts a verdict. Nothing in Claude Code approves or merges a PR; Ben merges. During the trial (#256) the claude.ai Manager can still review.
 
 ## Conventions that are not negotiable
 

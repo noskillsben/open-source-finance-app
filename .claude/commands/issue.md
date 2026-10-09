@@ -9,7 +9,7 @@ Work on GitHub issue #$ARGUMENTS in this repository. In this command the session
 
 ## 2. Build
 
-Start the `implementer` subagent with the issue number and the scoped prompt. It works on branch `issue-$ARGUMENTS-<slug>`, opens the PR, and returns the PR number. If it reports a blocker or a design question, go to "Stopping for Ben".
+Before starting it, bring the checkout to the latest `main` as CLAUDE.md § Finishing a session says (`git fetch origin`, `git checkout main`, `git pull --ff-only`); if the tree is dirty or `main` won't fast-forward, go to "Stopping for Ben". Then start the `implementer` subagent with the issue number and the scoped prompt. It works on branch `issue-$ARGUMENTS-<slug>`, opens the PR, and returns the PR number. If it reports a blocker or a design question, go to "Stopping for Ben".
 
 ## 3. Review
 
