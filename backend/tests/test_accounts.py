@@ -260,3 +260,103 @@ def test_an_account_past_its_credit_limit_still_warns(db_session):
     db_session.flush()
 
     assert _listed_account(db_session, card.id)["notes"] == ["This balance is past the credit limit."]
+
+
+def _post_terms(db_session, **terms):
+    client = _client(db_session)
+    try:
+        return client.post("/api/accounts", json=_account_body(**terms))
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.parametrize(
+    "terms",
+    [
+        {"statement_close_day": 0},
+        {"statement_close_day": 32},
+        {"grace_days": -1},
+        {"annual_rate": -0.01},
+        {"deferred_rate": "-1"},
+        {"annual_rate": "100000"},
+        {"compounding_rule": "weekly"},
+        {"prepayment_model": "whenever"},
+    ],
+)
+def test_a_term_outside_its_range_is_a_422(db_session, terms):
+    assert _post_terms(db_session, **terms).status_code == 422
+
+
+@pytest.mark.parametrize(
+    "terms",
+    [
+        {"statement_close_day": 1},
+        {"statement_close_day": 31},
+        {"grace_days": 0},
+        {"annual_rate": 0},
+        {"compounding_rule": "daily"},
+        {"compounding_rule": "monthly"},
+        {"compounding_rule": "semi-annual"},
+        {"prepayment_model": "open"},
+        {"prepayment_model": "closed with privileges"},
+        {"prepayment_model": "penalty"},
+        {"minimum_payment_rule": "greater of $10 or 3% of the balance"},
+    ],
+)
+def test_a_term_inside_its_range_is_accepted(db_session, terms):
+    assert _post_terms(db_session, **terms).status_code == 201
+
+
+def test_a_rate_is_rounded_half_even_to_four_places(db_session):
+    created = _post_terms(db_session, annual_rate="5.00005", deferred_rate="5.00015")
+    assert created.json()["terms"]["annual_rate"] == "5.0000"  # tie goes to the even digit
+    assert created.json()["terms"]["deferred_rate"] == "5.0002"
+
+
+def test_zero_and_blank_round_trip_as_different_answers(db_session):
+    created = _post_terms(db_session, grace_days=0, annual_rate=0, statement_close_day=None)
+    terms = created.json()["terms"]
+    assert terms["grace_days"] == 0
+    assert terms["annual_rate"] == "0.0000"
+    assert terms["statement_close_day"] is None
+    assert terms["deferred_rate"] is None
+    assert terms["credit_limit_cents"] is None
+
+
+def test_an_update_that_omits_terms_leaves_the_existing_terms_alone(db_session):
+    client = _client(db_session)
+    try:
+        created = client.post(
+            "/api/accounts", json=_account_body(annual_rate="5.99", grace_days=21, compounding_rule="daily")
+        )
+        updated = client.put(
+            f"/api/accounts/{created.json()['id']}",
+            json={"name": "Renamed", "type": "Credit card", "on_budget": True, "on_budget_floor_cents": 0},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert updated.status_code == 200
+    assert updated.json()["name"] == "Renamed"
+    assert updated.json()["terms"]["annual_rate"] == "5.9900"
+    assert updated.json()["terms"]["grace_days"] == 21
+    assert updated.json()["terms"]["compounding_rule"] == "daily"
+
+
+def test_an_update_with_an_invalid_term_is_a_422_and_changes_nothing(db_session):
+    client = _client(db_session)
+    try:
+        created = client.post("/api/accounts", json=_account_body(grace_days=21))
+        updated = client.put(
+            f"/api/accounts/{created.json()['id']}",
+            json={
+                "name": "Card", "type": "Credit card", "on_budget": True, "on_budget_floor_cents": 0,
+                "terms": {"grace_days": -3},
+            },
+        )
+        listed = client.get("/api/accounts")
+    finally:
+        app.dependency_overrides.clear()
+
+    assert updated.status_code == 422
+    assert listed.json()[0]["terms"]["grace_days"] == 21

@@ -209,3 +209,109 @@ describe('an account locked to a payee archived since', () => {
     expect(updateAccount.mock.calls[0][1].locked_payee_id).toBe(9)
   })
 })
+
+describe("lender's terms", () => {
+  beforeEach(() => {
+    updateAccount.mockReset()
+    createAccount.mockReset()
+    updateAccount.mockResolvedValue({})
+    createAccount.mockResolvedValue({})
+  })
+
+  it.each(['Credit card', 'Line of credit', 'Loan', 'Mortgage', 'Payment plan'])(
+    'opens the section by default for %s',
+    async (type) => {
+      accounts = []
+      render(<Accounts pickerDate="2026-10-03" />)
+      fireEvent.change(await screen.findByLabelText('Type'), { target: { value: type } })
+
+      expect(screen.getByLabelText('Annual rate (%)')).toBeTruthy()
+      expect(screen.queryByRole('button', { name: "Add lender's terms" })).toBeNull()
+    },
+  )
+
+  it.each(['Cash', 'Chequing', 'Savings', 'Investment', 'Asset'])('puts %s behind the toggle', async (type) => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: type } })
+
+    expect(screen.queryByLabelText('Annual rate (%)')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: "Add lender's terms" }))
+    expect(screen.getByLabelText('Annual rate (%)')).toBeTruthy()
+  })
+
+  it('opens the toggle on its own when the account already has terms', async () => {
+    accounts = [account({ id: 3, name: 'Nest egg', type: 'Savings', terms: { credit_limit_cents: 0, annual_rate: '2.5000' } })]
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.click(await screen.findByText('Nest egg', { selector: 'td' }))
+
+    expect(screen.getByLabelText('Annual rate (%)').value).toBe('2.5000')
+  })
+
+  it('stays closed on an account with nothing beyond the 0 credit limit', async () => {
+    accounts = [account({ id: 3, name: 'Wallet', type: 'Cash' })]
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.click(await screen.findByText('Wallet', { selector: 'td' }))
+
+    expect(screen.queryByLabelText('Annual rate (%)')).toBeNull()
+  })
+
+  it('saves blank as null and a typed 0 as 0, with nothing pre-filled', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Credit card' } })
+    expect(screen.getByLabelText('Grace days after the statement closes').value).toBe('')
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Visa' } })
+    fireEvent.change(screen.getByLabelText('Annual rate (%)'), { target: { value: '19.99' } })
+    fireEvent.change(screen.getByLabelText('Grace days after the statement closes'), { target: { value: '0' } })
+    fireEvent.change(screen.getByLabelText('Compounds'), { target: { value: 'daily' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].terms).toEqual({
+      credit_limit_cents: null, annual_rate: '19.99', compounding_rule: 'daily', statement_close_day: null,
+      grace_days: 0, term_end: null, amortization_end: null, prepayment_model: null, promo_expiry_date: null,
+      deferred_rate: null, minimum_payment_rule: null,
+    })
+  })
+
+  it('refuses a statement close day outside 1-31 before it is sent', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Credit card' } })
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Visa' } })
+    fireEvent.change(screen.getByLabelText('Statement closes on day (1–31)'), { target: { value: '32' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    expect(await screen.findByText('Statement close day must be 1 to 31.')).toBeTruthy()
+    expect(createAccount).not.toHaveBeenCalled()
+  })
+
+  it('sends the whole terms block on an edit, merged with what the account already has', async () => {
+    const existing = {
+      credit_limit_cents: 500000, annual_rate: '5.9900', compounding_rule: 'semi-annual', statement_close_day: null,
+      grace_days: null, term_end: '2030-01-01', amortization_end: null, prepayment_model: 'open',
+      promo_expiry_date: null, deferred_rate: null, minimum_payment_rule: null,
+    }
+    accounts = [account({ id: 4, name: 'Home loan', type: 'Mortgage', on_budget: false, terms: existing })]
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.click(await screen.findByText('Home loan', { selector: 'td' }))
+    fireEvent.change(screen.getByLabelText('Annual rate (%)'), { target: { value: '4.5' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(updateAccount).toHaveBeenCalled())
+    expect(updateAccount.mock.calls[0][1].terms).toEqual({ ...existing, annual_rate: '4.5' })
+  })
+
+  it("shows the terms as one soft line under the account's name", async () => {
+    accounts = [
+      account({
+        id: 5, name: 'Visa', type: 'Credit card',
+        terms: { credit_limit_cents: null, annual_rate: '5.9900', compounding_rule: 'daily', statement_close_day: 15, grace_days: 21 },
+      }),
+    ]
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    expect(await screen.findByText('5.99% · compounds daily · statement closes the 15th, 21 days grace')).toBeTruthy()
+  })
+})

@@ -15,3 +15,11 @@ export const DEFAULT_CREDIT_LIMIT_CENTS = Object.fromEntries([
   ...['Cash', 'Chequing', 'Savings'].map((t) => [t, 0]),
   ...['Asset', 'Credit card', 'Investment', 'Line of credit', 'Loan', 'Mortgage', 'Payment plan'].map((t) => [t, null]),
 ])
+
+// Types whose form opens the lender's-terms section by default (a form default — account type's
+// first sanctioned consumer). Other types reach it through the "Add lender's terms" toggle.
+export const DEBT_TYPES = ['Credit card', 'Line of credit', 'Loan', 'Mortgage', 'Payment plan']
+
+// Mirrors backend/app/term_options.py — the closed lists a lender's terms choose from.
+export const COMPOUNDING_RULES = ['daily', 'monthly', 'semi-annual']
+export const PREPAYMENT_MODELS = ['open', 'closed with privileges', 'penalty']

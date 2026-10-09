@@ -1,8 +1,12 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
-import { DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, TRACKING_TYPES } from './account_types.js'
+import {
+  COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, PREPAYMENT_MODELS,
+  TRACKING_TYPES,
+} from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 import PayeePicker from './PayeePicker.jsx'
+import { emptyTermsText, hasLenderTerms, termsLine, termsToText, textToTerms } from './utils/terms.js'
 
 const VALUE_TYPES = ['Asset', 'Investment']
 
@@ -21,11 +25,49 @@ function emptyForm(pickerDate) {
     locked_payee_id: null,
     opening_balance_cents: '',
     created_on: pickerDate,
+    ...emptyTermsText(),
   }
 }
 
 function emptyCheckForm(pickerDate) {
   return { date: pickerDate, stated_balance_cents: '', category_id: '' }
+}
+
+function TermText({ form, field, label, onChange, decimal = false }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-sm">{label}</span>
+      <input
+        inputMode={decimal ? 'decimal' : field === 'minimum_payment_rule' ? 'text' : 'numeric'}
+        className="w-full rounded bg-ink px-2 py-1"
+        value={form[field]}
+        onChange={(e) => onChange(field, e.target.value)}
+      />
+    </label>
+  )
+}
+
+function TermDate({ form, field, label, onChange }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-sm">{label}</span>
+      <input type="date" className="w-full rounded bg-ink px-2 py-1" value={form[field]} onChange={(e) => onChange(field, e.target.value)} />
+    </label>
+  )
+}
+
+function TermSelect({ form, field, label, options, onChange }) {
+  return (
+    <label className="block space-y-1">
+      <span className="text-sm">{label}</span>
+      <select className="w-full rounded bg-ink px-2 py-1" value={form[field]} onChange={(e) => onChange(field, e.target.value)}>
+        <option value="">Unknown</option>
+        {options.map((o) => (
+          <option key={o} value={o}>{o}</option>
+        ))}
+      </select>
+    </label>
+  )
 }
 
 export default function Accounts({ pickerDate }) {
@@ -39,6 +81,8 @@ export default function Accounts({ pickerDate }) {
   const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
+  // Types outside DEBT_TYPES reach the terms section through a toggle; an account that already has terms opens it.
+  const [termsOpen, setTermsOpen] = useState(false)
   const [saving, setSaving] = useState(false)
 
   const [checkingId, setCheckingId] = useState(null)
@@ -97,7 +141,9 @@ export default function Accounts({ pickerDate }) {
       locked_payee_id: a.locked_payee_id,
       opening_balance_cents: '',
       created_on: a.created_on,
+      ...termsToText(a.terms),
     })
+    setTermsOpen(hasLenderTerms(a.terms))
     setFormKey((k) => k + 1)
     setFormError(null)
   }
@@ -105,6 +151,7 @@ export default function Accounts({ pickerDate }) {
   function resetForm() {
     setEditingId(null)
     setForm(emptyForm(pickerDate))
+    setTermsOpen(false)
     setFormKey((k) => k + 1)
     setFormError(null)
   }
@@ -248,6 +295,8 @@ export default function Accounts({ pickerDate }) {
     const floorCents = parseCents(form.on_budget_floor_cents) ?? 0
     if (!form.name.trim()) return setFormError('Name is required.')
     const creditLimitCents = parseCents(form.credit_limit_cents) // blank stays null: unknown, not 0
+    const lenderTerms = textToTerms(form)
+    if (lenderTerms.error) return setFormError(lenderTerms.error)
 
     try {
       if (editingId) {
@@ -258,8 +307,8 @@ export default function Accounts({ pickerDate }) {
           on_budget: form.on_budget,
           on_budget_floor_cents: floorCents,
           locked_payee_id: form.locked_payee_id,
-          // Keep the account's other terms as they are; only the limit is editable here.
-          terms: { ...accounts.find((a) => a.id === editingId).terms, credit_limit_cents: creditLimitCents },
+          // The whole block, merged over the account's own: a PUT that sends terms replaces all of them.
+          terms: { ...accounts.find((a) => a.id === editingId).terms, ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       } else {
         // Blank matches the field's 0.00 placeholder; typed text that isn't a number is still refused.
@@ -275,7 +324,7 @@ export default function Accounts({ pickerDate }) {
           on_budget_floor_cents: floorCents,
           opening_balance_cents: openingBalanceCents,
           locked_payee_id: form.locked_payee_id,
-          terms: { credit_limit_cents: creditLimitCents },
+          terms: { ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       }
       resetForm()
@@ -313,6 +362,7 @@ export default function Accounts({ pickerDate }) {
   function accountNotes(a) {
     return (
       <>
+        {termsLine(a.terms) && <div className="text-xs text-paper-soft">{termsLine(a.terms)}</div>}
         {a.archived_on && <div className="text-xs text-paper-soft">archived {formatDate(a.archived_on)}</div>}
         {a.checked_on && (
           <div className="text-xs text-paper-soft">
@@ -647,6 +697,26 @@ export default function Accounts({ pickerDate }) {
               placeholder="0.00"
             />
           </label>
+
+          {termsOpen || DEBT_TYPES.includes(form.type) ? (
+            <fieldset className="space-y-3 rounded border border-ink p-3">
+              <legend className="px-1 text-sm">Lender's terms (leave blank what you don't know)</legend>
+              <TermText form={form} field="annual_rate" label="Annual rate (%)" onChange={updateField} decimal />
+              <TermSelect form={form} field="compounding_rule" label="Compounds" options={COMPOUNDING_RULES} onChange={updateField} />
+              <TermText form={form} field="statement_close_day" label="Statement closes on day (1–31)" onChange={updateField} />
+              <TermText form={form} field="grace_days" label="Grace days after the statement closes" onChange={updateField} />
+              <TermDate form={form} field="term_end" label="Term ends" onChange={updateField} />
+              <TermDate form={form} field="amortization_end" label="Amortization ends" onChange={updateField} />
+              <TermSelect form={form} field="prepayment_model" label="Prepayment" options={PREPAYMENT_MODELS} onChange={updateField} />
+              <TermDate form={form} field="promo_expiry_date" label="Promo ends" onChange={updateField} />
+              <TermText form={form} field="deferred_rate" label="Deferred rate (%)" onChange={updateField} decimal />
+              <TermText form={form} field="minimum_payment_rule" label="Minimum payment rule" onChange={updateField} />
+            </fieldset>
+          ) : (
+            <button type="button" className="text-sm text-accent" onClick={() => setTermsOpen(true)}>
+              Add lender's terms
+            </button>
+          )}
 
           <label className="block space-y-1">
             <span className="text-sm">Locked to a payee (optional — a gift card or store credit only spends there)</span>
