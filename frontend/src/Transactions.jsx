@@ -149,6 +149,35 @@ export default function Transactions({ pickerDate }) {
     setPayeeId(account.locked_payee_id)
   }
 
+  // Money leaving the budget into a tracking account with a boundary category pre-fills that
+  // category line with the whole budget movement (DESIGN.md § Accounts → Money crossing the budget
+  // boundary): the user adds an interest line beside it and changes amounts. Money coming in
+  // pre-fills nothing. Filled once per form, then only follows the movement while still untouched.
+  const boundaryFill = useRef({ filled: false, line: null })
+  useEffect(() => {
+    if (editingId != null || splitId || !accounts || !categories) return
+    let movement = 0
+    let boundaryId = null
+    for (const line of accountLines) {
+      const account = accounts.find((a) => String(a.id) === line.account_id)
+      const cents = parseCents(line.cents)
+      if (!account || cents === null) continue
+      if (account.on_budget) movement += cents
+      else if (account.boundary_category_id != null && boundaryId === null) boundaryId = account.boundary_category_id
+    }
+    if (boundaryId === null || movement >= 0 || !categories.some((c) => c.id === boundaryId)) return
+    const fill = { category_id: String(boundaryId), cents: String(movement / 100) }
+    const last = boundaryFill.current.line
+    const untouched =
+      last && categoryLines.length === 1 && categoryLines[0].category_id === last.category_id && categoryLines[0].cents === last.cents
+    const blank = !boundaryFill.current.filled && categoryLines.every((l) => !l.category_id && !l.cents)
+    if (!untouched && !blank) return
+    if (untouched && last.category_id === fill.category_id && last.cents === fill.cents) return
+    boundaryFill.current = { filled: true, line: fill }
+    setCategoryLines([{ ...emptyCategoryLine, ...fill }])
+    setCategoryFollows(false)
+  }, [accountLines, accounts, categories])
+
   function updateAccountLine(i, field, value) {
     prefillLockedPayee({ ...accountLines[i], [field]: value })
     if (field === 'cents' && chosenSplit && editingId == null && !totalLocked) {
@@ -367,6 +396,7 @@ export default function Transactions({ pickerDate }) {
     setMemo('')
     setPayeeId(null)
     prefilledFor.current = new Set()
+    boundaryFill.current = { filled: false, line: null }
     setFormKey((k) => k + 1)
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])

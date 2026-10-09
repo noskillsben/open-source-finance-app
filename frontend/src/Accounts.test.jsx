@@ -26,7 +26,12 @@ vi.mock('./api.js', () => ({
       update: updateAccount,
       checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: [] }),
     },
-    categories: { list: () => Promise.resolve([{ id: 11, name: 'Rent' }]) },
+    categories: {
+      list: () => Promise.resolve([
+        { id: 11, name: 'Rent' },
+        { id: 12, name: 'Debt payments', seeded_key: 'debt-payments' },
+      ]),
+    },
     payees: { list: (asOf, all) => Promise.resolve(all ? [...payees, archivedPayee] : payees) },
   },
 }))
@@ -313,5 +318,38 @@ describe("lender's terms", () => {
     render(<Accounts pickerDate="2026-10-03" />)
 
     expect(await screen.findByText('5.99% · compounds daily · statement closes the 15th, 21 days grace')).toBeTruthy()
+  })
+})
+
+describe('boundary category', () => {
+  const picker = () => screen.findByLabelText(/Category money leaves the budget through/)
+
+  beforeEach(() => {
+    createAccount.mockReset()
+    createAccount.mockResolvedValue({})
+  })
+
+  it('pre-fills Debt payments for a debt type, found by its seeded key, and sends it', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    expect(await picker()).toHaveValue('')
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Car loan' } })
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'Loan' } })
+    expect(await picker()).toHaveValue('Debt payments')
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].boundary_category_id).toBe(12)
+  })
+
+  it('stays blank for the other types, and an edit does not backfill', async () => {
+    accounts = [account({ id: 6, name: 'Old loan', type: 'Loan', on_budget: false, boundary_category_id: null })]
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Savings' } })
+    expect(await picker()).toHaveValue('')
+    fireEvent.click(screen.getByText('Old loan'))
+    await waitFor(async () => expect(await picker()).toHaveValue(''))
   })
 })

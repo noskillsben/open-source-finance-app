@@ -64,6 +64,7 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
         id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
         type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
         balance_cents=balance_cents, locked_payee_id=account.locked_payee_id,
+        boundary_category_id=account.boundary_category_id,
         linked_category_ids=linked_category_ids(session, account.id), drift_cents=drift,
         checked_on=valuation.date if valuation is not None else None,
         checked_valuation_id=valuation.id if valuation is not None else None,
@@ -98,9 +99,20 @@ def _reject_unknown_payee(session: Session, payee_id: int | None) -> None:
         raise HTTPException(status_code=400, detail=f"Unknown payee id: {payee_id}")
 
 
+def _reject_bad_boundary_category(session: Session, category_id: int | None) -> None:
+    if category_id is None:
+        return
+    category = session.get(Category, category_id)
+    if category is None:
+        raise HTTPException(status_code=400, detail=f"Unknown category id: {category_id}")
+    if category.archived_on is not None:
+        raise HTTPException(status_code=400, detail=f"Category {category.name!r} is archived.")
+
+
 @router.post("/api/accounts", response_model=AccountOut, status_code=201)
 def create_account(payload: AccountCreate, session: Session = Depends(get_session)) -> AccountOut:
     _reject_unknown_payee(session, payload.locked_payee_id)
+    _reject_bad_boundary_category(session, payload.boundary_category_id)
     _reject_floor_below_credit_limit(payload.on_budget_floor_cents, payload.terms.credit_limit_cents)
     try:
         account = create_account_with_opening_valuation(
@@ -112,6 +124,7 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
             on_budget_floor_cents=payload.on_budget_floor_cents,
             opening_balance_cents=payload.opening_balance_cents,
             locked_payee_id=payload.locked_payee_id,
+            boundary_category_id=payload.boundary_category_id,
             **payload.terms.model_dump(),
         )
     except IntegrityError:
@@ -134,6 +147,11 @@ def update_account_route(
     terms = payload.terms.model_dump() if terms_sent else {}
     if "locked_payee_id" in payload.model_fields_set:  # likewise: omitted leaves the lock as it is
         terms["locked_payee_id"] = payload.locked_payee_id
+    if "boundary_category_id" in payload.model_fields_set:  # likewise
+        # Re-sending the category already stored is not a new choice: it may have been archived since.
+        if payload.boundary_category_id != account.boundary_category_id:
+            _reject_bad_boundary_category(session, payload.boundary_category_id)
+        terms["boundary_category_id"] = payload.boundary_category_id
     effective_credit_limit_cents = (
         payload.terms.credit_limit_cents if terms_sent else account.credit_limit_cents
     )

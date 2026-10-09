@@ -20,10 +20,12 @@ const calls = vi.hoisted(() => ({
 }))
 
 const ACCOUNTS = [
-  { id: 1, name: 'Chequing', linked_category_ids: [] },
+  { id: 1, name: 'Chequing', linked_category_ids: [], on_budget: true },
   { id: 2, name: 'Starbucks card', linked_category_ids: [], locked_payee_id: 7 },
   { id: 3, name: 'Roommate', linked_category_ids: [] },
   { id: 4, name: 'Sam', linked_category_ids: [] },
+  { id: 5, name: 'Car loan', linked_category_ids: [], on_budget: false, boundary_category_id: 12 },
+  { id: 6, name: 'Credit line', linked_category_ids: [], on_budget: false, boundary_category_id: null },
 ]
 const SPLITS = [
   {
@@ -41,6 +43,7 @@ const SPLITS = [
 const CATEGORIES = [
   { id: 10, name: 'Groceries', archived_on: null },
   { id: 11, name: 'Rent', archived_on: null },
+  { id: 12, name: 'Debt payments', archived_on: null },
 ]
 const RENT_GOAL = {
   goal: { id: 7, category_id: 11, name: 'Rent', kind: 'recurring_bill', archived_on: null },
@@ -1065,5 +1068,48 @@ describe('Ledger form: picking a payee fills in the category, account and split'
 
       expect(amounts().slice(2)).toEqual(before.slice(2)) // the typed line itself is hand-editable; nothing else moves
     })
+  })
+})
+
+describe('Ledger form: money leaving the budget into a tracking account with a boundary category', () => {
+  function pick(accountName, cents, index) {
+    // The account lines' amount boxes come first, then any category line's.
+    const amount = screen.getAllByPlaceholderText('0.00')[index]
+    const row = amount.parentElement
+    fireEvent.change(row.querySelector('select'), { target: { value: String(ACCOUNTS.find((x) => x.name === accountName).id) } })
+    fireEvent.change(amount, { target: { value: cents } })
+  }
+
+  it('pre-fills the category line with the whole budget movement, ready for an interest line', async () => {
+    renderLedger()
+    fireEvent.click(await screen.findByText('+ add account line'))
+    pick('Chequing', '-450', 0)
+    pick('Car loan', '380', 1)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Debt payments')).toBeTruthy())
+    expect(screen.getAllByDisplayValue('-450').length).toBe(2) // Chequing's line and the category line
+
+    // The user splits off interest by changing the amount and adding a line.
+    fireEvent.change(screen.getAllByDisplayValue('-450')[1], { target: { value: '-380' } })
+    fireEvent.click(screen.getByText('+ add category line'))
+    expect(screen.getAllByDisplayValue('-380').length).toBeGreaterThan(0)
+  })
+
+  it('pre-fills nothing when money comes into the budget (a line of credit draw)', async () => {
+    renderLedger()
+    fireEvent.click(await screen.findByText('+ add account line'))
+    pick('Chequing', '500', 0)
+    pick('Car loan', '-500', 1)
+
+    expect(screen.queryByDisplayValue('Debt payments')).toBeNull()
+  })
+
+  it('pre-fills nothing when the tracking account has no boundary category', async () => {
+    renderLedger()
+    fireEvent.click(await screen.findByText('+ add account line'))
+    pick('Chequing', '-100', 0)
+    pick('Credit line', '100', 1)
+
+    expect(screen.queryByDisplayValue('Debt payments')).toBeNull()
   })
 })

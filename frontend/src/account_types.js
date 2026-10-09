@@ -23,3 +23,8 @@ export const DEBT_TYPES = ['Credit card', 'Line of credit', 'Loan', 'Mortgage', 
 // Mirrors backend/app/term_options.py — the closed lists a lender's terms choose from.
 export const COMPOUNDING_RULES = ['daily', 'monthly', 'semi-annual']
 export const PREPAYMENT_MODELS = ['open', 'closed with privileges', 'penalty']
+
+// Debt types whose form pre-fills the boundary category with the seeded "Debt payments" (DESIGN.md
+// § Accounts → Money crossing the budget boundary — a form default, account type's sanctioned use).
+export const BOUNDARY_DEFAULT_TYPES = ['Line of credit', 'Loan', 'Mortgage', 'Payment plan']
+export const BOUNDARY_DEFAULT_SEEDED_KEY = 'debt-payments'
