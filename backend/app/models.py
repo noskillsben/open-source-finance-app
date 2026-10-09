@@ -42,7 +42,7 @@ class Account(Base, Owned, NonLedger):
     locked_payee_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("payee.id"), nullable=True, index=True
     )
-    # Money crossing the budget boundary (DESIGN.md ง Accounts): the category the transaction
+    # Money crossing the budget boundary (DESIGN.md ยง Accounts): the category the transaction
     # form pre-fills when money leaves the budget into this tracking account. Null means none.
     boundary_category_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("category.id"), nullable=True, index=True
