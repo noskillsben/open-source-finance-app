@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import {
-  COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, PREPAYMENT_MODELS,
+  BOUNDARY_DEFAULT_SEEDED_KEY, BOUNDARY_DEFAULT_TYPES, COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, PREPAYMENT_MODELS,
   TRACKING_TYPES,
 } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
+import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
 import { emptyTermsText, hasLenderTerms, termsLine, termsToText, textToTerms } from './utils/terms.js'
 
@@ -23,6 +24,7 @@ function emptyForm(pickerDate) {
     on_budget_floor_cents: '0',
     credit_limit_cents: creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[ON_BUDGET_TYPES[0]]),
     locked_payee_id: null,
+    boundary_category_id: null,
     opening_balance_cents: '',
     created_on: pickerDate,
     ...emptyTermsText(),
@@ -77,6 +79,8 @@ export default function Accounts({ pickerDate }) {
   const [payeesAll, setPayeesAll] = useState(null) // names for a lock on a payee archived since
   // Bumped when the form resets or loads an account so the payee picker remounts with fresh text.
   const [formKey, setFormKey] = useState(0)
+  // Same for the boundary category picker, which also reseeds when a type picks its default.
+  const [boundaryKey, setBoundaryKey] = useState(0)
   const [error, setError] = useState(null)
   const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
@@ -116,11 +120,21 @@ export default function Accounts({ pickerDate }) {
     setForm((f) => ({ ...f, [field]: value }))
   }
 
+  // The seeded "Debt payments" for the debt types, found by seeded_key and never by name.
+  function boundaryDefault(type) {
+    if (!BOUNDARY_DEFAULT_TYPES.includes(type)) return null
+    return categories?.find((c) => c.seeded_key === BOUNDARY_DEFAULT_SEEDED_KEY)?.id ?? null
+  }
+
   function selectType(type) {
+    if (!editingId) setBoundaryKey((k) => k + 1)
     setForm((f) => ({
       ...f,
       type,
       on_budget: DEFAULT_ON_BUDGET[type],
+      // Only when creating, and only while the pick is still the previous type's default.
+      boundary_category_id:
+        editingId || f.boundary_category_id !== boundaryDefault(f.type) ? f.boundary_category_id : boundaryDefault(type),
       // Only when creating; a limit already typed is never overridden, and an edit never re-defaults.
       credit_limit_cents:
         editingId || f.credit_limit_cents !== creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[f.type])
@@ -139,12 +153,14 @@ export default function Accounts({ pickerDate }) {
       on_budget_floor_cents: String(a.on_budget_floor_cents / 100),
       credit_limit_cents: creditLimitText(a.terms.credit_limit_cents),
       locked_payee_id: a.locked_payee_id,
+      boundary_category_id: a.boundary_category_id ?? null,
       opening_balance_cents: '',
       created_on: a.created_on,
       ...termsToText(a.terms),
     })
     setTermsOpen(hasLenderTerms(a.terms))
     setFormKey((k) => k + 1)
+    setBoundaryKey((k) => k + 1)
     setFormError(null)
   }
 
@@ -153,6 +169,7 @@ export default function Accounts({ pickerDate }) {
     setForm(emptyForm(pickerDate))
     setTermsOpen(false)
     setFormKey((k) => k + 1)
+    setBoundaryKey((k) => k + 1)
     setFormError(null)
   }
 
@@ -307,6 +324,7 @@ export default function Accounts({ pickerDate }) {
           on_budget: form.on_budget,
           on_budget_floor_cents: floorCents,
           locked_payee_id: form.locked_payee_id,
+          boundary_category_id: form.boundary_category_id,
           // The whole block, merged over the account's own: a PUT that sends terms replaces all of them.
           terms: { ...accounts.find((a) => a.id === editingId).terms, ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
@@ -324,6 +342,7 @@ export default function Accounts({ pickerDate }) {
           on_budget_floor_cents: floorCents,
           opening_balance_cents: openingBalanceCents,
           locked_payee_id: form.locked_payee_id,
+          boundary_category_id: form.boundary_category_id,
           terms: { ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       }
@@ -728,6 +747,16 @@ export default function Accounts({ pickerDate }) {
               onError={setFormError}
             />
           </label>
+
+          {categories && (
+            <NamePicker
+              key={boundaryKey}
+              label="Category money leaves the budget through (optional — a loan payment is recorded against it)"
+              items={categories.filter((c) => !c.archived_on)}
+              initialId={form.boundary_category_id}
+              onChange={(id) => updateField('boundary_category_id', id)}
+            />
+          )}
 
           {!editingId && (
             <>

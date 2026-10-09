@@ -353,6 +353,21 @@ def _assert_d4e8b2a71f63(session):
     session.rollback()
 
 
+def _assert_e5f9c3b82a74(session):
+    from app.models import Account, AccountLine, CategoryLine
+
+    assert [a.boundary_category_id for a in session.query(Account).order_by(Account.id)] == [None, None, None]
+    assert session.get(Account, 3).archived_on == datetime.date(2026, 6, 1)
+    assert [l.cents for l in session.query(AccountLine).order_by(AccountLine.id)] == [-45000, 38000]
+    assert [l.cents for l in session.query(CategoryLine).order_by(CategoryLine.id)] == [-38000, -7000]
+
+    # The new column takes a category against the migrated schema.
+    session.get(Account, 2).boundary_category_id = 1
+    session.flush()
+    assert session.get(Account, 2).boundary_category_id == 1
+    session.rollback()
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -380,6 +395,7 @@ ASSERTIONS = {
     "b3c8e1f47a52": _assert_b3c8e1f47a52,
     "c7d1f9a28e43": _assert_c7d1f9a28e43,
     "d4e8b2a71f63": _assert_d4e8b2a71f63,
+    "e5f9c3b82a74": _assert_e5f9c3b82a74,
 }
 
 

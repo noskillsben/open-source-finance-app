@@ -91,6 +91,7 @@ class AccountCreate(BaseModel):
     on_budget_floor_cents: int = 0
     opening_balance_cents: int
     locked_payee_id: int | None = None
+    boundary_category_id: int | None = None
     terms: DebtTerms = DebtTerms()
 
     @field_validator("type")
@@ -111,6 +112,7 @@ class AccountUpdate(BaseModel):
     on_budget: bool
     on_budget_floor_cents: int = 0
     locked_payee_id: int | None = None
+    boundary_category_id: int | None = None
     terms: DebtTerms = DebtTerms()
 
     @field_validator("type")
@@ -131,6 +133,7 @@ class AccountOut(BaseModel):
     on_budget_floor_cents: int
     balance_cents: int
     locked_payee_id: int | None = None
+    boundary_category_id: int | None = None
     # Linked categories (DESIGN.md § Linked categories): who claims this account's money, and
     # the account minus what they hold — null with no links. A reminder, never enforced.
     linked_category_ids: list[int] = []
@@ -195,6 +198,8 @@ class CategoryOut(BaseModel):
     absorb_overspending: bool
     created_on: date
     archived_on: date | None
+    # Read-only: lets the account form find the seeded Debt payments without matching a name.
+    seeded_key: str | None = None
     linked_accounts: list[LinkedAccountOut] = []
 
     model_config = {"from_attributes": True}
