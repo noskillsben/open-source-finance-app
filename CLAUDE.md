@@ -5,7 +5,7 @@ This file points; it does not restate. **`docs/design/DESIGN.md` is the source o
 ## Starting a session
 
 1. **When Ben names an issue** ("issue 145", "let's work on #145"), before anything else run `gh issue view 145 --comments`, then read the DESIGN.md sections the issue cites. If the issue is a sub-issue, also `gh issue view` its parent EPIC for the order it sits in. There is also `/issue 145`, which runs the whole routine.
-   - **If a comment from the Manager contains a scoped prompt, that prompt is the plan** — its "read first", "build", "do not build" and "tests" sections are binding. If there is no such comment, write the plan yourself and wait for Ben's approval before coding.
+   - **If a comment from the Manager contains a scoped prompt, that prompt is the plan** — its "read first", "build", "do not build" and "tests" sections are binding. If there is no such comment, `/issue` scopes one first, following `docs/design/seats/manager.md`, and posts it on the issue. If the issue is labelled `decision`, DESIGN.md is silent on what it needs, or it adds a second mechanism, stop and tell Ben it is a design question.
 2. Issue state comes from GitHub every session, never from memory or an earlier conversation.
 3. One sub-issue per session, one commit. More than about five rounds on one issue means stop, write down what's blocking, and let the Manager re-scope.
 
@@ -16,7 +16,7 @@ Every issue closes with a comment that answers two gates aloud. Silence is not a
 - **Schema:** nothing changed / additive with a default / migration written, tested on a *populated* database, and idempotent on a second run. "Tested on a populated database" means naming the revision and the fixture: *revision `abc123`, fixture `backend/tests/fixtures/abc123.sql`, migration test passes.* A claim with no fixture behind it is not an answer.
 - **User guide:** which bullet in `docs/user/README.md` was added or changed, or "no user-facing change".
 
-Work on a branch named `issue-N-<short-slug>`, push it, and open the pull request with `gh pr create --fill` (the template asks for both gates). `Fixes #N` in the PR body so the merge closes the issue. The Manager reviews the PR; Ben merges.
+Work on a branch named `issue-N-<short-slug>`, push it, and open the pull request with `gh pr create --fill` (the template asks for both gates). `Fixes #N` in the PR body so the merge closes the issue. A reviewer subagent checks the PR in the order in `manager.md` § Reviewing and posts a verdict. Nothing in Claude Code approves or merges a PR; Ben merges. During the trial (#256) the claude.ai Manager can still review.
 
 ## Conventions that are not negotiable
 
