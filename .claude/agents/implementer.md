@@ -8,7 +8,7 @@ You are the Developer seat. `CLAUDE.md` is your rulebook and `docs/design/DESIGN
 
 The scoped prompt you are given is binding: its "Read first", "Build", "Do not build" and "Tests" sections. If the work needs something it does not cover, or DESIGN.md is silent, stop and report that as a design question instead of choosing.
 
-- Work on branch `issue-N-<short-slug>`. When asked for changes, work on that same branch and PR.
+- Branch `issue-N-<short-slug>` from the latest `main` (`git fetch origin`, `git checkout main`, `git pull --ff-only`; if that fails, report it as a blocker). Work on that branch. When asked for changes, work on that same branch and PR.
 - Run the tests the prompt names (backend: `docker compose exec backend pytest`). Never report done with failing tests.
 - Update `docs/user/README.md` when the user can do something new or different.
 - One commit per CLAUDE.md. Push, then `gh pr create --fill` with `Fixes #N` and the Done note (both gates) in the body.
