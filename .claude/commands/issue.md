@@ -20,7 +20,7 @@ Start the `reviewer` subagent with the PR number and the scoped prompt. It posts
 
 ## Stopping for Ben
 
-You never approve or merge; `gh pr merge` is denied in settings and Ben merges. Whenever you stop for a design decision, a blocker, or a ready-to-merge PR, **end the turn by asking Ben directly in chat**: what is needed and, for a merge, the PR link. His phone is notified when a turn ends on a question, so a statement or silent stop would not reach him. Do not stop for anything else; do not ask for plan approval.
+You never approve or merge; `gh pr merge` is denied in settings and Ben merges. Whenever you stop for a design decision, a blocker, or a ready-to-merge PR, **first call the `PushNotification` tool** (load it with ToolSearch `select:PushNotification` if it is deferred; `status: "proactive"`), then **end the turn by asking Ben directly in chat**: what is needed and, for a merge, the PR link. The push message is one line under 200 characters that leads with what he must do, e.g. `PR #261 ready to merge (issue 33)`, `Issue 33 needs a design decision: <what>`, or `Issue 33 blocked: <why>`. The question in chat is still required; the push only gets his attention. If the tool reports "not sent", carry on, since he is at the terminal. Do not stop for anything else, do not notify for routine progress, and do not ask for plan approval.
 
 ## Never
 
