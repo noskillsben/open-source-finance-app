@@ -104,3 +104,87 @@ def test_a_loan_payment_saves_through_the_api_with_a_boundary_account(db_session
 
     assert response.status_code == 201
     assert draw.status_code == 201
+
+
+# --- Money coming into the budget (DESIGN.md § Accounts, "Inflow to budget") ---------------------
+# No category line is needed or generated: the money arrives in ready to assign, and the boundary
+# category is only ever a pre-fill for outflows.
+
+def _inflow_setup(client, db_session, tracking_type, tracking_name):
+    debt = _category(db_session, "Debt payments")
+    groceries = _category(db_session, "Groceries")
+    chequing = client.post("/api/accounts", json=_body("Chequing", "Chequing", True)).json()
+    tracking = client.post(
+        "/api/accounts", json=_body(tracking_name, tracking_type, False, boundary_category_id=debt.id)
+    ).json()
+    return debt, groceries, chequing, tracking
+
+
+def _inflow_body(chequing, tracking, cents):
+    return {
+        "date": DAY.isoformat(), "memo": None, "payee_id": None,
+        "account_lines": [
+            {"account_id": chequing["id"], "cents": cents},
+            {"account_id": tracking["id"], "cents": -cents},
+        ],
+        "category_lines": [],
+    }
+
+
+def _rta_and_balances(db_session, categories):
+    from app.services.categories import category_balance_cents
+    from app.services.earmarks import ready_to_assign_cents
+
+    return (
+        ready_to_assign_cents(db_session, as_of=DAY),
+        [category_balance_cents(db_session, c.id, as_of=DAY) for c in categories],
+    )
+
+
+def test_a_line_of_credit_draw_with_no_category_lines_lands_in_ready_to_assign(db_session):
+    client = _client(db_session)
+    try:
+        debt, groceries, chequing, loc = _inflow_setup(client, db_session, "Line of credit", "HELOC")
+        before = _rta_and_balances(db_session, [debt, groceries])
+        response = client.post("/api/transactions", json=_inflow_body(chequing, loc, 500_00))
+        after = _rta_and_balances(db_session, [debt, groceries])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert after[0] == before[0] + 500_00
+    assert after[1] == before[1]
+
+
+def test_selling_a_tracking_asset_into_chequing_lands_in_ready_to_assign(db_session):
+    client = _client(db_session)
+    try:
+        debt, groceries, chequing, asset = _inflow_setup(client, db_session, "Asset", "Boat")
+        before = _rta_and_balances(db_session, [debt, groceries])
+        response = client.post("/api/transactions", json=_inflow_body(chequing, asset, 8000_00))
+        after = _rta_and_balances(db_session, [debt, groceries])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 201
+    assert after[0] == before[0] + 8000_00
+    assert after[1] == before[1]
+
+
+def test_an_edited_draw_keeps_the_same_result(db_session):
+    client = _client(db_session)
+    try:
+        debt, groceries, chequing, loc = _inflow_setup(client, db_session, "Line of credit", "HELOC")
+        before = _rta_and_balances(db_session, [debt, groceries])
+        created = client.post("/api/transactions", json=_inflow_body(chequing, loc, 500_00)).json()
+        resaved = client.put(f"/api/transactions/{created['id']}", json=_inflow_body(chequing, loc, 500_00))
+        same = _rta_and_balances(db_session, [debt, groceries])
+        changed = client.put(f"/api/transactions/{created['id']}", json=_inflow_body(chequing, loc, 700_00))
+        after = _rta_and_balances(db_session, [debt, groceries])
+    finally:
+        app.dependency_overrides.clear()
+
+    assert resaved.status_code == 200
+    assert same[0] == before[0] + 500_00 and same[1] == before[1]
+    assert changed.status_code == 200
+    assert after[0] == before[0] + 700_00 and after[1] == before[1]
