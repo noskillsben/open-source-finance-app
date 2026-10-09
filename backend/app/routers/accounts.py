@@ -26,6 +26,7 @@ from app.services.accounts import (
     account_balance_cents,
     account_latest_ledger_date,
     create_account_with_opening_valuation,
+    carried_statement_note,
     credit_limit_note,
     reject_floor_below_credit_limit,
     update_account,
@@ -52,6 +53,9 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
     limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)
     if limit_note is not None:
         notes.append(f"{limit_note}.")
+    carried = carried_statement_note(session, account, as_of)
+    if carried is not None:
+        notes.append(carried)
     drift = drift_cents(session, account.id, as_of=as_of)
     drifting = drift_note(session, account, drift)
     if drifting is not None:

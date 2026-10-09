@@ -1,7 +1,8 @@
 """Account math and the write path shared by create and edit (DESIGN.md § On-budget floor,
 § Balance checks — one table).
 """
-from datetime import date
+import calendar
+from datetime import date, timedelta
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
@@ -67,6 +68,54 @@ def credit_limit_note(balance_cents: int, credit_limit_cents: int | None) -> str
     if balance_cents < -credit_limit_cents:
         return "This balance is past the credit limit"
     return None
+
+
+def _statement_close_on_or_before(close_day: int, year: int, month: int) -> date:
+    """The close date in a month; a close day past a short month's end means its last day."""
+    return date(year, month, min(close_day, calendar.monthrange(year, month)[1]))
+
+
+def carried_statement_note(session: Session, account: Account, as_of: date | None) -> str | None:
+    """DESIGN.md § Carrying a balance: part of the latest statement whose due date has passed
+    is still unpaid. Statement balance = balance at the end of the close day; due = close +
+    grace days; carried = what that balance owed, less every positive line dated after the
+    close up to `as_of`. Read-time only, from the terms block (never the account type). Silent
+    when either term is null, no statement has closed since the account began, the statement
+    was not owing, or its due date has not passed — never a reminder of what is coming due.
+    `as_of` None is silent: only the picker date says what day it is.
+    """
+    close_day, grace_days = account.statement_close_day, account.grace_days
+    if close_day is None or grace_days is None or as_of is None:
+        return None
+    year, month = as_of.year, as_of.month
+    while True:
+        close = _statement_close_on_or_before(close_day, year, month)
+        if close < account.created_on:
+            return None
+        due = close + timedelta(days=grace_days)
+        if due <= as_of:
+            break
+        year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+    statement_cents = account_balance_cents(session, account.id, as_of=close)
+    if statement_cents >= 0:
+        return None
+    paid_cents = session.scalar(
+        select(func.coalesce(func.sum(AccountLine.cents), 0))
+        .join(Transaction, AccountLine.transaction_id == Transaction.id)
+        .where(
+            AccountLine.account_id == account.id,
+            AccountLine.cents > 0,
+            Transaction.date > close,
+            Transaction.date <= as_of,
+        )
+    )
+    carried_cents = -statement_cents - paid_cents
+    if carried_cents <= 0:
+        return None
+    return (
+        f"Carrying {dollars(carried_cents)} from the {close:%b} {close.day} statement "
+        f"(due {due:%b} {due.day})."
+    )
 
 
 def dollars(cents: int) -> str:
