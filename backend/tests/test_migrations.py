@@ -368,6 +368,16 @@ def _assert_e5f9c3b82a74(session):
     session.rollback()
 
 
+def _assert_f2b7d4c91e85(session):
+    from app.models import Account, AccountLine
+
+    types = {a.id: a.type for a in session.query(Account)}
+    # referenced receivables (live and archived member) are retyped; nothing else is touched
+    assert types == {1: "Chequing", 2: "Money owed to me", 3: "Cash", 4: "Money owed to me"}
+    assert session.get(Account, 4).archived_on == datetime.date(2026, 6, 1)
+    assert [l.cents for l in session.query(AccountLine).order_by(AccountLine.id)] == [-10000, 5000]
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -396,6 +406,7 @@ ASSERTIONS = {
     "c7d1f9a28e43": _assert_c7d1f9a28e43,
     "d4e8b2a71f63": _assert_d4e8b2a71f63,
     "e5f9c3b82a74": _assert_e5f9c3b82a74,
+    "f2b7d4c91e85": _assert_f2b7d4c91e85,
 }
 
 

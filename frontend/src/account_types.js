@@ -1,6 +1,6 @@
 // Mirrors backend/app/account_types.py — the account type enum (DESIGN.md § Account type).
 // Grouped by budget side for the create-account dropdown, alphabetical within each group.
-export const ON_BUDGET_TYPES = ['Cash', 'Chequing', 'Credit card', 'Savings']
+export const ON_BUDGET_TYPES = ['Cash', 'Chequing', 'Credit card', 'Money owed to me', 'Savings']
 export const TRACKING_TYPES = ['Asset', 'Investment', 'Line of credit', 'Loan', 'Mortgage', 'Payment plan']
 
 // Default budget side pre-filled per type; the user can still change it.
@@ -13,12 +13,13 @@ export const DEFAULT_ON_BUDGET = Object.fromEntries([
 // types that have none; null means unknown, and stays blank until the user states it.
 export const DEFAULT_CREDIT_LIMIT_CENTS = Object.fromEntries([
   ...['Cash', 'Chequing', 'Savings'].map((t) => [t, 0]),
-  ...['Asset', 'Credit card', 'Investment', 'Line of credit', 'Loan', 'Mortgage', 'Payment plan'].map((t) => [t, null]),
+  ...['Asset', 'Credit card', 'Investment', 'Line of credit', 'Loan', 'Money owed to me', 'Mortgage', 'Payment plan'].map((t) => [t, null]),
 ])
 
 // Types whose form opens the lender's-terms section by default (a form default — account type's
 // first sanctioned consumer). Other types reach it through the "Add lender's terms" toggle.
-export const DEBT_TYPES = ['Credit card', 'Line of credit', 'Loan', 'Mortgage', 'Payment plan']
+// "Money owed to me" is a loan you made on terms, so it opens the same section.
+export const DEBT_TYPES = ['Credit card', 'Line of credit', 'Loan', 'Money owed to me', 'Mortgage', 'Payment plan']
 
 // Mirrors backend/app/term_options.py — the closed lists a lender's terms choose from.
 export const COMPOUNDING_RULES = ['daily', 'monthly', 'semi-annual']

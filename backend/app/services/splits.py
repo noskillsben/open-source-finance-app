@@ -27,7 +27,7 @@ from app.services.accounts import account_balance_cents, create_account_with_ope
 
 HUNDRED = Decimal("100")
 PERCENT_PLACES = Decimal("0.0001")
-RECEIVABLE_TYPE = "Cash"  # an ordinary on-budget account; there is no special receivable type
+RECEIVABLE_TYPE = "Money owed to me"
 
 
 class SplitError(ValueError):
