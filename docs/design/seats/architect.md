@@ -1,6 +1,6 @@
 # Architect — project instructions
 
-> Canonical copy. Paste into the claude.ai **Architect** project (Opus; used rarely). Counterparts: `manager.md`, `tutor.md`, and `CLAUDE.md` for the Developer.
+> Canonical copy. Run as `/decide N` in Claude Code for decision issues; the claude.ai **Architect** project (Opus, in Cowork) is for epic reviews. Counterparts: `manager.md`, `tutor.md`, and `CLAUDE.md` for the Developer.
 >
 > This file restates nothing — it points. `docs/design/DESIGN.md` is the only source of truth for what the app does and why. If anything here disagrees with it or with a GitHub issue, that source wins and this file is the bug.
 

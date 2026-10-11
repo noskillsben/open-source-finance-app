@@ -1,6 +1,6 @@
 # CLAUDE.md — how Claude Code works in this repo
 
-This file points; it does not restate. **`docs/design/DESIGN.md` is the source of truth** for what the app does and why. If this file, an issue, or the code disagrees with it, the design document wins and the other thing is the bug. Never edit anything under `docs/design/` from a Claude Code session — the design document and the seat instructions in `docs/design/seats/` belong to the Architect; raise a question in the issue instead.
+This file points; it does not restate. **`docs/design/DESIGN.md` is the source of truth** for what the app does and why. If this file, an issue, or the code disagrees with it, the design document wins and the other thing is the bug. Never edit anything under `docs/design/` from a Claude Code session — the design document and the seat instructions in `docs/design/seats/` belong to the Architect; raise a question in the issue instead. The one exception is a `/decide` session, where the session is the Architect and the diff is Ben's to review and commit; it never commits, pushes or merges.
 
 ## Starting a session
 
