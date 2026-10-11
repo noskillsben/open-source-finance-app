@@ -14,6 +14,7 @@ ACCOUNT_TYPES: dict[str, bool] = {
     "Investment": False,
     "Line of credit": False,
     "Loan": False,
+    "Money owed to me": True,
     "Mortgage": False,
     "Payment plan": False,
     "Savings": True,

@@ -223,7 +223,7 @@ describe("lender's terms", () => {
     createAccount.mockResolvedValue({})
   })
 
-  it.each(['Credit card', 'Line of credit', 'Loan', 'Mortgage', 'Payment plan'])(
+  it.each(['Credit card', 'Line of credit', 'Loan', 'Money owed to me', 'Mortgage', 'Payment plan'])(
     'opens the section by default for %s',
     async (type) => {
       accounts = []
