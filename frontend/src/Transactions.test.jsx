@@ -1080,19 +1080,52 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     fireEvent.change(amount, { target: { value: cents } })
   }
 
-  it('pre-fills the category line with the whole budget movement, ready for an interest line', async () => {
+  it('pre-fills the principal and a blank remainder line (car loan)', async () => {
     renderLedger()
     fireEvent.click(await screen.findByText('+ add account line'))
     pick('Chequing', '-450', 0)
     pick('Car loan', '380', 1)
 
     await waitFor(() => expect(screen.getByDisplayValue('Debt payments')).toBeTruthy())
-    expect(screen.getAllByDisplayValue('-450').length).toBe(2) // Chequing's line and the category line
+    expect(screen.getAllByDisplayValue('-380').length).toBe(1)
+    expect(screen.getAllByDisplayValue('-70').length).toBe(1)
+    expect(screen.getAllByDisplayValue('Debt payments').length).toBe(1) // the remainder has no category
+  })
 
-    // The user splits off interest by changing the amount and adding a line.
-    fireEvent.change(screen.getAllByDisplayValue('-450')[1], { target: { value: '-380' } })
-    fireEvent.click(screen.getByText('+ add category line'))
-    expect(screen.getAllByDisplayValue('-380').length).toBeGreaterThan(0)
+  it('pre-fills one line when the payment lands whole', async () => {
+    renderLedger()
+    fireEvent.click(await screen.findByText('+ add account line'))
+    pick('Chequing', '-450', 0)
+    pick('Car loan', '450', 1)
+
+    await waitFor(() => expect(screen.getByDisplayValue('Debt payments')).toBeTruthy())
+    expect(screen.getAllByDisplayValue('-450').length).toBe(2) // Chequing's line and the principal
+  })
+
+  it('re-follows the account lines while the category lines are untouched', async () => {
+    renderLedger()
+    fireEvent.click(await screen.findByText('+ add account line'))
+    pick('Chequing', '-450', 0)
+    pick('Car loan', '380', 1)
+    await waitFor(() => expect(screen.getAllByDisplayValue('-70').length).toBe(1))
+
+    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '400' } })
+    await waitFor(() => expect(screen.getAllByDisplayValue('-50').length).toBe(1))
+    expect(screen.getAllByDisplayValue('-400').length).toBe(1)
+  })
+
+  it('leaves a touched category line alone', async () => {
+    renderLedger()
+    fireEvent.click(await screen.findByText('+ add account line'))
+    pick('Chequing', '-450', 0)
+    pick('Car loan', '380', 1)
+    await waitFor(() => expect(screen.getAllByDisplayValue('-70').length).toBe(1))
+
+    fireEvent.change(screen.getAllByDisplayValue('-70')[0], { target: { value: '-60' } })
+    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '400' } })
+    expect(screen.getAllByDisplayValue('-60').length).toBe(1)
+    expect(screen.getAllByDisplayValue('-380').length).toBe(1)
+    expect(screen.queryByDisplayValue('-50')).toBeNull()
   })
 
   it('pre-fills nothing when money comes into the budget (a line of credit draw)', async () => {
