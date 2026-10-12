@@ -353,7 +353,7 @@ def test_drift_note_when_envelopes_hold_more_than_the_account(client, db_session
     _fund(db_session, vacation, 200_00)
     _transfer(db_session, chequing, tfsa, 1)  # one cent in the account
     account = next(a for a in client.get("/api/accounts").json() if a["id"] == tfsa.id)
-    assert account["drift_cents"] == 1 - 500_00
+    assert "drift_cents" not in account
     assert any("E-bike and Vacation hold $499.99 more than TFSA does" in n for n in account["notes"])
 
 
@@ -362,14 +362,15 @@ def test_drift_note_when_the_account_holds_unclaimed_money(client, db_session, w
     _link(client, ebike, tfsa)
     _transfer(db_session, chequing, tfsa, 120_00)
     account = next(a for a in client.get("/api/accounts").json() if a["id"] == tfsa.id)
-    assert account["drift_cents"] == 120_00
+    assert "drift_cents" not in account
     assert any("not claimed by E-bike" in n for n in account["notes"])
 
 
 def test_no_links_no_drift(client, world):
     _, tfsa, _, _ = world
     account = next(a for a in client.get("/api/accounts").json() if a["id"] == tfsa.id)
-    assert account["drift_cents"] is None and account["linked_category_ids"] == []
+    assert "drift_cents" not in account and account["linked_category_ids"] == []
+    assert not any("hold" in n or "claimed" in n for n in account["notes"])
 
 
 # --- one reminder per link group (#265) ---------------------------------------------------

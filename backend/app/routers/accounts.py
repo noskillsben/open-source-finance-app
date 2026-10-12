@@ -65,7 +65,7 @@ def _account_out(session: Session, account: Account, *, as_of: date | None = Non
         type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
         balance_cents=balance_cents, locked_payee_id=account.locked_payee_id,
         boundary_category_id=account.boundary_category_id,
-        linked_category_ids=linked_category_ids(session, account.id), drift_cents=drift,
+        linked_category_ids=linked_category_ids(session, account.id),
         checked_on=valuation.date if valuation is not None else None,
         checked_valuation_id=valuation.id if valuation is not None else None,
         checked_is_opening=valuation is not None and valuation is _opening_valuation(session, account),
