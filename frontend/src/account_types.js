@@ -28,4 +28,6 @@ export const PREPAYMENT_MODELS = ['open', 'closed with privileges', 'penalty']
 // Debt types whose form pre-fills the boundary category with the seeded "Debt payments" (DESIGN.md
 // § Accounts → Money crossing the budget boundary — a form default, account type's sanctioned use).
 export const BOUNDARY_DEFAULT_TYPES = ['Line of credit', 'Loan', 'Mortgage', 'Payment plan']
-export const BOUNDARY_DEFAULT_SEEDED_KEY = 'debt-payments'
+// Must equal the stored seeded_key of the Debt payments row: backend/app/seed.py stores category keys as
+// `category:<key>`, and backend/tests/test_seed.py asserts "category:debt-payments". Change both together.
+export const BOUNDARY_DEFAULT_SEEDED_KEY = 'category:debt-payments'

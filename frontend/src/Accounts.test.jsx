@@ -29,7 +29,7 @@ vi.mock('./api.js', () => ({
     categories: {
       list: () => Promise.resolve([
         { id: 11, name: 'Rent' },
-        { id: 12, name: 'Debt payments', seeded_key: 'debt-payments' },
+        { id: 12, name: 'Debt payments', seeded_key: 'category:debt-payments' },
       ]),
     },
     payees: { list: (asOf, all) => Promise.resolve(all ? [...payees, archivedPayee] : payees) },
