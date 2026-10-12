@@ -119,25 +119,54 @@ def suggest_split(session: Session, account_id: int, *, as_of: date, diff_cents:
     return split_pro_rata(balances, diff_cents)
 
 
-def drift_cents(session: Session, account_id: int, *, as_of: date | None) -> int | None:
-    """The account's balance minus its linked categories' balances, or None with no links.
-    Positive: money nobody has claimed. Negative: the envelopes hold more than the account.
-    A reminder only — nothing reads it to block or correct anything.
+def link_group(session: Session, account_id: int) -> tuple[list[int], list[int]]:
+    """The connected set in `category_account_link` containing `account_id`: follow links from
+    account to category and category to account. Returns (account ids, category ids), each
+    sorted by id; ([], []) when the account has no links. Archived ends carry no link.
     """
-    category_ids = linked_category_ids(session, account_id)
+    links = session.execute(select(CategoryAccountLink.account_id, CategoryAccountLink.category_id)).all()
+    accounts, categories = {account_id}, set()
+    grew = True
+    while grew:
+        grew = False
+        for a, c in links:
+            if (a in accounts) != (c in categories):
+                accounts.add(a)
+                categories.add(c)
+                grew = True
+    if not categories:
+        return [], []
+    return sorted(accounts), sorted(categories)
+
+
+def drift_cents(session: Session, account_id: int, *, as_of: date | None) -> int | None:
+    """The link group's account balances minus its category balances (totals only), or None
+    when the account has no links. Positive: money nobody has claimed. Negative: the envelopes
+    hold more than the accounts. A reminder only — nothing reads it to block or correct anything.
+    """
+    account_ids, category_ids = link_group(session, account_id)
     if not category_ids:
         return None
     on = as_of or date.max
     envelopes = sum(category_balance_cents(session, c, as_of=on) for c in category_ids)
-    return account_balance_cents(session, account_id, as_of=as_of) - envelopes
+    held = sum(account_balance_cents(session, a, as_of=as_of) for a in account_ids)
+    return held - envelopes
+
+
+def _join(names: list[str]) -> str:
+    return " and ".join(names)
 
 
 def drift_note(session: Session, account: Account, drift: int | None) -> str | None:
+    """One sentence, identical on every account row of the group."""
     if not drift:
         return None
-    names = " and ".join(
-        session.get(Category, c).name for c in linked_category_ids(session, account.id)
-    )
+    account_ids, category_ids = link_group(session, account.id)
+    accounts = [session.get(Account, a).name for a in account_ids]
+    categories = [session.get(Category, c).name for c in category_ids]
     if drift > 0:
-        return f"{account.name} holds {dollars(drift)} not claimed by {names}."
-    return f"{names} hold {dollars(-drift)} more than {account.name} does."
+        verb = "holds" if len(accounts) == 1 else "hold"
+        return f"{_join(accounts)} {verb} {dollars(drift)} not claimed by {_join(categories)}."
+    verb = "holds" if len(categories) == 1 else "hold"
+    does = "does" if len(accounts) == 1 else "do"
+    return f"{_join(categories)} {verb} {dollars(-drift)} more than {_join(accounts)} {does}."
