@@ -149,32 +149,40 @@ export default function Transactions({ pickerDate }) {
     setPayeeId(account.locked_payee_id)
   }
 
-  // Money leaving the budget into a tracking account with a boundary category pre-fills that
-  // category line with the whole budget movement (DESIGN.md § Accounts → Money crossing the budget
-  // boundary): the user adds an interest line beside it and changes amounts. Money coming in
-  // pre-fills nothing. Filled once per form, then only follows the movement while still untouched.
-  const boundaryFill = useRef({ filled: false, line: null })
+  // Money leaving the budget into a tracking account with a boundary category pre-fills the
+  // principal: that category, minus what landed on the tracking account (DESIGN.md § Accounts →
+  // Money crossing the budget boundary). If the budget movement is bigger, a second line carries
+  // the difference with no category: nothing is guessed. Money coming in pre-fills nothing.
+  // Filled once per form, then only follows the account lines while still untouched.
+  const boundaryFill = useRef({ filled: false, lines: null })
   useEffect(() => {
     if (editingId != null || splitId || !accounts || !categories) return
     let movement = 0
+    let landed = 0
     let boundaryId = null
     for (const line of accountLines) {
       const account = accounts.find((a) => String(a.id) === line.account_id)
       const cents = parseCents(line.cents)
       if (!account || cents === null) continue
       if (account.on_budget) movement += cents
-      else if (account.boundary_category_id != null && boundaryId === null) boundaryId = account.boundary_category_id
+      else if (account.boundary_category_id != null && (boundaryId === null || boundaryId === account.boundary_category_id)) {
+        boundaryId = account.boundary_category_id
+        landed += cents
+      }
     }
-    if (boundaryId === null || movement >= 0 || !categories.some((c) => c.id === boundaryId)) return
-    const fill = { category_id: String(boundaryId), cents: String(movement / 100) }
-    const last = boundaryFill.current.line
-    const untouched =
-      last && categoryLines.length === 1 && categoryLines[0].category_id === last.category_id && categoryLines[0].cents === last.cents
+    if (boundaryId === null || movement >= 0 || landed <= 0 || !categories.some((c) => c.id === boundaryId)) return
+    const principal = Math.max(movement, -landed)
+    const remainder = movement - principal
+    const fill = [{ category_id: String(boundaryId), cents: String(principal / 100) }]
+    if (remainder !== 0) fill.push({ category_id: '', cents: String(remainder / 100) })
+    const same = (a, b) => a.length === b.length && a.every((l, i) => l.category_id === b[i].category_id && l.cents === b[i].cents)
+    const last = boundaryFill.current.lines
+    const untouched = last && same(categoryLines, last)
     const blank = !boundaryFill.current.filled && categoryLines.every((l) => !l.category_id && !l.cents)
     if (!untouched && !blank) return
-    if (untouched && last.category_id === fill.category_id && last.cents === fill.cents) return
-    boundaryFill.current = { filled: true, line: fill }
-    setCategoryLines([{ ...emptyCategoryLine, ...fill }])
+    if (untouched && same(last, fill)) return
+    boundaryFill.current = { filled: true, lines: fill }
+    setCategoryLines(fill.map((f) => ({ ...emptyCategoryLine, ...f })))
     setCategoryFollows(false)
   }, [accountLines, accounts, categories])
 
@@ -396,7 +404,7 @@ export default function Transactions({ pickerDate }) {
     setMemo('')
     setPayeeId(null)
     prefilledFor.current = new Set()
-    boundaryFill.current = { filled: false, line: null }
+    boundaryFill.current = { filled: false, lines: null }
     setFormKey((k) => k + 1)
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])
