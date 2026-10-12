@@ -134,10 +134,9 @@ class AccountOut(BaseModel):
     balance_cents: int
     locked_payee_id: int | None = None
     boundary_category_id: int | None = None
-    # Linked categories (DESIGN.md § Linked categories): who claims this account's money, and
-    # the account minus what they hold — null with no links. A reminder, never enforced.
+    # Linked categories (DESIGN.md § Linked categories): who claims this account's money. The drift
+    # reminder reaches screens only as a sentence in `notes`, never as a figure. Never enforced.
     linked_category_ids: list[int] = []
-    drift_cents: int | None = None
     checked_on: date | None = None
     checked_valuation_id: int | None = None
     # True when the latest check is the account's opening balance — the one check that can't be undone.
