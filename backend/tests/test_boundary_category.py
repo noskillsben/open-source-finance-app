@@ -36,7 +36,7 @@ def _body(name, type_, on_budget, **extra):
 
 
 def test_create_and_edit_set_clear_and_keep_the_boundary_category(db_session):
-    debt = _category(db_session, "Debt payments", seeded_key="debt-payments")
+    debt = _category(db_session, "Debt payments", seeded_key="category:debt-payments")
     client = _client(db_session)
     try:
         created = client.post("/api/accounts", json=_body("Car loan", "Loan", False, boundary_category_id=debt.id)).json()
@@ -72,14 +72,14 @@ def test_an_unknown_or_archived_category_is_a_4xx(db_session):
 
 
 def test_the_category_list_carries_the_seeded_key_for_the_form_default(db_session):
-    _category(db_session, "Debt payments", seeded_key="debt-payments")
+    _category(db_session, "Debt payments", seeded_key="category:debt-payments")
     client = _client(db_session)
     try:
         listed = client.get("/api/categories").json()
     finally:
         app.dependency_overrides.clear()
 
-    assert [c["seeded_key"] for c in listed] == ["debt-payments"]
+    assert [c["seeded_key"] for c in listed] == ["category:debt-payments"]
 
 
 def test_a_loan_payment_saves_through_the_api_with_a_boundary_account(db_session):

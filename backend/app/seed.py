@@ -92,6 +92,8 @@ DEFAULT_CATEGORIES = [
     ("health-care", "Health care", "health", "need"),
     ("clothing", "Clothing", "lifestyle", "should"),
     ("entertainment", "Entertainment", "lifestyle", "want"),
+    # Key is stored as "category:debt-payments"; frontend/src/account_types.js (BOUNDARY_DEFAULT_SEEDED_KEY)
+    # reads it, so change both together.
     ("debt-payments", "Debt payments", "financial", "need"),
 ]
 
