@@ -370,3 +370,61 @@ def test_no_links_no_drift(client, world):
     _, tfsa, _, _ = world
     account = next(a for a in client.get("/api/accounts").json() if a["id"] == tfsa.id)
     assert account["drift_cents"] is None and account["linked_category_ids"] == []
+
+
+# --- one reminder per link group (#265) ---------------------------------------------------
+
+def _notes(client, *accounts):
+    by_id = {a["id"]: a for a in client.get("/api/accounts").json()}
+    return [[n for n in by_id[a.id]["notes"] if "claimed by" in n or "more than" in n] for a in accounts]
+
+
+def test_a_category_in_two_accounts_gives_both_rows_the_same_true_reminder(client, db_session):
+    chequing = _account(db_session, "Chequing", type="Chequing", opening=4150_00)
+    loan = _account(db_session, "Sam loan", opening=2000_00)
+    fund = _category(db_session, "Emergency fund")
+    _link(client, fund, chequing, loan)
+    _fund(db_session, fund, 3000_00)
+    sentence = "Chequing and Sam loan hold $3,150.00 not claimed by Emergency fund."
+    assert _notes(client, chequing, loan) == [[sentence], [sentence]]
+
+
+def test_a_chained_group_is_one_group(client, db_session):
+    tfsa = _account(db_session, "TFSA", opening=700_00)
+    fhsa = _account(db_session, "FHSA", opening=100_00)
+    ebike = _category(db_session, "E-bike")
+    vacation = _category(db_session, "Vacation")
+    _link(client, ebike, tfsa)
+    _link(client, vacation, tfsa, fhsa)
+    _fund(db_session, ebike, 300_00)
+    _fund(db_session, vacation, 380_00)
+    sentence = "TFSA and FHSA hold $120.00 not claimed by E-bike and Vacation."
+    assert _notes(client, tfsa, fhsa) == [[sentence], [sentence]]
+
+
+def test_a_balanced_group_is_silent(client, db_session):
+    a = _account(db_session, "TFSA", opening=300_00)
+    b = _account(db_session, "FHSA", opening=200_00)
+    ebike = _category(db_session, "E-bike")
+    vacation = _category(db_session, "Vacation")
+    _link(client, ebike, a)
+    _link(client, vacation, a, b)
+    _fund(db_session, ebike, 300_00)
+    _fund(db_session, vacation, 200_00)
+    assert _notes(client, a, b) == [[], []]
+
+
+def test_negative_group_and_singular_plural_verbs(client, db_session):
+    tfsa = _account(db_session, "TFSA", opening=0)
+    fhsa = _account(db_session, "FHSA", opening=0)
+    ebike = _category(db_session, "E-bike")
+    vacation = _category(db_session, "Vacation")
+    _link(client, ebike, tfsa)
+    _link(client, vacation, tfsa)
+    _fund(db_session, ebike, 300_00)
+    _fund(db_session, vacation, 200_00)
+    assert _notes(client, tfsa) == [["E-bike and Vacation hold $500.00 more than TFSA does."]]
+    # one category in two accounts, negative: singular category, plural accounts
+    _link(client, vacation)
+    _link(client, ebike, tfsa, fhsa)
+    assert _notes(client, tfsa, fhsa)[0] == ["E-bike holds $300.00 more than TFSA and FHSA do."]
