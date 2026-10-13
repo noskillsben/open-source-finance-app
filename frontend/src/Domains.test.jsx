@@ -13,6 +13,7 @@ describe('add a domain', () => {
     let finish
     createDomain.mockReturnValue(new Promise((resolve) => { finish = resolve }))
     render(<Domains pickerDate="2026-10-03" />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add a domain' }))[0])
     fireEvent.change(await screen.findByLabelText('Domain name'), { target: { value: 'Food' } })
     const button = screen.getByRole('button', { name: 'Add domain' })
     fireEvent.click(button)
@@ -25,5 +26,8 @@ describe('add a domain', () => {
     finish({})
     await waitFor(() => expect(button).not.toBeDisabled())
     expect(screen.getByLabelText('Domain name')).toHaveValue('')
+    // #220: the panel stays open for the next entry, with focus back on the name box.
+    expect(screen.getByLabelText('Domain name')).toHaveFocus()
+    expect(screen.getByText('Added Food.')).toBeTruthy()
   })
 })

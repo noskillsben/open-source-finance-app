@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import { WarningNote } from './components/Notes.jsx'
 import { formatCents, formatDate } from './utils/format.js'
 
 const KIND_LABELS = {
@@ -34,19 +38,19 @@ export default function IntegrityCheck() {
   }
 
   return (
-    <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Integrity check</h2>
+    <div className="space-y-6 py-4">
+      <h2 className="page-title hidden md:block">Integrity check</h2>
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        {error && <p className="text-bad">{error}</p>}
-        {!error && !findings && <p>Loading…</p>}
+      <section className="card space-y-2">
+        {error && <WarningNote>{error}</WarningNote>}
+        {!error && !findings && <LoadingRows />}
         {findings && findings.length === 0 && (
-          <p className="text-paper-soft">No mismatches found.</p>
+          <EmptyState>No mismatches found.</EmptyState>
         )}
         {findings && findings.length > 0 && (
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
-              <tr className="text-left text-paper-soft">
+              <tr className="text-left text-text-2">
                 <th className="pb-1">Date</th>
                 <th className="pb-1">Payee</th>
                 <th className="pb-1">Issue</th>
@@ -63,17 +67,12 @@ export default function IntegrityCheck() {
                     {payees?.find((p) => p.id === f.payee_id)?.name ?? (f.payee_id ? `#${f.payee_id}` : '—')}
                   </td>
                   <td className="py-1 align-top">{KIND_LABELS[f.kind] ?? f.kind}</td>
-                  <td className="py-1 align-top">{formatCents(f.expected_cents)}</td>
-                  <td className="py-1 align-top">{formatCents(f.stored_cents)}</td>
+                  <td className="tabular py-1 align-top">{formatCents(f.expected_cents)}</td>
+                  <td className="tabular py-1 align-top">{formatCents(f.stored_cents)}</td>
                   <td className="py-1 align-top">
-                    <button
-                      type="button"
-                      className="rounded bg-accent px-2 py-1 text-xs font-medium disabled:opacity-50"
-                      disabled={savingId === f.transaction_id}
-                      onClick={() => reSave(f.transaction_id)}
-                    >
+                    <Button variant="secondary" disabled={savingId === f.transaction_id} onClick={() => reSave(f.transaction_id)}>
                       Re-save
-                    </button>
+                    </Button>
                   </td>
                 </tr>
               ))}

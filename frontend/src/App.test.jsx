@@ -57,7 +57,7 @@ describe('routing', () => {
     ['/accounts', 2, 'Accounts'],
     ['/payees', 2, 'Payees'],
     ['/split-expenses', 2, 'Split expenses'],
-    ['/domains', 3, 'Domains'],
+    ['/domains', 2, 'Domains'],
     ['/settings/data-check', 2, 'Integrity check'],
   ])('mounts the right page at %s', async (path, level, expectedHeading) => {
     renderAt(path)

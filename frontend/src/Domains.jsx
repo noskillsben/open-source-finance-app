@@ -1,16 +1,26 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import { ListRow } from './components/ListRow.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { formatDate } from './utils/format.js'
 
 // The editable list of domains — a reporting label for categories, nothing more (DESIGN.md § Domains).
-export default function Domains({ pickerDate, onChange }) {
+// Adding or editing opens the side panel; an add stays open for the next one, an edit closes on save.
+export default function Domains({ pickerDate }) {
   const [domains, setDomains] = useState(null)
   const [error, setError] = useState(null)
   const [showArchived, setShowArchived] = useState(false)
-  const [editing, setEditing] = useState(null)
+  const [panel, setPanel] = useState(null) // null, 'add', or the domain being edited
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
+  const [formError, setFormError] = useState(null)
+  const [saved, setSaved] = useState(null)
   const [saving, setSaving] = useState(false)
+  const [focusKey, setFocusKey] = useState(0)
 
   function refresh() {
     api.domains.list(pickerDate, showArchived).then(setDomains).catch((e) => setError(e.message))
@@ -18,30 +28,44 @@ export default function Domains({ pickerDate, onChange }) {
 
   useEffect(refresh, [pickerDate, showArchived])
 
-  function done() {
-    setEditing(null)
-    setName('')
-    setDescription('')
-    setError(null)
-    refresh()
-    onChange?.()
+  function open(next) {
+    setPanel(next)
+    setName(next === 'add' ? '' : next.name)
+    setDescription(next === 'add' ? '' : (next.description ?? ''))
+    setFormError(null)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
+  }
+
+  function close() {
+    setPanel(null)
+    setFormError(null)
+    setSaved(null)
   }
 
   async function submit(e) {
     e.preventDefault()
     if (saving) return
-    setError(null)
-    if (!name.trim()) return setError('Name is required.')
+    setFormError(null)
+    if (!name.trim()) return setFormError('Name is required.')
     const body = { name: name.trim(), description: description.trim() || null }
     setSaving(true)
     try {
-      if (editing) await api.domains.update(editing.id, body)
-      else await api.domains.create({ ...body, created_on: pickerDate })
-      done()
+      if (panel === 'add') {
+        await api.domains.create({ ...body, created_on: pickerDate })
+        setSaved(`Added ${body.name}.`)
+        setName('')
+        setDescription('')
+      } else {
+        await api.domains.update(panel.id, body)
+        close()
+      }
+      refresh()
     } catch (err) {
-      setError(err.message)
+      setFormError(err.message)
     } finally {
       setSaving(false)
+      setFocusKey((k) => k + 1)
     }
   }
 
@@ -50,76 +74,83 @@ export default function Domains({ pickerDate, onChange }) {
     try {
       if (domain.archived_on) await api.domains.unarchive(domain.id)
       else await api.domains.archive(domain.id, pickerDate)
-      done()
+      refresh()
     } catch (err) {
       setError(err.message)
     }
   }
 
-  function startEdit(domain) {
-    setEditing(domain)
-    setName(domain.name)
-    setDescription(domain.description ?? '')
-  }
+  const adding = panel === 'add'
+  const editing = panel && !adding ? panel : null
 
-  return (
-    <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-      <h3 className="font-medium">Domains</h3>
-      <p className="text-sm text-paper-soft">
-        A domain is a label for grouping categories in reports — Food might hold Groceries and Dining out.
-      </p>
-      {error && <p className="text-bad">{error}</p>}
-      <form onSubmit={submit} className="space-y-2">
-        <label className="block text-sm">
-          <span className="text-paper-soft">{editing ? `Rename ${editing.name}` : 'Domain name'}</span>
-          <input
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
-            value={name}
-            disabled={saving}
-            onChange={(e) => setName(e.target.value)}
-          />
+  const form = panel && (
+    <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a domain'} onClose={close} focusKey={focusKey}>
+      <form onSubmit={submit} className="space-y-4">
+        {formError && <RefusalNote>{formError}</RefusalNote>}
+        {saved && <SaveNote>{saved}</SaveNote>}
+        <label className="block space-y-1">
+          <span className="field-label">{editing ? `Rename ${editing.name}` : 'Domain name'}</span>
+          <input className="field w-full" value={name} disabled={saving} onChange={(e) => setName(e.target.value)} />
         </label>
-        <label className="block text-sm">
-          <span className="text-paper-soft">Description (optional)</span>
-          <input
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-          />
+        <label className="block space-y-1">
+          <span className="field-label">Description (optional)</span>
+          <input className="field w-full" value={description} onChange={(e) => setDescription(e.target.value)} />
         </label>
         <div className="flex gap-3">
-          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink disabled:opacity-50">
-            {editing ? 'Save' : 'Add domain'}
-          </button>
-          {editing && (
-            <button type="button" className="text-sm text-accent" onClick={done}>Cancel</button>
-          )}
+          <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add domain'}</Button>
+          <Button variant="secondary" onClick={close}>{adding ? 'Done' : 'Cancel'}</Button>
         </div>
       </form>
-      <label className="flex items-center gap-2 text-sm">
-        <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-        Show archived
-      </label>
-      {domains && domains.length === 0 && <p className="text-paper-soft">No domains yet.</p>}
-      {domains && domains.length > 0 && (
-        <ul className="text-sm space-y-1">
-          {domains.map((d) => (
-            <li key={d.id} className="flex items-start justify-between gap-3">
-              <span>
-                {d.name}
-                {d.description && <span className="text-paper-soft"> — {d.description}</span>}
-                {d.archived_on && <span className="block text-xs text-paper-soft">archived {formatDate(d.archived_on)}</span>}
-              </span>
-              <span className="space-x-3 whitespace-nowrap">
-                <button type="button" className="text-xs text-accent" onClick={() => startEdit(d)}>Edit</button>
-                <button type="button" className="text-xs text-accent" onClick={() => toggleArchive(d)}>
-                  {d.archived_on ? 'Unarchive' : 'Archive'}
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
+    </SidePanel>
+  )
+
+  return (
+    <div className="space-y-6 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="page-title hidden md:block">Domains</h2>
+        <Button className="ml-auto" onClick={() => open('add')}>Add a domain</Button>
+      </div>
+
+      <PanelLayout panel={form}>
+        <section className="card space-y-3">
+          <p className="max-w-prose text-text-2">
+            A domain is a label for grouping categories in reports — Food might hold Groceries and Dining out.
+          </p>
+          {error && <WarningNote>{error}</WarningNote>}
+          <label className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Show archived
+          </label>
+          {!error && !domains && <LoadingRows />}
+          {domains && domains.length === 0 && (
+            <EmptyState action={<Button variant="secondary" onClick={() => open('add')}>Add a domain</Button>}>
+              No domains yet.
+            </EmptyState>
+          )}
+          {domains && domains.length > 0 && (
+            <ul>
+              {domains.map((d) => (
+                <ListRow
+                  key={d.id}
+                  selected={editing?.id === d.id}
+                  actions={
+                    <>
+                      <Button variant="quiet" onClick={() => open(d)}>Edit</Button>
+                      <Button variant="quiet" onClick={() => toggleArchive(d)}>
+                        {d.archived_on ? 'Unarchive' : 'Archive'}
+                      </Button>
+                    </>
+                  }
+                >
+                  {d.name}
+                  {d.description && <span className="text-text-2"> — {d.description}</span>}
+                  {d.archived_on && <span className="block text-sm text-text-3">archived {formatDate(d.archived_on)}</span>}
+                </ListRow>
+              ))}
+            </ul>
+          )}
+        </section>
+      </PanelLayout>
+    </div>
   )
 }

@@ -1,8 +1,14 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
 import { CADENCES } from './cadences.js'
-import Domains from './Domains.jsx'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import { GoalRow as GoalRowShell } from './components/ListRow.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import MoneyInput from './components/MoneyInput.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 
@@ -109,24 +115,15 @@ function goalBody(g, pickerDate) {
 function GoalFields({ goal, onChange, streams }) {
   const set = (patch) => onChange({ ...goal, ...patch })
   const moneyInput = (label, key) => (
-    <label className="block text-sm">
-      <span className="text-paper-soft">{label}</span>
-      <input
-        type="text"
-        inputMode="decimal"
-        className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
-        value={goal[key]}
-        onChange={(e) => set({ [key]: e.target.value })}
-      />
-    </label>
+    <MoneyInput label={label} value={goal[key]} onChange={(text) => set({ [key]: text })} />
   )
   const percentInput = (label, key) => (
-    <label className="block text-sm">
-      <span className="text-paper-soft">{label}</span>
+    <label className="block space-y-1">
+      <span className="field-label">{label}</span>
       <input
         type="text"
         inputMode="decimal"
-        className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+        className="w-full field"
         value={goal[key]}
         onChange={(e) => set({ [key]: e.target.value.replace(/[^0-9.]/g, '') })}
       />
@@ -144,10 +141,10 @@ function GoalFields({ goal, onChange, streams }) {
   )
   const cadenceInput = (label, optional) => (
     <>
-      <label className="block text-sm">
-        <span className="text-paper-soft">{label}</span>
+      <label className="block space-y-1">
+        <span className="field-label">{label}</span>
         <select
-          className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+          className="w-full field"
           value={goal.cadence}
           onChange={(e) => set({ cadence: e.target.value })}
         >
@@ -158,12 +155,12 @@ function GoalFields({ goal, onChange, streams }) {
         </select>
       </label>
       {goal.cadence === 'weeks' && (
-        <label className="block text-sm">
-          <span className="text-paper-soft">Number of weeks</span>
+        <label className="block space-y-1">
+          <span className="field-label">Number of weeks</span>
           <input
             type="text"
             inputMode="numeric"
-            className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+            className="w-full field"
             value={goal.weeks}
             onChange={(e) => set({ weeks: e.target.value.replace(/[^0-9]/g, '') })}
           />
@@ -172,23 +169,23 @@ function GoalFields({ goal, onChange, streams }) {
     </>
   )
   const dateInput = (label) => (
-    <label className="block text-sm">
-      <span className="text-paper-soft">{label}</span>
+    <label className="block space-y-1">
+      <span className="field-label">{label}</span>
       <input
         type="date"
-        className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+        className="w-full field"
         value={goal.date}
         onChange={(e) => set({ date: e.target.value })}
       />
     </label>
   )
   return (
-    <fieldset className="rounded bg-ink p-3 space-y-3">
+    <fieldset className="rounded-lg bg-raised p-3 space-y-3">
       <legend className="px-1 text-sm font-medium">Goal</legend>
-      <label className="block text-sm">
-        <span className="text-paper-soft">Kind</span>
+      <label className="block space-y-1">
+        <span className="field-label">Kind</span>
         <select
-          className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+          className="w-full field"
           value={goal.kind}
           onChange={(e) => set({ kind: e.target.value })}
         >
@@ -199,10 +196,10 @@ function GoalFields({ goal, onChange, streams }) {
         </select>
       </label>
       {goal.kind && (
-        <label className="block text-sm">
-          <span className="text-paper-soft">Goal name</span>
+        <label className="block space-y-1">
+          <span className="field-label">Goal name</span>
           <input
-            className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+            className="w-full field"
             value={goal.name}
             onChange={(e) => set({ name: e.target.value })}
           />
@@ -225,10 +222,10 @@ function GoalFields({ goal, onChange, streams }) {
       )}
       {goal.kind === 'commitment' && (
         <>
-          <label className="block text-sm">
-            <span className="text-paper-soft">Rule</span>
+          <label className="block space-y-1">
+            <span className="field-label">Rule</span>
             <select
-              className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+              className="w-full field"
               value={goal.flavour}
               onChange={(e) => set({ flavour: e.target.value })}
             >
@@ -239,10 +236,10 @@ function GoalFields({ goal, onChange, streams }) {
           {goal.flavour === 'refill' && moneyInput('Level to refill to', 'level')}
           {goal.flavour === 'add' && (
             <>
-              <label className="block text-sm">
-                <span className="text-paper-soft">Add</span>
+              <label className="block space-y-1">
+                <span className="field-label">Add</span>
                 <select
-                  className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+                  className="w-full field"
                   value={goal.addFlavour}
                   onChange={(e) => set({ addFlavour: e.target.value })}
                 >
@@ -257,10 +254,10 @@ function GoalFields({ goal, onChange, streams }) {
           )}
           {goal.flavour === 'add' && goal.addFlavour === 'fixed' && (
             <>
-              <label className="block text-sm">
-                <span className="text-paper-soft">How often</span>
+              <label className="block space-y-1">
+                <span className="field-label">How often</span>
                 <select
-                  className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+                  className="w-full field"
                   value={goal.cadence}
                   onChange={(e) => set({ cadence: e.target.value, firstDueMonth: e.target.value ? goal.firstDueMonth : '' })}
                 >
@@ -270,11 +267,11 @@ function GoalFields({ goal, onChange, streams }) {
                 </select>
               </label>
               {goal.cadence && (
-                <label className="block text-sm">
-                  <span className="text-paper-soft">First month it is due</span>
+                <label className="block space-y-1">
+                  <span className="field-label">First month it is due</span>
                   <input
                     type="month"
-                    className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
+                    className="w-full field"
                     value={goal.firstDueMonth}
                     onChange={(e) => set({ firstDueMonth: e.target.value })}
                   />
@@ -307,11 +304,11 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
   const investment = eligible.some((a) => linkIds.includes(a.id) && a.type === 'Investment')
   return (
     <fieldset className="space-y-1 text-sm">
-      <legend className="text-paper-soft">Money lives in (on-budget accounts)</legend>
-      {eligible.length === 0 && <p className="text-paper-soft">No on-budget accounts yet.</p>}
+      <legend className="text-text-2">Money lives in (on-budget accounts)</legend>
+      {eligible.length === 0 && <p className="text-text-2">No on-budget accounts yet.</p>}
       {eligible.length > 5 && (
         <input
-          className="w-full rounded bg-ink px-2 py-1"
+          className="w-full field"
           placeholder="Search accounts"
           aria-label="Search accounts"
           value={filter}
@@ -325,7 +322,7 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
         </label>
       ))}
       {investment && shortHorizonGoalDate && (
-        <p className="text-paper-soft">
+        <p className="text-text-2">
           This goal is due {formatDate(shortHorizonGoalDate)}, and money in an investment account may not
           be there when the date comes.
         </p>
@@ -343,65 +340,64 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
   const nextDue = progress.earliest_unpaid_due_on
   const nextDueText = progress.earliest_unpaid_due_text
   const streamName = streams.find((s) => s.id === goal.income_stream_id)?.name
-  return (
-    <tr className="text-sm text-paper-soft">
-      <td colSpan={6} className="pb-2" style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}>
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="text-paper">{goal.name}</span>
-          <span>{progressLine ?? (target == null ? formatCents(balance) : `${formatCents(balance)} of ${formatCents(target)}`)}</span>
-          {billStatusText && (
-            <span className={billStatus === 'overdue' ? 'text-bad' : undefined}>{billStatusText}</span>
-          )}
-          {lastPaidText && <span>{lastPaidText}</span>}
-          {/* DESIGN.md § Nothing posts itself: opens the Ledger form pre-filled and linked; the user saves it. */}
-          {!archived && goal.kind === 'recurring_bill' && nextDue && (
-            <Link
-              className="text-xs text-accent"
-              to="/transactions"
-              state={{
-                recordBill: {
-                  goal_id: goal.id,
-                  goal_due_on: nextDue,
-                  category_id: goal.category_id,
-                  amount_cents: goal.amount_cents,
-                },
-              }}
-            >
-              Record {nextDueText}
-            </Link>
-          )}
-          {due && goal.kind !== 'recurring_bill' && <span>by {formatDate(due)}</span>}
-          {cadenceLine ? (
-            <span>{cadenceLine}</span>
-          ) : goal.percent_of_net != null ? (
-            <span>{goal.percent_of_net}% of net{streamName ? ` · ${streamName} pay` : ''}</span>
-          ) : (
-            perPeriodText && <span>{perPeriodText}</span>
-          )}
-          {!archived && (
-            <form
-              className="flex gap-2 items-center"
-              onSubmit={(e) => {
-                e.preventDefault()
-                onMove('add')
-              }}
-            >
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label={`Amount to add to or withdraw from ${goal.name}`}
-                className="w-24 rounded bg-ink px-2 py-1"
-                value={amount}
-                onChange={(e) => onAmount(e.target.value)}
-              />
-              <button type="submit" className="text-xs text-accent">Add</button>
-              <button type="button" className="text-xs text-accent" onClick={() => onMove('withdraw')}>Withdraw</button>
-            </form>
-          )}
-        </div>
-      </td>
-    </tr>
+  // A goal whose category is below zero reads "$525.00 short" in negative, never "-$525.00 of $1,050.00"
+  // (DESIGN.md § Visual design → Wording). #220.
+  const short = balance < 0 ? formatCents(-balance) : null
+  const status = (
+    <>
+      {short ? (
+        <span className="text-negative">{short} short</span>
+      ) : (
+        <span>{progressLine ?? (target == null ? formatCents(balance) : `${formatCents(balance)} of ${formatCents(target)}`)}</span>
+      )}
+      {billStatusText && <span className={billStatus === 'overdue' ? 'text-warning' : undefined}>{billStatusText}</span>}
+      {lastPaidText && <span>{lastPaidText}</span>}
+      {/* DESIGN.md § Nothing posts itself: opens the Ledger form pre-filled and linked; the user saves it. */}
+      {!archived && goal.kind === 'recurring_bill' && nextDue && (
+        <Link
+          className="btn btn-quiet"
+          to="/transactions"
+          state={{
+            recordBill: {
+              goal_id: goal.id,
+              goal_due_on: nextDue,
+              category_id: goal.category_id,
+              amount_cents: goal.amount_cents,
+            },
+          }}
+        >
+          Record {nextDueText}
+        </Link>
+      )}
+      {due && goal.kind !== 'recurring_bill' && <span>by {formatDate(due)}</span>}
+      {cadenceLine ? (
+        <span>{cadenceLine}</span>
+      ) : goal.percent_of_net != null ? (
+        <span>{goal.percent_of_net}% of net{streamName ? ` · ${streamName} pay` : ''}</span>
+      ) : (
+        perPeriodText && <span>{perPeriodText}</span>
+      )}
+    </>
   )
+  const action = !archived && (
+    <form
+      className="flex items-center gap-2"
+      onSubmit={(e) => {
+        e.preventDefault()
+        onMove('add')
+      }}
+    >
+      <MoneyInput
+        aria-label={`Amount to add to or withdraw from ${goal.name}`}
+        value={amount}
+        onChange={onAmount}
+        placeholder="Amount"
+      />
+      <Button type="submit" variant="quiet">Add</Button>
+      <Button variant="quiet" onClick={() => onMove('withdraw')}>Withdraw</Button>
+    </form>
+  )
+  return <GoalRowShell depth={depth} colSpan={6} name={goal.name} status={status} action={action} />
 }
 
 const EMPTY_FORM = { name: '', needLevel: '', parent: {}, pool: {}, domain: {}, absorb: false }
@@ -431,6 +427,9 @@ export default function Categories({ pickerDate }) {
   const [formError, setFormError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [formKey, setFormKey] = useState(0) // remounts the form so its pickers reseed their text
+  const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
+  const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
+  const [saved, setSaved] = useState(null) // the save note after an add
   const [summary, setSummary] = useState(null) // ready to assign, overspent and each category's available
   const [amounts, setAmounts] = useState({}) // the assign box's text per category id
   const [assignError, setAssignError] = useState(null)
@@ -454,15 +453,18 @@ export default function Categories({ pickerDate }) {
 
   useEffect(refresh, [pickerDate, showArchived])
 
-  // Edit opens the form above a long table; bring it into view. The form remounts on every
-  // start, so this runs after each Edit click. jsdom has no scrollIntoView, hence the guard.
-  const formRef = useRef(null)
-  useEffect(() => {
-    if (editing) formRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' })
-  }, [formKey])
+  function startAdd() {
+    resetForm()
+    setPanelOpen(true)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
+  }
 
   function startEdit(category) {
     setFormKey((k) => k + 1)
+    setPanelOpen(true)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
     setEditing(category)
     setForm({
       name: category.name,
@@ -485,6 +487,12 @@ export default function Categories({ pickerDate }) {
     setGoalForm(EMPTY_GOAL)
     setLinkIds([])
     setFormError(null)
+  }
+
+  function closePanel() {
+    resetForm()
+    setPanelOpen(false)
+    setSaved(null)
   }
 
   async function submit(e) {
@@ -516,13 +524,18 @@ export default function Categories({ pickerDate }) {
         else if (hadGoal) await api.goals.archive(editing.id, pickerDate)
         const before = editing.linked_accounts.map((a) => a.id).sort().join()
         if (before !== [...linkIds].sort().join()) await api.categories.setLinkedAccounts(editing.id, pickerDate, linkIds)
-      } else await api.categories.create({ ...settings, created_on: pickerDate })
-      resetForm()
+        closePanel()
+      } else {
+        await api.categories.create({ ...settings, created_on: pickerDate })
+        resetForm()
+        setSaved(`Added ${name}.`)
+      }
       refresh()
     } catch (err) {
       setFormError(err.message)
     } finally {
       setSaving(false)
+      setFocusKey((k) => k + 1)
     }
   }
 
@@ -599,33 +612,19 @@ export default function Categories({ pickerDate }) {
   const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
 
-  return (
-    <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Categories</h2>
-
-      {summary && (
-        <p className="text-lg">
-          Ready to assign {formatCents(summary.ready_to_assign_cents)}
-          {summary.overspent_cents !== 0 && (
-            <span className="text-sm text-paper-soft">
-              {' '}(includes {formatCents(summary.overspent_cents)} in overspent categories)
-            </span>
-          )}
-        </p>
-      )}
-
-      <form
-        key={formKey}
-        ref={formRef}
-        onSubmit={submit}
-        className="rounded-lg bg-ink-soft p-4 space-y-3"
-      >
-        <h3 className="font-medium">{editing ? `Edit ${editing.name}` : 'Add a category'}</h3>
-        {formError && <p className="text-bad">{formError}</p>}
-        <label className="block text-sm">
-          <span className="text-paper-soft">Name</span>
+  const formPanel = panelOpen && (
+    <SidePanel
+      title={editing ? `Edit · ${editing.name}` : 'Add a category'}
+      onClose={closePanel}
+      focusKey={focusKey}
+    >
+      <form key={formKey} onSubmit={submit} className="space-y-4">
+        {formError && <RefusalNote>{formError}</RefusalNote>}
+        {saved && <SaveNote>{saved}</SaveNote>}
+        <label className="block space-y-1">
+          <span className="field-label">Name</span>
           <input
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
+            className="field w-full"
             value={form.name}
             disabled={saving}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -643,10 +642,10 @@ export default function Categories({ pickerDate }) {
           initialId={form.domain.id}
           onChange={(id, text) => setForm({ ...form, domain: { id, text } })}
         />
-        <label className="block text-sm">
-          <span className="text-paper-soft">Default need level</span>
+        <label className="block space-y-1">
+          <span className="field-label">Default need level</span>
           <select
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
+            className="field w-full"
             value={form.needLevel}
             onChange={(e) => setForm({ ...form, needLevel: e.target.value })}
           >
@@ -662,9 +661,10 @@ export default function Categories({ pickerDate }) {
           initialId={form.pool.id}
           onChange={(id, text) => setForm({ ...form, pool: { id, text } })}
         />
-        <label className="flex items-center gap-2">
+        <label className="flex items-start gap-2">
           <input
             type="checkbox"
+            className="mt-1"
             checked={form.absorb}
             onChange={(e) => setForm({ ...form, absorb: e.target.checked })}
           />
@@ -682,156 +682,153 @@ export default function Categories({ pickerDate }) {
           />
         )}
         <div className="flex gap-3">
-          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink disabled:opacity-50">
-            {editing ? 'Save' : 'Add category'}
-          </button>
-          {editing && (
-            <button type="button" className="text-sm text-accent" onClick={resetForm}>Cancel</button>
-          )}
+          <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add category'}</Button>
+          <Button variant="secondary" onClick={closePanel}>{editing ? 'Cancel' : 'Done'}</Button>
         </div>
       </form>
+    </SidePanel>
+  )
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        {error && <p className="text-bad">Could not reach the backend: {error}</p>}
-        {rowError && <p className="text-bad">{rowError}</p>}
-        {assignError && <p className="text-bad">{assignError}</p>}
-        {linkedWarning && <p className="text-paper-soft">{linkedWarning}</p>}
-        {warnings.map((w) => (
-          <p key={w} className="text-sm text-bad">{w}</p>
-        ))}
-        {moving && (
-          <form key={moving.category.id} onSubmit={moveToCategory} className="rounded bg-ink p-3 space-y-2">
-            <h3 className="font-medium">Move money out of {moving.category.name}</h3>
-            <NamePicker
-              label="Move to"
-              items={active.filter((c) => c.id !== moving.category.id)}
-              onChange={(id, text) => setMoving({ ...moving, to: { id, text } })}
-            />
-            <label className="block text-sm">
-              <span className="text-paper-soft">Amount</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
-                value={moving.amount}
-                onChange={(e) => setMoving({ ...moving, amount: e.target.value })}
+  return (
+    <div className="space-y-6 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="page-title hidden md:block">Categories</h2>
+        <Button className="ml-auto" onClick={startAdd}>Add a category</Button>
+      </div>
+
+      {summary && (
+        <p className="text-text-2">
+          Ready to assign <span className="tabular block text-headline text-text">{formatCents(summary.ready_to_assign_cents)}</span>
+          {summary.overspent_cents !== 0 && (
+            <span className="text-sm text-text-2">
+              (includes {formatCents(summary.overspent_cents)} in overspent categories)
+            </span>
+          )}
+        </p>
+      )}
+
+      <PanelLayout panel={formPanel}>
+        <section className="card space-y-3">
+          {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
+          {rowError && <WarningNote>{rowError}</WarningNote>}
+          {assignError && <WarningNote>{assignError}</WarningNote>}
+          {linkedWarning && <WarningNote>{linkedWarning}</WarningNote>}
+          {warnings.map((w) => (
+            <WarningNote key={w}>{w}</WarningNote>
+          ))}
+          {moving && (
+            <form key={moving.category.id} onSubmit={moveToCategory} className="space-y-3 rounded-lg bg-raised p-3">
+              <h3 className="text-section">Move money out of {moving.category.name}</h3>
+              <NamePicker
+                label="Move to"
+                items={active.filter((c) => c.id !== moving.category.id)}
+                onChange={(id, text) => setMoving({ ...moving, to: { id, text } })}
               />
-            </label>
-            <div className="flex gap-3">
-              <button type="submit" className="rounded bg-accent px-3 py-1 text-ink">Move</button>
-              <button type="button" className="text-sm text-accent" onClick={() => setMoving(null)}>Cancel</button>
-            </div>
-          </form>
-        )}
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          Show archived
-        </label>
-        {!error && !categories && <p>Loading…</p>}
-        {categories && categories.length === 0 && <p className="text-paper-soft">No categories yet.</p>}
-        {rows.length > 0 && (
-          <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-paper-soft">
-                <th className="pb-1">Name</th>
-                <th className="pb-1">Domain</th>
-                <th className="pb-1">Need level</th>
-                <th className="pb-1 text-right">Available</th>
-                <th className="pb-1">Move money</th>
-                <th className="pb-1"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map(({ category: c, depth }) => (
-                <Fragment key={c.id}>
-                <tr>
-                  <td className="py-1" style={{ paddingLeft: `${depth * 1.25}rem` }}>
-                    {c.name}
-                    {c.linked_accounts.length > 0 && (
-                      <div className="text-xs text-paper-soft">
-                        money is in {c.linked_accounts.map((a) => a.name).join(' and ')}
-                      </div>
-                    )}
-                    {c.archived_on && (
-                      <div className="text-xs text-paper-soft">archived {formatDate(c.archived_on)}</div>
-                    )}
-                  </td>
-                  <td className="py-1">{domainName(c.domain_id) ?? ''}</td>
-                  <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
-                  <td className={`py-1 text-right ${available(c.id) < 0 ? 'text-bad' : ''}`}>
-                    {formatCents(available(c.id))}
-                    {(poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
-                      <div className="text-xs text-paper-soft">
-                        +{formatCents(poolAvailable(c.id))} available if overspent
-                        {poolAbsorber(c.id) && `, then ${poolAbsorber(c.id)} absorbs the rest`}
-                      </div>
-                    )}
-                  </td>
-                  <td className="py-1 whitespace-nowrap">
-                    {!c.archived_on && (
-                      <form
-                        className="flex gap-2 items-center"
-                        onSubmit={(e) => {
-                          e.preventDefault()
-                          addOrWithdraw(c, 'add')
-                        }}
-                      >
-                        <input
-                          type="text"
-                          inputMode="decimal"
-                          aria-label={`Amount to add to or withdraw from ${c.name}`}
-                          className="w-24 rounded bg-ink px-2 py-1"
-                          value={amounts[c.id] ?? ''}
-                          onChange={(e) => setAmounts({ ...amounts, [c.id]: e.target.value })}
+              <MoneyInput label="Amount" value={moving.amount} onChange={(amount) => setMoving({ ...moving, amount })} />
+              <div className="flex gap-3">
+                <Button type="submit">Move</Button>
+                <Button variant="secondary" onClick={() => setMoving(null)}>Cancel</Button>
+              </div>
+            </form>
+          )}
+          <label className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Show archived
+          </label>
+          {!error && !categories && <LoadingRows />}
+          {categories && categories.length === 0 && (
+            <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add a category</Button>}>
+              No categories yet.
+            </EmptyState>
+          )}
+          {rows.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Domain</th>
+                    <th>Need level</th>
+                    <th className="text-right">Available</th>
+                    <th>Move money</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(({ category: c, depth }) => (
+                    <Fragment key={c.id}>
+                      <tr className={editing?.id === c.id ? 'bg-raised' : undefined}>
+                        <td className="py-1" style={{ paddingLeft: `${depth * 1.25}rem` }}>
+                          {c.name}
+                          {c.linked_accounts.length > 0 && (
+                            <div className="text-sm text-text-3">
+                              money is in {c.linked_accounts.map((a) => a.name).join(' and ')}
+                            </div>
+                          )}
+                          {c.archived_on && (
+                            <div className="text-sm text-text-3">archived {formatDate(c.archived_on)}</div>
+                          )}
+                        </td>
+                        <td className="py-1">{domainName(c.domain_id) ?? ''}</td>
+                        <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
+                        <td className={`tabular py-1 text-right ${available(c.id) < 0 ? 'text-negative' : ''}`}>
+                          {formatCents(available(c.id))}
+                          {(poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
+                            <div className="text-sm text-text-3">
+                              +{formatCents(poolAvailable(c.id))} available if overspent
+                              {poolAbsorber(c.id) && `, then ${poolAbsorber(c.id)} absorbs the rest`}
+                            </div>
+                          )}
+                        </td>
+                        <td className="py-1 whitespace-nowrap">
+                          {!c.archived_on && (
+                            <form
+                              className="flex items-center gap-2"
+                              onSubmit={(e) => {
+                                e.preventDefault()
+                                addOrWithdraw(c, 'add')
+                              }}
+                            >
+                              <MoneyInput
+                                aria-label={`Amount to add to or withdraw from ${c.name}`}
+                                placeholder="Amount"
+                                value={amounts[c.id] ?? ''}
+                                onChange={(text) => setAmounts({ ...amounts, [c.id]: text })}
+                              />
+                              <Button type="submit" variant="quiet">Add</Button>
+                              <Button variant="quiet" onClick={() => addOrWithdraw(c, 'withdraw')}>Withdraw</Button>
+                              <Button variant="quiet" onClick={() => setMoving({ category: c, to: {}, amount: '' })}>
+                                Move to another category
+                              </Button>
+                            </form>
+                          )}
+                        </td>
+                        <td className="py-1 text-right whitespace-nowrap">
+                          <Button variant="quiet" onClick={() => startEdit(c)}>Edit</Button>
+                          <Button variant="quiet" onClick={() => (c.archived_on ? unarchiveCategory(c) : archiveCategory(c))}>
+                            {c.archived_on ? 'Unarchive' : 'Archive'}
+                          </Button>
+                        </td>
+                      </tr>
+                      {goalOf(c.id) && (
+                        <GoalRow
+                          progress={goalOf(c.id)}
+                          depth={depth}
+                          amount={amounts[`goal-${c.id}`] ?? ''}
+                          onAmount={(text) => setAmounts({ ...amounts, [`goal-${c.id}`]: text })}
+                          onMove={(direction) => addOrWithdraw(c, direction, `goal-${c.id}`)}
+                          archived={!!c.archived_on}
+                          streams={streams}
                         />
-                        <button type="submit" className="text-xs text-accent">Add</button>
-                        <button type="button" className="text-xs text-accent" onClick={() => addOrWithdraw(c, 'withdraw')}>
-                          Withdraw
-                        </button>
-                        <button
-                          type="button"
-                          className="text-xs text-accent"
-                          onClick={() => setMoving({ category: c, to: {}, amount: '' })}
-                        >
-                          Move to another category
-                        </button>
-                      </form>
-                    )}
-                  </td>
-                  <td className="py-1 text-right space-x-3 whitespace-nowrap">
-                    <button type="button" className="text-xs text-accent" onClick={() => startEdit(c)}>
-                      Edit
-                    </button>
-                    <button
-                      type="button"
-                      className="text-xs text-accent"
-                      onClick={() => (c.archived_on ? unarchiveCategory(c) : archiveCategory(c))}
-                    >
-                      {c.archived_on ? 'Unarchive' : 'Archive'}
-                    </button>
-                  </td>
-                </tr>
-                {goalOf(c.id) && (
-                  <GoalRow
-                    progress={goalOf(c.id)}
-                    depth={depth}
-                    amount={amounts[`goal-${c.id}`] ?? ''}
-                    onAmount={(text) => setAmounts({ ...amounts, [`goal-${c.id}`]: text })}
-                    onMove={(direction) => addOrWithdraw(c, direction, `goal-${c.id}`)}
-                    archived={!!c.archived_on}
-                    streams={streams}
-                  />
-                )}
-                </Fragment>
-              ))}
-            </tbody>
-          </table>
-          </div>
-        )}
-      </section>
-
-      <Domains pickerDate={pickerDate} onChange={refresh} />
+                      )}
+                    </Fragment>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
+      </PanelLayout>
     </div>
   )
 }

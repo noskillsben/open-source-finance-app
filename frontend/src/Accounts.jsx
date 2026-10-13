@@ -5,9 +5,15 @@ import {
   TRACKING_TYPES,
 } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import MoneyInput from './components/MoneyInput.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
-import { emptyTermsText, hasLenderTerms, termsLine, termsToText, textToTerms } from './utils/terms.js'
+import { emptyTermsText, termsLine, termsToText, textToTerms } from './utils/terms.js'
 
 const VALUE_TYPES = ['Asset', 'Investment']
 
@@ -38,10 +44,10 @@ function emptyCheckForm(pickerDate) {
 function TermText({ form, field, label, onChange, decimal = false }) {
   return (
     <label className="block space-y-1">
-      <span className="text-sm">{label}</span>
+      <span className="field-label">{label}</span>
       <input
         inputMode={decimal ? 'decimal' : field === 'minimum_payment_rule' ? 'text' : 'numeric'}
-        className="w-full rounded bg-ink px-2 py-1"
+        className="w-full field"
         value={form[field]}
         onChange={(e) => onChange(field, e.target.value)}
       />
@@ -52,8 +58,8 @@ function TermText({ form, field, label, onChange, decimal = false }) {
 function TermDate({ form, field, label, onChange }) {
   return (
     <label className="block space-y-1">
-      <span className="text-sm">{label}</span>
-      <input type="date" className="w-full rounded bg-ink px-2 py-1" value={form[field]} onChange={(e) => onChange(field, e.target.value)} />
+      <span className="field-label">{label}</span>
+      <input type="date" className="w-full field" value={form[field]} onChange={(e) => onChange(field, e.target.value)} />
     </label>
   )
 }
@@ -61,8 +67,8 @@ function TermDate({ form, field, label, onChange }) {
 function TermSelect({ form, field, label, options, onChange }) {
   return (
     <label className="block space-y-1">
-      <span className="text-sm">{label}</span>
-      <select className="w-full rounded bg-ink px-2 py-1" value={form[field]} onChange={(e) => onChange(field, e.target.value)}>
+      <span className="field-label">{label}</span>
+      <select className="w-full field" value={form[field]} onChange={(e) => onChange(field, e.target.value)}>
         <option value="">Unknown</option>
         {options.map((o) => (
           <option key={o} value={o}>{o}</option>
@@ -85,8 +91,11 @@ export default function Accounts({ pickerDate }) {
   const [form, setForm] = useState(() => emptyForm(pickerDate))
   const [formError, setFormError] = useState(null)
   const [editingId, setEditingId] = useState(null)
-  // Types outside DEBT_TYPES reach the terms section through a toggle; an account that already has terms opens it.
+  // The loan terms start folded under a one-line summary, for every type; the toggle unfolds them.
   const [termsOpen, setTermsOpen] = useState(false)
+  const [adding, setAdding] = useState(false) // the add form is open in the side panel
+  const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
+  const [saved, setSaved] = useState(null) // the save note after an add
   const [saving, setSaving] = useState(false)
 
   const [checkingId, setCheckingId] = useState(null)
@@ -143,8 +152,29 @@ export default function Accounts({ pickerDate }) {
     }))
   }
 
+  function startAdd() {
+    resetCheck()
+    resetArchive()
+    resetForm()
+    setAdding(true)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
+  }
+
+  function closePanel() {
+    resetForm()
+    resetCheck()
+    resetArchive()
+    setAdding(false)
+    setSaved(null)
+  }
+
   function editAccount(a) {
     resetCheck()
+    resetArchive()
+    setAdding(false)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
     setEditingId(a.id)
     setForm({
       name: a.name,
@@ -158,7 +188,7 @@ export default function Accounts({ pickerDate }) {
       created_on: a.created_on,
       ...termsToText(a.terms),
     })
-    setTermsOpen(hasLenderTerms(a.terms))
+    setTermsOpen(false)
     setFormKey((k) => k + 1)
     setBoundaryKey((k) => k + 1)
     setFormError(null)
@@ -174,6 +204,10 @@ export default function Accounts({ pickerDate }) {
   }
 
   function startCheck(account) {
+    setAdding(false)
+    resetArchive()
+    setSaved(null)
+    setFocusKey((k) => k + 1)
     setEditingId(null)
     setCheckingId(account.id)
     setCheckForm(emptyCheckForm(pickerDate))
@@ -191,6 +225,9 @@ export default function Accounts({ pickerDate }) {
   }
 
   function startArchive(account) {
+    setAdding(false)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
     setEditingId(null)
     resetCheck()
     setArchivingId(account.id)
@@ -346,12 +383,17 @@ export default function Accounts({ pickerDate }) {
           terms: { ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       }
-      resetForm()
+      if (editingId) closePanel()
+      else {
+        resetForm()
+        setSaved(`Added ${form.name.trim()}.`)
+      }
       refresh()
     } catch (err) {
       setFormError(err.message)
     } finally {
       setSaving(false)
+      setFocusKey((k) => k + 1)
     }
   }
 
@@ -381,10 +423,10 @@ export default function Accounts({ pickerDate }) {
   function accountNotes(a) {
     return (
       <>
-        {termsLine(a.terms) && <div className="text-xs text-paper-soft">{termsLine(a.terms)}</div>}
-        {a.archived_on && <div className="text-xs text-paper-soft">archived {formatDate(a.archived_on)}</div>}
+        {termsLine(a.terms) && <div className="text-sm text-text-3">{termsLine(a.terms)}</div>}
+        {a.archived_on && <div className="text-sm text-text-3">archived {formatDate(a.archived_on)}</div>}
         {a.checked_on && (
-          <div className="text-xs text-paper-soft">
+          <div className="text-sm text-text-3">
             {a.checked_is_opening ? 'opened' : VALUE_TYPES.includes(a.type) ? 'value updated' : 'balance checked'}{' '}
             {formatDate(a.checked_on)}
             {a.entries_added_since_check > 0 &&
@@ -392,7 +434,7 @@ export default function Accounts({ pickerDate }) {
             {!a.checked_is_opening && (
               <>
                 {' — '}
-                <button type="button" className="text-accent underline" onClick={(e) => undoCheck(e, a)}>
+                <button type="button" className="btn btn-quiet underline" onClick={(e) => undoCheck(e, a)}>
                   Undo check
                 </button>
               </>
@@ -400,7 +442,7 @@ export default function Accounts({ pickerDate }) {
           </div>
         )}
         {a.notes.map((note) => (
-          <div key={note} className="text-xs text-bad">{note}</div>
+          <div key={note} className="text-sm text-warning">{note}</div>
         ))}
       </>
     )
@@ -409,401 +451,386 @@ export default function Accounts({ pickerDate }) {
   function accountActions(a) {
     return (
       <>
-        <button
-          type="button"
-          className="text-xs text-accent"
+        <Button
+          variant="quiet"
           onClick={(e) => {
             e.stopPropagation()
             startCheck(a)
           }}
         >
           {VALUE_TYPES.includes(a.type) ? 'Update value' : 'Check balance'}
-        </button>
+        </Button>
         {a.archived_on ? (
-          <button type="button" className="text-xs text-accent" onClick={(e) => unarchiveAccount(e, a)}>
-            Unarchive
-          </button>
+          <Button variant="quiet" onClick={(e) => unarchiveAccount(e, a)}>Unarchive</Button>
         ) : (
-          <button
-            type="button"
-            className="text-xs text-accent"
+          <Button
+            variant="quiet"
             onClick={(e) => {
               e.stopPropagation()
               startArchive(a)
             }}
           >
             Archive
-          </button>
+          </Button>
         )}
       </>
     )
   }
 
-  return (
-    <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Accounts</h2>
+  const selectedId = editingId ?? checkingId ?? archivingId
+  const panelOpen = adding || selectedId != null
+  const selectedAccount = accounts?.find((a) => a.id === selectedId)
+  const onBudget = form.on_budget
+  // The loan terms fold under one line: what is stated so far, or that nothing is.
+  const termsSummary = (() => {
+    const parsed = textToTerms(form)
+    return (parsed.terms && termsLine(parsed.terms)) || 'Nothing entered'
+  })()
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        {error && <p className="text-bad">Could not reach the backend: {error}</p>}
-        {undoError && <p className="text-bad">{undoError}</p>}
-        {rowError && <p className="text-bad">{rowError}</p>}
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          Show archived
-        </label>
-        {!error && !accounts && <p>Loading…</p>}
-        {accounts && accounts.length === 0 && <p className="text-paper-soft">No accounts yet.</p>}
-        {accounts && accounts.length > 0 && (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-paper-soft">
-                <th className="pb-1">Name</th>
-                <th className="pb-1">Type</th>
-                <th className="pb-1">Side</th>
-                <th className="pb-1 text-right">Balance</th>
-                <th className="pb-1"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((row) =>
-                row.group ? (
-                  <tr key={`payee-${row.payeeId}`}>
-                    <td colSpan={5} className="py-1">
-                      <div className="text-xs text-paper-soft">
-                        Locked to {payeesAll?.find((p) => p.id === row.payeeId)?.name ?? `#${row.payeeId}`}
-                      </div>
-                      {row.group.map((a) => (
-                        <div
-                          key={a.id}
-                          className="flex flex-wrap items-start justify-between gap-2 cursor-pointer hover:bg-ink"
-                          onClick={() => editAccount(a)}
-                        >
-                          <div>
-                            {a.name}
-                            {accountNotes(a)}
-                          </div>
-                          <div className="flex items-center gap-3">
-                            <span className={a.balance_cents < 0 ? 'text-bad' : ''}>{formatCents(a.balance_cents)}</span>
-                            <span className="space-x-2">{accountActions(a)}</span>
-                          </div>
-                        </div>
-                      ))}
-                    </td>
-                  </tr>
-                ) : (
-                  <tr key={row.account.id} className="cursor-pointer hover:bg-ink" onClick={() => editAccount(row.account)}>
-                    <td className="py-1">
-                      {row.account.name}
-                      {accountNotes(row.account)}
-                    </td>
-                    <td className="py-1">{row.account.type}</td>
-                    <td className="py-1">{row.account.on_budget ? 'On-budget' : 'Tracking'}</td>
-                    <td className={`py-1 text-right ${row.account.balance_cents < 0 ? 'text-bad' : ''}`}>
-                      {formatCents(row.account.balance_cents)}
-                    </td>
-                    <td className="py-1 text-right space-x-2">{accountActions(row.account)}</td>
-                  </tr>
-                ),
-              )}
-            </tbody>
-          </table>
+  const editForm = (
+    <form className="space-y-4" onSubmit={submit}>
+      {formError && <RefusalNote>{formError}</RefusalNote>}
+      {saved && <SaveNote>{saved}</SaveNote>}
+      <label className="block space-y-1">
+        <span className="field-label">Name</span>
+        <input
+          className="w-full field"
+          value={form.name}
+          disabled={saving}
+          onChange={(e) => updateField('name', e.target.value)}
+        />
+      </label>
+
+      <label className="block space-y-1">
+        <span className="field-label">Type</span>
+        <select className="w-full field" value={form.type} onChange={(e) => selectType(e.target.value)}>
+          <optgroup label="On-budget">
+            {ON_BUDGET_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </optgroup>
+          <optgroup label="Tracking">
+            {TRACKING_TYPES.map((t) => (
+              <option key={t} value={t}>{t}</option>
+            ))}
+          </optgroup>
+        </select>
+      </label>
+
+      <label className="flex items-start gap-2">
+        <input
+          type="checkbox"
+          className="mt-1"
+          checked={form.on_budget}
+          onChange={(e) => updateField('on_budget', e.target.checked)}
+        />
+        <span>On-budget (money here can be assigned to categories)</span>
+      </label>
+
+      {onBudget && (
+        <MoneyInput
+          label="On-budget floor"
+          value={form.on_budget_floor_cents}
+          onChange={(text) => updateField('on_budget_floor_cents', text)}
+        />
+      )}
+
+      <MoneyInput
+        label="Credit limit (blank if you don't know it; 0 for none)"
+        value={form.credit_limit_cents}
+        onChange={(text) => updateField('credit_limit_cents', text)}
+        placeholder="unknown"
+      />
+
+      <div className="space-y-2">
+        <button
+          type="button"
+          aria-expanded={termsOpen}
+          className="btn btn-quiet w-full justify-between px-0"
+          onClick={() => setTermsOpen((v) => !v)}
+        >
+          <span>Loan terms</span>
+          <span aria-hidden="true">{termsOpen ? '−' : '+'}</span>
+        </button>
+        <p className="text-sm text-text-3">{termsSummary}</p>
+        {termsOpen && (
+          <fieldset className="space-y-3 rounded-lg bg-raised p-3">
+            <legend className="px-1 text-sm text-text-2">Leave blank what you don&apos;t know</legend>
+            <TermText form={form} field="annual_rate" label="Annual rate (%)" onChange={updateField} decimal />
+            <TermSelect form={form} field="compounding_rule" label="Compounds" options={COMPOUNDING_RULES} onChange={updateField} />
+            <TermText form={form} field="statement_close_day" label="Statement closes on day (1–31)" onChange={updateField} />
+            <TermText form={form} field="grace_days" label="Grace days after the statement closes" onChange={updateField} />
+            <TermDate form={form} field="term_end" label="Term ends" onChange={updateField} />
+            <TermDate form={form} field="amortization_end" label="Amortization ends" onChange={updateField} />
+            <TermSelect form={form} field="prepayment_model" label="Prepayment" options={PREPAYMENT_MODELS} onChange={updateField} />
+            <TermDate form={form} field="promo_expiry_date" label="Promo ends" onChange={updateField} />
+            <TermText form={form} field="deferred_rate" label="Deferred rate (%)" onChange={updateField} decimal />
+            <TermText form={form} field="minimum_payment_rule" label="Minimum payment rule" onChange={updateField} />
+          </fieldset>
         )}
-      </section>
+      </div>
 
-      {archivingId && (
-        <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-          <h2 className="text-sm uppercase tracking-wide text-paper-soft">
-            Archive — {accounts?.find((a) => a.id === archivingId)?.name}
-          </h2>
-          <form className="space-y-3" onSubmit={submitArchive}>
-            <label className="block space-y-1">
-              <span className="text-sm">Archive on</span>
-              <input
-                type="date"
-                className="w-full rounded bg-ink px-2 py-1"
-                value={archiveDate}
-                disabled={archiveDone}
-                onChange={(e) => setArchiveDate(e.target.value)}
-              />
-            </label>
-            {archiveError && <p className="text-bad text-sm">{archiveError}</p>}
-            {archiveDone && (
-              <>
-                <p className="text-sm text-paper-soft">Archived on {formatDate(archiveDate)}.</p>
-                {archiveWarnings.map((w) => (
-                  <p key={w} className="text-sm text-bad">{w}</p>
-                ))}
-              </>
-            )}
-            <div className="flex gap-2">
-              {!archiveDone && (
-                <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
-                  Archive
-                </button>
-              )}
-              <button type="button" className="rounded bg-ink px-3 py-1.5 text-sm" onClick={resetArchive}>
-                Close
-              </button>
-            </div>
-          </form>
-        </section>
+      <label className="block space-y-1">
+        <span className="field-label">Locked to a payee (optional — a gift card or store credit only spends there)</span>
+        <PayeePicker
+          key={formKey}
+          payees={pickerPayees}
+          payeeId={form.locked_payee_id}
+          onSelect={(id) => updateField('locked_payee_id', id)}
+          onError={setFormError}
+        />
+      </label>
+
+      {categories && !onBudget && (
+        <NamePicker
+          key={boundaryKey}
+          label="Category money leaves the budget through (optional — a loan payment is recorded against it)"
+          items={categories.filter((c) => !c.archived_on)}
+          initialId={form.boundary_category_id}
+          onChange={(id) => updateField('boundary_category_id', id)}
+        />
       )}
 
-      {checkingId && (
-        <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-          <h2 className="text-sm uppercase tracking-wide text-paper-soft">
-            {VALUE_TYPES.includes(accounts.find((a) => a.id === checkingId)?.type) ? 'Update value' : 'Check balance'}
-            {' — '}
-            {accounts.find((a) => a.id === checkingId)?.name}
-          </h2>
-          <form className="space-y-3" onSubmit={submitCheck}>
-            <label className="block space-y-1">
-              <span className="text-sm">Date</span>
-              <input
-                type="date"
-                className="w-full rounded bg-ink px-2 py-1"
-                value={checkForm.date}
-                onChange={(e) => updateCheckField('date', e.target.value)}
-              />
-            </label>
+      {!editingId && (
+        <>
+          <MoneyInput
+            label="Opening balance"
+            value={form.opening_balance_cents}
+            onChange={(text) => updateField('opening_balance_cents', text)}
+          />
 
-            <label className="block space-y-1">
-              <span className="text-sm">Stated balance</span>
-              <input
-                inputMode="decimal"
-                className="w-full rounded bg-ink px-2 py-1"
-                value={checkForm.stated_balance_cents}
-                onChange={(e) => updateCheckField('stated_balance_cents', e.target.value)}
-                placeholder="0.00"
-              />
-            </label>
-
-            {splitLines.length > 0 && (
-              <div className="space-y-2">
-                <span className="text-sm">
-                  Split of the difference across the linked categories, by their balances — edit before saving.
-                </span>
-                {splitLines.map((line, i) => (
-                  <div key={line.category_id} className="flex gap-2">
-                    <span className="flex-1 px-2 py-1">
-                      {categories?.find((c) => c.id === line.category_id)?.name ?? `#${line.category_id}`}
-                    </span>
-                    <input
-                      inputMode="decimal"
-                      aria-label="Amount"
-                      className="w-28 rounded bg-ink px-2 py-1"
-                      value={line.cents}
-                      onChange={(e) => updateSplitLine(i, e.target.value)}
-                    />
-                  </div>
-                ))}
-                <p className="text-sm text-paper-soft">
-                  {formatCents(splitLines.reduce((sum, l) => sum + (parseCents(l.cents) ?? 0), 0))} split of a{' '}
-                  {formatCents(splitDiff)} difference. Clear every amount to pick one category instead.
-                </p>
-              </div>
-            )}
-
-            {!checkingIsTracking && (
-              <label className="block space-y-1">
-                <span className="text-sm">Category for the difference (optional — otherwise ready to assign)</span>
-                <select
-                  className="w-full rounded bg-ink px-2 py-1"
-                  value={checkForm.category_id}
-                  onChange={(e) => updateCheckField('category_id', e.target.value)}
-                >
-                  <option value="">Ready to assign</option>
-                  {categories?.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
-              </label>
-            )}
-
-            {checkError && <p className="text-bad text-sm">{checkError}</p>}
-            {checkResult && checkResult.diff_cents === 0 && (
-              <p className="text-sm text-paper-soft">That matches the ledger — balance checked {formatDate(checkResult.date)}, no adjustment needed.</p>
-            )}
-            {checkResult && checkResult.diff_cents !== 0 && (
-              <p className="text-sm text-paper-soft">
-                Adjustment of {formatCents(checkResult.diff_cents)} recorded
-                {checkingIsTracking
-                  ? ". This account is outside your budget, so ready to assign doesn't change."
-                  : checkResult.transaction.category_lines.length === 0
-                    ? ' to ready to assign.'
-                    : ` to ${checkResult.transaction.category_lines
-                        .map((l) => `${categories?.find((c) => c.id === l.category_id)?.name} ${formatCents(l.cents)}`)
-                        .join(', ')}.`}
-              </p>
-            )}
-
-            <div className="flex gap-2">
-              <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
-                Save
-              </button>
-              <button type="button" className="rounded bg-ink px-3 py-1.5 text-sm" onClick={resetCheck}>
-                Close
-              </button>
-            </div>
-          </form>
-        </section>
+          <label className="block space-y-1">
+            <span className="field-label">Opening balance date</span>
+            <input
+              type="date"
+              className="w-full field"
+              value={form.created_on}
+              onChange={(e) => updateField('created_on', e.target.value)}
+            />
+          </label>
+        </>
       )}
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <h2 className="text-sm uppercase tracking-wide text-paper-soft">
-          {editingId
-            ? `Edit account${accounts?.find((a) => a.id === editingId)?.name ? `: ${accounts.find((a) => a.id === editingId).name}` : ''}`
-            : 'Add an account'}
-        </h2>
-        <form className="space-y-3" onSubmit={submit}>
-          <label className="block space-y-1">
-            <span className="text-sm">Name</span>
-            <input
-              className="w-full rounded bg-ink px-2 py-1"
-              value={form.name}
-              disabled={saving}
-              onChange={(e) => updateField('name', e.target.value)}
-            />
-          </label>
+      {editingId && (
+        <p className="text-sm text-text-3">
+          Only transactions recorded after this change use the new type, side or floor —
+          nothing already recorded is touched.
+        </p>
+      )}
 
-          <label className="block space-y-1">
-            <span className="text-sm">Type</span>
-            <select
-              className="w-full rounded bg-ink px-2 py-1"
-              value={form.type}
-              onChange={(e) => selectType(e.target.value)}
-            >
-              <optgroup label="On-budget">
-                {ON_BUDGET_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </optgroup>
-              <optgroup label="Tracking">
-                {TRACKING_TYPES.map((t) => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </optgroup>
-            </select>
-          </label>
+      <div className="flex gap-3">
+        <Button type="submit" disabled={saving}>{editingId ? 'Save changes' : 'Add account'}</Button>
+        <Button variant="secondary" onClick={closePanel}>{editingId ? 'Cancel' : 'Done'}</Button>
+      </div>
+    </form>
+  )
 
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={form.on_budget}
-              onChange={(e) => updateField('on_budget', e.target.checked)}
-            />
-            <span className="text-sm">On-budget (money here can be assigned to categories)</span>
-          </label>
+  const checkingTitle = VALUE_TYPES.includes(selectedAccount?.type) ? 'Update value' : 'Check balance'
+  const checkPanel = (
+    <form className="space-y-4" onSubmit={submitCheck}>
+      <label className="block space-y-1">
+        <span className="field-label">Date</span>
+        <input
+          type="date"
+          className="w-full field"
+          value={checkForm.date}
+          onChange={(e) => updateCheckField('date', e.target.value)}
+        />
+      </label>
 
-          <label className="block space-y-1">
-            <span className="text-sm">On-budget floor</span>
-            <input
-              inputMode="decimal"
-              className="w-full rounded bg-ink px-2 py-1"
-              value={form.on_budget_floor_cents}
-              onChange={(e) => updateField('on_budget_floor_cents', e.target.value)}
-              placeholder="0.00"
-            />
-          </label>
+      <MoneyInput
+        label="Stated balance"
+        value={checkForm.stated_balance_cents}
+        onChange={(text) => updateCheckField('stated_balance_cents', text)}
+      />
 
-          <label className="block space-y-1">
-            <span className="text-sm">Credit limit (blank if you don't know it; 0 for none)</span>
-            <input
-              inputMode="decimal"
-              className="w-full rounded bg-ink px-2 py-1"
-              value={form.credit_limit_cents}
-              onChange={(e) => updateField('credit_limit_cents', e.target.value)}
-              placeholder="0.00"
-            />
-          </label>
+      {splitLines.length > 0 && (
+        <div className="space-y-2">
+          <span className="field-label">
+            Split of the difference across the linked categories, by their balances — edit before saving.
+          </span>
+          {splitLines.map((line, i) => (
+            <div key={line.category_id} className="flex items-center gap-2">
+              <span className="flex-1 px-2 py-1">
+                {categories?.find((c) => c.id === line.category_id)?.name ?? `#${line.category_id}`}
+              </span>
+              <MoneyInput aria-label="Amount" value={line.cents} onChange={(text) => updateSplitLine(i, text)} />
+            </div>
+          ))}
+          <p className="text-sm text-text-2">
+            {formatCents(splitLines.reduce((sum, l) => sum + (parseCents(l.cents) ?? 0), 0))} split of a{' '}
+            {formatCents(splitDiff)} difference. Clear every amount to pick one category instead.
+          </p>
+        </div>
+      )}
 
-          {termsOpen || DEBT_TYPES.includes(form.type) ? (
-            <fieldset className="space-y-3 rounded border border-ink p-3">
-              <legend className="px-1 text-sm">Lender's terms (leave blank what you don't know)</legend>
-              <TermText form={form} field="annual_rate" label="Annual rate (%)" onChange={updateField} decimal />
-              <TermSelect form={form} field="compounding_rule" label="Compounds" options={COMPOUNDING_RULES} onChange={updateField} />
-              <TermText form={form} field="statement_close_day" label="Statement closes on day (1–31)" onChange={updateField} />
-              <TermText form={form} field="grace_days" label="Grace days after the statement closes" onChange={updateField} />
-              <TermDate form={form} field="term_end" label="Term ends" onChange={updateField} />
-              <TermDate form={form} field="amortization_end" label="Amortization ends" onChange={updateField} />
-              <TermSelect form={form} field="prepayment_model" label="Prepayment" options={PREPAYMENT_MODELS} onChange={updateField} />
-              <TermDate form={form} field="promo_expiry_date" label="Promo ends" onChange={updateField} />
-              <TermText form={form} field="deferred_rate" label="Deferred rate (%)" onChange={updateField} decimal />
-              <TermText form={form} field="minimum_payment_rule" label="Minimum payment rule" onChange={updateField} />
-            </fieldset>
-          ) : (
-            <button type="button" className="text-sm text-accent" onClick={() => setTermsOpen(true)}>
-              Add lender's terms
-            </button>
+      {!checkingIsTracking && (
+        <label className="block space-y-1">
+          <span className="field-label">Category for the difference (optional — otherwise ready to assign)</span>
+          <select
+            className="w-full field"
+            value={checkForm.category_id}
+            onChange={(e) => updateCheckField('category_id', e.target.value)}
+          >
+            <option value="">Ready to assign</option>
+            {categories?.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </label>
+      )}
+
+      {checkError && <RefusalNote>{checkError}</RefusalNote>}
+      {checkResult && checkResult.diff_cents === 0 && (
+        <SaveNote>That matches the ledger — balance checked {formatDate(checkResult.date)}, no adjustment needed.</SaveNote>
+      )}
+      {checkResult && checkResult.diff_cents !== 0 && (
+        <SaveNote>
+          Adjustment of {formatCents(checkResult.diff_cents)} recorded
+          {checkingIsTracking
+            ? ". This account is outside your budget, so ready to assign doesn't change."
+            : checkResult.transaction.category_lines.length === 0
+              ? ' to ready to assign.'
+              : ` to ${checkResult.transaction.category_lines
+                  .map((l) => `${categories?.find((c) => c.id === l.category_id)?.name} ${formatCents(l.cents)}`)
+                  .join(', ')}.`}
+        </SaveNote>
+      )}
+
+      <div className="flex gap-3">
+        <Button type="submit">Save</Button>
+        <Button variant="secondary" onClick={closePanel}>Close</Button>
+      </div>
+    </form>
+  )
+
+  const archivePanel = (
+    <form className="space-y-4" onSubmit={submitArchive}>
+      <label className="block space-y-1">
+        <span className="field-label">Archive on</span>
+        <input
+          type="date"
+          className="w-full field"
+          value={archiveDate}
+          disabled={archiveDone}
+          onChange={(e) => setArchiveDate(e.target.value)}
+        />
+      </label>
+      {archiveError && <RefusalNote>{archiveError}</RefusalNote>}
+      {archiveDone && (
+        <>
+          <SaveNote>Archived on {formatDate(archiveDate)}.</SaveNote>
+          {archiveWarnings.map((w) => (
+            <WarningNote key={w}>{w}</WarningNote>
+          ))}
+        </>
+      )}
+      <div className="flex gap-3">
+        {!archiveDone && <Button type="submit">Archive</Button>}
+        <Button variant="secondary" onClick={closePanel}>Close</Button>
+      </div>
+    </form>
+  )
+
+  const panelTitle = adding
+    ? 'Add an account'
+    : editingId
+      ? `Edit · ${selectedAccount?.name ?? ''}`
+      : checkingId
+        ? `${checkingTitle} · ${selectedAccount?.name ?? ''}`
+        : `Archive · ${selectedAccount?.name ?? ''}`
+
+  const panel = panelOpen && (
+    <SidePanel title={panelTitle} onClose={closePanel} focusKey={focusKey}>
+      {adding || editingId ? editForm : checkingId ? checkPanel : archivePanel}
+    </SidePanel>
+  )
+
+  return (
+    <div className="space-y-6 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="page-title hidden md:block">Accounts</h2>
+        <Button className="ml-auto" onClick={startAdd}>Add an account</Button>
+      </div>
+
+      <PanelLayout panel={panel}>
+        <section className="card space-y-3">
+          {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
+          {undoError && <WarningNote>{undoError}</WarningNote>}
+          {rowError && <WarningNote>{rowError}</WarningNote>}
+          <label className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Show archived
+          </label>
+          {!error && !accounts && <LoadingRows />}
+          {accounts && accounts.length === 0 && (
+            <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add an account</Button>}>
+              No accounts yet.
+            </EmptyState>
           )}
-
-          <label className="block space-y-1">
-            <span className="text-sm">Locked to a payee (optional — a gift card or store credit only spends there)</span>
-            <PayeePicker
-              key={formKey}
-              payees={pickerPayees}
-              payeeId={form.locked_payee_id}
-              onSelect={(id) => updateField('locked_payee_id', id)}
-              onError={setFormError}
-            />
-          </label>
-
-          {categories && (
-            <NamePicker
-              key={boundaryKey}
-              label="Category money leaves the budget through (optional — a loan payment is recorded against it)"
-              items={categories.filter((c) => !c.archived_on)}
-              initialId={form.boundary_category_id}
-              onChange={(id) => updateField('boundary_category_id', id)}
-            />
+          {accounts && accounts.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Type</th>
+                    <th>Side</th>
+                    <th className="text-right">Balance</th>
+                    <th></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row) =>
+                    row.group ? (
+                      <tr key={`payee-${row.payeeId}`}>
+                        <td colSpan={5} className="py-1">
+                          <div className="text-sm text-text-3">
+                            Locked to {payeesAll?.find((p) => p.id === row.payeeId)?.name ?? `#${row.payeeId}`}
+                          </div>
+                          {row.group.map((a) => (
+                            <div
+                              key={a.id}
+                              className={`flex min-h-14 cursor-pointer flex-wrap items-center justify-between gap-2 hover:bg-raised md:min-h-11 ${selectedId === a.id ? 'bg-raised' : ''}`}
+                              onClick={() => editAccount(a)}
+                            >
+                              <div>
+                                {a.name}
+                                {accountNotes(a)}
+                              </div>
+                              <div className="flex items-center gap-3">
+                                <span className={`tabular ${a.balance_cents < 0 ? 'text-negative' : ''}`}>{formatCents(a.balance_cents)}</span>
+                                <span>{accountActions(a)}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </td>
+                      </tr>
+                    ) : (
+                      <tr
+                        key={row.account.id}
+                        className={`cursor-pointer hover:bg-raised ${selectedId === row.account.id ? 'bg-raised' : ''}`}
+                        onClick={() => editAccount(row.account)}
+                      >
+                        <td className="py-1">
+                          {row.account.name}
+                          {accountNotes(row.account)}
+                        </td>
+                        <td className="py-1">{row.account.type}</td>
+                        <td className="py-1">{row.account.on_budget ? 'On-budget' : 'Tracking'}</td>
+                        <td className={`tabular py-1 text-right ${row.account.balance_cents < 0 ? 'text-negative' : ''}`}>
+                          {formatCents(row.account.balance_cents)}
+                        </td>
+                        <td className="py-1 text-right">{accountActions(row.account)}</td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
           )}
-
-          {!editingId && (
-            <>
-              <label className="block space-y-1">
-                <span className="text-sm">Opening balance</span>
-                <input
-                  inputMode="decimal"
-                  className="w-full rounded bg-ink px-2 py-1"
-                  value={form.opening_balance_cents}
-                  onChange={(e) => updateField('opening_balance_cents', e.target.value)}
-                  placeholder="0.00"
-                />
-              </label>
-
-              <label className="block space-y-1">
-                <span className="text-sm">Opening balance date</span>
-                <input
-                  type="date"
-                  className="w-full rounded bg-ink px-2 py-1"
-                  value={form.created_on}
-                  onChange={(e) => updateField('created_on', e.target.value)}
-                />
-              </label>
-            </>
-          )}
-
-          {editingId && (
-            <p className="text-xs text-paper-soft">
-              Only transactions recorded after this change use the new type, side or floor —
-              nothing already recorded is touched.
-            </p>
-          )}
-
-          {formError && <p className="text-bad text-sm">{formError}</p>}
-
-          <div className="flex gap-2">
-            <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1.5 text-sm font-medium disabled:opacity-50">
-              {editingId ? 'Save changes' : 'Add account'}
-            </button>
-            {editingId && (
-              <button type="button" className="rounded bg-ink px-3 py-1.5 text-sm" onClick={resetForm}>
-                Cancel
-              </button>
-            )}
-          </div>
-        </form>
-      </section>
+        </section>
+      </PanelLayout>
     </div>
   )
 }

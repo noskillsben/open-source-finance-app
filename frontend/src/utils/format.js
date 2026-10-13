@@ -2,9 +2,16 @@
 const currency = new Intl.NumberFormat('en-CA', { style: 'currency', currency: 'CAD' })
 const date = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: 'short', day: 'numeric' })
 
-/** Integer cents → "$1,234.56". Money is cents everywhere until this line. */
+/** Integer cents → "$1,234.56", with a true minus sign for a negative ("−$12.00"). Money is cents
+ * everywhere until this line. */
 export function formatCents(cents) {
-  return currency.format((cents ?? 0) / 100)
+  return currency.format((cents ?? 0) / 100).replace('-', '−')
+}
+
+/** Integer cents → the text a money field is pre-filled with: "-1050.00", two decimals, no dollar
+ * sign or separators, a plain hyphen so the field's own text still parses through parseCents. */
+export function centsToFieldText(cents) {
+  return ((cents ?? 0) / 100).toFixed(2)
 }
 
 /** ISO date "2026-09-12" → "Sep 12, 2026". Parsed at noon UTC so no timezone shifts the day. */
@@ -16,7 +23,7 @@ export function formatDate(iso) {
 /** "$1,234.56" or "-12.3" → integer cents. Money inputs are text, never type="number"
  * (phone keypads have no minus key), so every money field parses through this. */
 export function parseCents(text) {
-  const cleaned = (text ?? '').replace(/[^0-9.-]/g, '')
+  const cleaned = (text ?? '').replace(/−/g, '-').replace(/[^0-9.-]/g, '')
   if (cleaned === '' || cleaned === '-') return null
   const dollars = Number(cleaned)
   if (Number.isNaN(dollars)) return null

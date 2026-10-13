@@ -1,6 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api } from './api.js'
+import Button from './components/Button.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import MoneyInput from './components/MoneyInput.jsx'
+import { RefusalNote, WarningNote } from './components/Notes.jsx'
 import NamePicker from './NamePicker.jsx'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 
@@ -50,20 +54,11 @@ function AmountRows({ rows, categories, onChange, addLabel }) {
               onChange={(id, text) => set(i, { category: { id, text } })}
             />
           </div>
-          <label className="block text-sm w-28">
-            <span className="text-paper-soft">Amount</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
-              value={r.amount}
-              onChange={(e) => set(i, { amount: e.target.value })}
-            />
-          </label>
-          <button type="button" className="text-xs text-accent pb-2" onClick={() => remove(i)}>Remove</button>
+          <MoneyInput label="Amount" className="w-28" value={r.amount} onChange={(text) => set(i, { amount: text })} />
+          <button type="button" className="btn btn-quiet" onClick={() => remove(i)}>Remove</button>
         </div>
       ))}
-      <button type="button" className="text-xs text-accent" onClick={() => onChange([...rows, emptyRow()])}>
+      <button type="button" className="btn btn-quiet" onClick={() => onChange([...rows, emptyRow()])}>
         {addLabel}
       </button>
     </div>
@@ -512,9 +507,9 @@ export default function PayRecord({ pickerDate }) {
     setShortCovers({ ...shortCovers, [row.categoryId]: centsText(already + cents) })
   }
 
-  if (error) return <p className="text-bad py-6">Could not reach the backend: {error}</p>
-  if (!streams || !payday) return <p className="py-6">Loading…</p>
-  if (!isOneOff && !stream) return <p className="text-bad py-6">No named pay with id {streamId}.</p>
+  if (error) return <WarningNote>Could not reach the backend: {error}</WarningNote>
+  if (!streams || !payday) return <LoadingRows />
+  if (!isOneOff && !stream) return <WarningNote>No named pay with id {streamId}.</WarningNote>
 
   // The header shows the last day of the period, so two periods never appear to share a day.
   const periodEnd = periodLoaded ? period.period_end : null
@@ -623,31 +618,32 @@ export default function PayRecord({ pickerDate }) {
   }
 
   return (
-    <form onSubmit={record} className="py-6 space-y-6">
+    <form onSubmit={record} className="space-y-6 py-4">
+      <Link to="/income" className="btn btn-quiet px-0">← Income</Link>
       {/* 1. Header */}
-      <div className="rounded-lg bg-ink-soft p-4 space-y-1">
+      <div className="card space-y-1">
         <div className="flex items-center justify-between">
-          <h2 className="text-xl font-semibold">{isOneOff ? 'One-off income' : stream.name}</h2>
+          <h2 className="page-title hidden md:block">{isOneOff ? 'One-off income' : stream.name}</h2>
           {!isOneOff && (
-            <span className="rounded bg-ink px-2 py-0.5 text-xs uppercase text-paper-soft">
+            <span className="pill">
               {existingTransaction ? 'recorded' : 'upcoming'}
             </span>
           )}
         </div>
-        <label className="block text-sm">
-          <span className="text-paper-soft">{isOneOff ? 'Date' : 'Payday'}</span>
+        <label className="block space-y-1">
+          <span className="field-label">{isOneOff ? 'Date' : 'Payday'}</span>
           <input
             type="date"
-            className="mt-1 rounded bg-ink px-2 py-1 disabled:opacity-50"
+            className="mt-1 field disabled:opacity-50"
             disabled={reopening}
             value={payday}
             onChange={(e) => setPayday(e.target.value)}
           />
         </label>
         {isOneOff ? (
-          <p className="text-sm text-paper-soft">{formatDate(payday)}</p>
+          <p className="text-sm text-text-2">{formatDate(payday)}</p>
         ) : (
-          <p className="text-sm text-paper-soft">{formatDate(payday)}{periodEnd && <> – {formatDate(periodEnd)}</>}</p>
+          <p className="text-sm text-text-2">{formatDate(payday)}{periodEnd && <> – {formatDate(periodEnd)}</>}</p>
         )}
         {isOneOff && (
           <div className="grid grid-cols-2 gap-3 pt-2">
@@ -667,76 +663,51 @@ export default function PayRecord({ pickerDate }) {
         )}
       </div>
 
-      {formError && <p className="text-bad">{formError}</p>}
+      {formError && <RefusalNote>{formError}</RefusalNote>}
 
       {/* 2. Income this period */}
-      <div className="rounded-lg bg-ink-soft p-4">
-        <p className="text-sm text-paper-soft">Income this period</p>
-        <p className="text-3xl font-semibold">{formatCents(net)}</p>
+      <div className="card">
+        <p className="text-sm text-text-2">Income this period</p>
+        <p className="tabular text-headline">{formatCents(net)}</p>
       </div>
 
       {/* 3. Gross to net */}
-      <fieldset className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <legend className="px-1 font-medium">Gross to net</legend>
-        <label className="flex items-center gap-2 text-sm">
+      <fieldset className="card space-y-3">
+        <legend className="px-1 text-section">Gross to net</legend>
+        <label className="flex min-h-11 items-center gap-2">
           <input type="checkbox" checked={deductionsOn} onChange={(e) => setDeductionsOn(e.target.checked)} />
           This paycheque has deductions
         </label>
         {deductionsOn ? (
           <>
-            <label className="block text-sm">
-              <span className="text-paper-soft">Gross — what the employer pays before deductions</span>
-              <input
-                type="text"
-                inputMode="decimal"
-                className="mt-1 w-full rounded bg-ink px-2 py-1"
-                value={gross}
-                onChange={(e) => setGross(e.target.value)}
-              />
-            </label>
+            <MoneyInput label="Gross — what the employer pays before deductions" value={gross} onChange={(text) => setGross(text)} />
             <AmountRows rows={deductions} categories={categories} onChange={setDeductions} addLabel="+ Add deduction" />
           </>
         ) : (
-          <label className="block text-sm">
-            <span className="text-paper-soft">Net</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              className="mt-1 w-full rounded bg-ink px-2 py-1"
-              value={netOnly}
-              onChange={(e) => setNetOnly(e.target.value)}
-            />
-          </label>
+          <MoneyInput label="Net" value={netOnly} onChange={(text) => setNetOnly(text)} />
         )}
-        <p className="text-sm text-paper-soft">Net: {formatCents(net)}</p>
+        <p className="text-sm text-text-2">Net: {formatCents(net)}</p>
       </fieldset>
 
       {/* 4. Retain income */}
       {retainGoals.length > 0 && (
-        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
-          <legend className="px-1 font-medium">Retain income</legend>
+        <fieldset className="card space-y-2">
+          <legend className="px-1 text-section">Retain income</legend>
           {sortByNeedIfShort(retainRows, categoriesById, leftover).map((r) => (
             <div key={r.goalId} className="flex items-center justify-between gap-2 text-sm">
               <div>
                 <span>{r.name}</span>
-                <span className="text-paper-soft"> · {categoriesById.get(r.categoryId)?.name} · {r.percent}% of net</span>
+                <span className="text-text-2"> · {categoriesById.get(r.categoryId)?.name} · {r.percent}% of net</span>
               </div>
               <div className="flex items-center gap-2">
                 {reopening ? (
-                  <input
-                    type="text"
-                    inputMode="decimal"
-                    aria-label={`${r.name} amount`}
-                    className="w-28 rounded bg-ink px-2 py-1"
-                    value={retainAmounts[r.goalId] ?? ''}
-                    onChange={(e) => setRetainAmounts({ ...retainAmounts, [r.goalId]: e.target.value })}
-                  />
+                  <MoneyInput aria-label={`${r.name} amount`} value={retainAmounts[r.goalId] ?? ''} onChange={(text) => setRetainAmounts({ ...retainAmounts, [r.goalId]: text })} />
                 ) : (
                   <span>{formatCents(r.cents)}</span>
                 )}
                 <button
                   type="button"
-                  className="text-xs text-accent"
+                  className="btn btn-quiet"
                   onClick={() => setRetainRemoved(new Set([...retainRemoved, r.goalId]))}
                 >
                   Remove
@@ -748,34 +719,26 @@ export default function PayRecord({ pickerDate }) {
       )}
 
       {/* 5. One-off this period */}
-      <fieldset className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <legend className="px-1 font-medium">One-off this period</legend>
-        <p className="text-sm text-paper-soft">Add anything that only applies this period.</p>
+      <fieldset className="card space-y-3">
+        <legend className="px-1 text-section">One-off this period</legend>
+        <p className="text-sm text-text-2">Add anything that only applies this period.</p>
         <AmountRows rows={oneOff} categories={categories} onChange={setOneOff} addLabel="+ Add a one-off" />
       </fieldset>
 
       {/* 6. Bills */}
       {billGoals.length > 0 && (
-        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
-          <legend className="px-1 font-medium">Bills</legend>
+        <fieldset className="card space-y-2">
+          <legend className="px-1 text-section">Bills</legend>
           {sortByNeedIfShort(billRows, categoriesById, leftover).map((r) => (
             <div key={r.goalId} className="flex items-end justify-between gap-2">
               <div className="text-sm">
                 <div>{r.name}</div>
-                <div className="text-paper-soft">
+                <div className="text-text-2">
                   {categoriesById.get(r.categoryId)?.name} · due {formatDate(r.dueDate)}
                   {r.expectedCents != null && <> · expected {formatCents(r.expectedCents)}</>}
                 </div>
               </div>
-              <label className="block text-sm w-28">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  className="mt-1 w-full rounded bg-ink px-2 py-1"
-                  value={billAmounts[r.goalId] ?? ''}
-                  onChange={(e) => setBillAmounts({ ...billAmounts, [r.goalId]: e.target.value })}
-                />
-              </label>
+              <MoneyInput className="w-28" value={billAmounts[r.goalId] ?? ''} onChange={(text) => setBillAmounts({ ...billAmounts, [r.goalId]: text })} />
             </div>
           ))}
         </fieldset>
@@ -783,8 +746,8 @@ export default function PayRecord({ pickerDate }) {
 
       {/* 7. Funding rules */}
       {fundingGoals.length > 0 && (
-        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
-          <legend className="px-1 font-medium">Funding rules</legend>
+        <fieldset className="card space-y-2">
+          <legend className="px-1 text-section">Funding rules</legend>
           {sortByNeedIfShort(
             fundingGoals.map((g) => ({
               goalId: g.goal.id,
@@ -813,7 +776,7 @@ export default function PayRecord({ pickerDate }) {
                 />
                 <span>
                   <div>{r.name}</div>
-                  <div className="text-paper-soft">
+                  <div className="text-text-2">
                     {categoriesById.get(r.categoryId)?.name} ·{' '}
                     {r.level
                       ? `${formatCents(r.shortfallCents)} short of ${formatCents(r.levelCents)} level`
@@ -821,16 +784,7 @@ export default function PayRecord({ pickerDate }) {
                   </div>
                 </span>
               </label>
-              <label className="block text-sm w-28">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  disabled={fundingSkipped.has(r.goalId)}
-                  className="mt-1 w-full rounded bg-ink px-2 py-1 disabled:opacity-50"
-                  value={fundingAmounts[r.goalId] ?? ''}
-                  onChange={(e) => setFundingAmounts({ ...fundingAmounts, [r.goalId]: e.target.value })}
-                />
-              </label>
+              <MoneyInput className="w-28" disabled={fundingSkipped.has(r.goalId)} value={fundingAmounts[r.goalId] ?? ''} onChange={(text) => setFundingAmounts({ ...fundingAmounts, [r.goalId]: text })} />
             </div>
           ))}
         </fieldset>
@@ -838,64 +792,47 @@ export default function PayRecord({ pickerDate }) {
 
       {/* 8. Goal set-asides */}
       {targetGoals.length > 0 && (
-        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
-          <legend className="px-1 font-medium">Goal set-asides</legend>
+        <fieldset className="card space-y-2">
+          <legend className="px-1 text-section">Goal set-asides</legend>
           {sortByNeedIfShort(targetRows, categoriesById, leftover).map((r) => (
             <div key={r.goalId} className="flex items-end justify-between gap-2">
               <div className="text-sm">
                 <div>{r.name}</div>
-                <div className="text-paper-soft">
+                <div className="text-text-2">
                   {categoriesById.get(r.categoryId)?.name} ·{' '}
                   {r.targetCents != null && <>{formatCents(r.balanceCents)} of {formatCents(r.targetCents)} saved · </>}
                   due {formatDate(r.dueDate)}
                 </div>
               </div>
-              <label className="block text-sm w-28">
-                <input
-                  type="text"
-                  inputMode="decimal"
-                  className="mt-1 w-full rounded bg-ink px-2 py-1"
-                  value={targetAmounts[r.goalId] ?? ''}
-                  onChange={(e) => setTargetAmounts({ ...targetAmounts, [r.goalId]: e.target.value })}
-                />
-              </label>
+              <MoneyInput className="w-28" value={targetAmounts[r.goalId] ?? ''} onChange={(text) => setTargetAmounts({ ...targetAmounts, [r.goalId]: text })} />
             </div>
           ))}
         </fieldset>
       )}
 
       {/* 9. Everything else */}
-      <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
-        <legend className="px-1 font-medium">Everything else</legend>
+      <fieldset className="card space-y-2">
+        <legend className="px-1 text-section">Everything else</legend>
         {goalsLoaded && everythingElseList.length === 0 && archivedRows.length === 0 && (
-          <p className="text-sm text-paper-soft">No other categories.</p>
+          <p className="text-sm text-text-2">No other categories.</p>
         )}
         {everythingElseList.map((c) => (
           <div key={c.id} className="flex items-end gap-2">
             <div className="flex-1 text-sm">
               <span>{c.name}</span>
               {lastPeriodActuals[c.id] > 0 && (
-                <span className="text-paper-soft">
+                <span className="text-text-2">
                   {' '}· {isOneOff ? 'last month' : 'last period'} {formatCents(lastPeriodActuals[c.id])}
                 </span>
               )}
               {goalByCategoryId.has(c.id) && (
-                <span className="text-paper-soft">
+                <span className="text-text-2">
                   {' '}· {goalByCategoryId.get(c.id).goal.name}
                   {goalByCategoryId.get(c.id).due_date && <> · due {formatDate(goalByCategoryId.get(c.id).due_date)}</>}
                 </span>
               )}
             </div>
-            <label className="block text-sm w-28">
-              <input
-                type="text"
-                inputMode="decimal"
-                placeholder={lastPeriodActuals[c.id] > 0 ? (lastPeriodActuals[c.id] / 100).toFixed(2) : ''}
-                className="mt-1 w-full rounded bg-ink px-2 py-1"
-                value={everythingElse[c.id] ?? ''}
-                onChange={(e) => setEverythingElse({ ...everythingElse, [c.id]: e.target.value })}
-              />
-            </label>
+            <MoneyInput className="w-28" placeholder={lastPeriodActuals[c.id] > 0 ? (lastPeriodActuals[c.id] / 100).toFixed(2) : ''} value={everythingElse[c.id] ?? ''} onChange={(text) => setEverythingElse({ ...everythingElse, [c.id]: text })} />
           </div>
         ))}
         {archivedRows.map((r) => (
@@ -903,41 +840,34 @@ export default function PayRecord({ pickerDate }) {
             <div className="flex-1">
               <span>{categoriesAllById.get(r.categoryId)?.name ?? `#${r.categoryId}`} (archived)</span>
             </div>
-            <span className="w-28 px-2 py-1 text-paper-soft">{formatCents(r.cents)}</span>
+            <span className="w-28 px-2 py-1 text-text-2">{formatCents(r.cents)}</span>
           </div>
         ))}
       </fieldset>
 
       {/* 10. Short by */}
       {(leftover < 0 || coverRows.length > 0) && (
-        <fieldset className="rounded-lg bg-ink-soft p-4 space-y-2">
-          <legend className="px-1 font-medium">Short by</legend>
+        <fieldset className="card space-y-2">
+          <legend className="px-1 text-section">Short by</legend>
           {coverRows.map((r) => (
             <div key={r.categoryId} className="flex items-end gap-2 text-sm">
               <div className="flex-1">
                 <span>{categoriesById.get(r.categoryId)?.name}</span>
-                <span className="text-paper-soft"> · covered from this</span>
+                <span className="text-text-2"> · covered from this</span>
               </div>
-              <input
-                type="text"
-                inputMode="decimal"
-                aria-label={`${categoriesById.get(r.categoryId)?.name} covered`}
-                className="w-28 rounded bg-ink px-2 py-1"
-                value={shortCovers[r.categoryId] ?? ''}
-                onChange={(e) => setShortCovers({ ...shortCovers, [r.categoryId]: e.target.value })}
-              />
+              <MoneyInput aria-label={`${categoriesById.get(r.categoryId)?.name} covered`} value={shortCovers[r.categoryId] ?? ''} onChange={(text) => setShortCovers({ ...shortCovers, [r.categoryId]: text })} />
             </div>
           ))}
           {leftover < 0 && (shortByRows.length === 0 ? (
-            <p className="text-sm text-paper-soft">No other category has money to cover this from.</p>
+            <p className="text-sm text-text-2">No other category has money to cover this from.</p>
           ) : (
             shortByRows.map((r) => (
               <div key={r.categoryId} className="flex items-center justify-between gap-2 text-sm">
                 <div>
                   <span>{r.name}</span>
-                  <span className="text-paper-soft"> · {formatCents(r.availableCents)} available</span>
+                  <span className="text-text-2"> · {formatCents(r.availableCents)} available</span>
                 </div>
-                <button type="button" className="text-xs text-accent" onClick={() => coverFrom(r)}>
+                <button type="button" className="btn btn-quiet" onClick={() => coverFrom(r)}>
                   Cover from this
                 </button>
               </div>
@@ -947,22 +877,18 @@ export default function PayRecord({ pickerDate }) {
       )}
 
       {/* 11. Left over */}
-      <div className="rounded-lg bg-ink-soft p-4 space-y-3">
+      <div className="card space-y-3">
         <div className="flex items-center justify-between">
-          <span className="text-paper-soft">Left over</span>
-          <span className={`text-2xl font-semibold ${leftover < 0 ? 'text-bad' : ''}`}>{formatCents(leftover)}</span>
+          <span className="text-text-2">Left over</span>
+          <span className={`tabular text-section ${leftover < 0 ? 'text-negative' : ''}`}>{formatCents(leftover)}</span>
         </div>
-        {leftover < 0 && <p className="text-sm text-bad">Assigned more than this paycheque brings in.</p>}
-        <button
-          type="submit"
-          disabled={saving || !periodLoaded || (reopening && !reopenReady)}
-          className="rounded bg-accent px-3 py-1 text-ink"
-        >
+        {leftover < 0 && <RefusalNote>Assigned more than this paycheque brings in.</RefusalNote>}
+        <Button type="submit" disabled={saving || !periodLoaded || (reopening && !reopenReady)}>
           Record
-        </button>
+        </Button>
         {existingTransaction && (
-          <div className="pt-3 border-t border-ink space-y-2">
-            <label className="flex items-center gap-2 text-sm">
+          <div className="pt-3 border-t border-line space-y-2">
+            <label className="flex min-h-11 items-center gap-2">
               <input
                 type="checkbox"
                 checked={removeBatchOnDelete}
@@ -970,9 +896,7 @@ export default function PayRecord({ pickerDate }) {
               />
               Also remove the money moves this pay assigned
             </label>
-            <button type="button" className="text-sm text-bad" onClick={deleteThisPay}>
-              Delete this pay
-            </button>
+            <Button variant="destructive" onClick={deleteThisPay}>Delete this pay</Button>
           </div>
         )}
       </div>

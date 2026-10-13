@@ -2,6 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from './api.js'
 import LedgerTable, { useLedgerNames } from './LedgerTable.jsx'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
 import { formatCents, formatDate, formatPercent, parsePercent } from './utils/format.js'
@@ -23,6 +28,9 @@ export default function Splits({ pickerDate }) {
   const [members, setMembers] = useState([])
   const [saving, setSaving] = useState(false)
   const [formKey, setFormKey] = useState(0)
+  const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
+  const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
+  const [saved, setSaved] = useState(null) // the save note after an add
   const nextKey = useRef(1)
   const navigate = useNavigate()
   const names = useLedgerNames(pickerDate)
@@ -64,7 +72,25 @@ export default function Splits({ pickerDate }) {
     setFormKey((k) => k + 1)
   }
 
+  function startAdd() {
+    reset()
+    setPanelOpen(true)
+    setSaved(null)
+    setError(null)
+    setWarnings([])
+    setFocusKey((k) => k + 1)
+  }
+
+  function closePanel() {
+    reset()
+    setPanelOpen(false)
+    setSaved(null)
+  }
+
   function startEdit(split) {
+    setPanelOpen(true)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
     setEditing(split)
     setName(split.name)
     setDescription(split.description ?? '')
@@ -103,17 +129,21 @@ export default function Splits({ pickerDate }) {
     setSaving(true)
     try {
       if (editing) {
-        const saved = await api.splits.update(editing.id, { name: name.trim(), description: description.trim() || null, as_of: pickerDate, members: body })
-        setWarnings(saved.warnings ?? [])
+        const result = await api.splits.update(editing.id, { name: name.trim(), description: description.trim() || null, as_of: pickerDate, members: body })
+        setWarnings(result.warnings ?? [])
+        closePanel()
       } else {
         await api.splits.create({ name: name.trim(), description: description.trim() || null, created_on: pickerDate, members: body })
+        const added = name.trim()
+        reset()
+        setSaved(`Added ${added}.`)
       }
-      reset()
       refresh()
     } catch (err) {
       setError(err.message)
     } finally {
       setSaving(false)
+      setFocusKey((k) => k + 1)
     }
   }
 
@@ -123,7 +153,7 @@ export default function Splits({ pickerDate }) {
     try {
       if (split.archived_on) await api.splits.unarchive(split.id)
       else setWarnings((await api.splits.archive(split.id, pickerDate)).warnings)
-      if (editing?.id === split.id) reset()
+      if (editing?.id === split.id) closePanel()
       refresh()
     } catch (err) {
       setError(err.message)
@@ -132,34 +162,25 @@ export default function Splits({ pickerDate }) {
 
   const accountItems = accounts.map((a) => ({ id: a.id, name: a.name }))
 
-  return (
-    <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Split expenses</h2>
-
-      <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <p className="text-sm text-paper-soft">
-          A split shares costs with other people — a roommate, a partner. List the others and their percentages;
-          you are never a member, your share is whatever they leave.
-        </p>
-        {error && <p className="text-bad">{error}</p>}
-        {warnings.map((w) => (
-          <p key={w} className="text-sm text-bad">{w}</p>
-        ))}
-        <form key={formKey} onSubmit={submit} className="space-y-3">
-          <label className="block text-sm">
-            <span className="text-paper-soft">{editing ? `Edit ${editing.name}` : 'Split name'}</span>
-            <input className="mt-1 w-full rounded bg-ink px-2 py-1" value={name} disabled={saving} onChange={(e) => setName(e.target.value)} />
+  const formPanel = panelOpen && (
+    <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a split'} onClose={closePanel} focusKey={focusKey}>
+        <form key={formKey} onSubmit={submit} className="space-y-4">
+          {saved && <SaveNote>{saved}</SaveNote>}
+          {error && <RefusalNote>{error}</RefusalNote>}
+          <label className="block space-y-1">
+            <span className="field-label">Split name</span>
+            <input className="w-full field" value={name} disabled={saving} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label className="block text-sm">
-            <span className="text-paper-soft">Description (optional)</span>
-            <input className="mt-1 w-full rounded bg-ink px-2 py-1" value={description} onChange={(e) => setDescription(e.target.value)} />
+          <label className="block space-y-1">
+            <span className="field-label">Description (optional)</span>
+            <input className="w-full field" value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
 
           <div className="space-y-2">
             {members.map((m) => (
-              <div key={m.key} className="rounded bg-ink p-2 space-y-2">
-                <div className="text-sm">
-                  <span className="text-paper-soft">Person</span>
+              <div key={m.key} className="rounded-lg bg-raised p-3 space-y-2">
+                <div className="space-y-1">
+                  <span className="field-label">Person</span>
                   <PayeePicker
                     payees={payees}
                     payeeId={m.payeeId}
@@ -180,89 +201,105 @@ export default function Splits({ pickerDate }) {
                   placeholder="Their balance account"
                 />
                 <div className="flex items-end gap-3">
-                  <label className="block text-sm">
-                    <span className="text-paper-soft">Percent</span>
+                  <label className="block space-y-1">
+                    <span className="field-label">Percent</span>
                     <input
-                      className="mt-1 w-28 rounded bg-ink-soft px-2 py-1"
+                      className="w-28 field"
                       inputMode="decimal"
                       value={m.percent}
                       onChange={(e) => changeMember(m.key, { percent: e.target.value })}
                     />
                   </label>
-                  <button type="button" className="text-xs text-accent" onClick={() => setMembers((all) => all.filter((x) => x.key !== m.key))}>
+                  <Button variant="quiet" onClick={() => setMembers((all) => all.filter((x) => x.key !== m.key))}>
                     Remove
-                  </button>
+                  </Button>
                 </div>
               </div>
             ))}
-            <button type="button" className="text-sm text-accent" onClick={() => setMembers((all) => [...all, newMember()])}>
+            <Button variant="quiet" onClick={() => setMembers((all) => [...all, newMember()])}>
               + Add a person
-            </button>
+            </Button>
           </div>
 
-          <p className={`text-sm ${over ? 'text-bad' : ''}`} aria-live="polite">
-            {over
-              ? `The members add up to ${formatPercent(total)}, more than 100%. This won't save.`
-              : `Your share: ${formatPercent(HUNDRED - total)}`}
-          </p>
+          {over ? (
+            <RefusalNote aria-live="polite">{`The members add up to ${formatPercent(total)}, more than 100%. This won't save.`}</RefusalNote>
+          ) : (
+            <p className="text-text-2" aria-live="polite">{`Your share: ${formatPercent(HUNDRED - total)}`}</p>
+          )}
           <div className="flex gap-3">
-            <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink disabled:opacity-50">
-              {editing ? 'Save' : 'Add split'}
-            </button>
-            {editing && (
-              <button type="button" className="text-sm text-accent" onClick={reset}>Cancel</button>
-            )}
+            <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add split'}</Button>
+            <Button variant="secondary" onClick={closePanel}>{editing ? 'Cancel' : 'Done'}</Button>
           </div>
         </form>
-      </section>
+    </SidePanel>
+  )
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        <label className="flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-          Show archived
-        </label>
-        {!splits && !error && <p>Loading…</p>}
-        {splits && splits.length === 0 && <p className="text-paper-soft">No splits yet.</p>}
-        {splits && splits.length > 0 && (
-          <ul className="space-y-3">
-            {splits.map((s) => (
-              <li key={s.id} className="text-sm">
-                <div className="flex items-start justify-between gap-3">
-                  <span className="font-medium">
-                    {s.name}
-                    {s.description && <span className="font-normal text-paper-soft"> — {s.description}</span>}
-                    {s.archived_on && <span className="block text-xs font-normal text-paper-soft">archived {formatDate(s.archived_on)}</span>}
-                  </span>
-                  <span className="space-x-3 whitespace-nowrap">
-                    {!s.archived_on && (
-                      <button type="button" className="text-xs text-accent" onClick={() => startEdit(s)}>Edit</button>
-                    )}
-                    <button type="button" className="text-xs text-accent" onClick={() => toggleArchive(s)}>
-                      {s.archived_on ? 'Unarchive' : 'Archive'}
-                    </button>
-                  </span>
-                </div>
-                <ul className="mt-1 space-y-0.5 text-paper-soft">
-                  {s.members.map((m) => (
-                    <li key={m.id}>
-                      {m.payee_name} — {formatPercent(parsePercent(m.percent))}
-                      {!s.archived_on && balances[m.account_id] && (
-                        <MemberBalance
-                          member={m}
-                          balance={balances[m.account_id]}
-                          names={names}
-                          onSettle={() => settleUp(m, balances[m.account_id])}
-                        />
-                      )}
-                    </li>
-                  ))}
-                  <li>You — {formatPercent(parsePercent(s.my_share_percent))}</li>
-                </ul>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+  return (
+    <div className="space-y-6 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="page-title hidden md:block">Split expenses</h2>
+        <Button className="ml-auto" onClick={startAdd}>Add a split</Button>
+      </div>
+
+      <PanelLayout panel={formPanel}>
+        <section className="card space-y-3">
+          <p className="max-w-prose text-text-2">
+            A split shares costs with other people — a roommate, a partner. List the others and their percentages;
+            you are never a member, your share is whatever they leave.
+          </p>
+          {!panelOpen && error && <WarningNote>{error}</WarningNote>}
+          {warnings.map((w) => (
+            <WarningNote key={w}>{w}</WarningNote>
+          ))}
+          <label className="flex min-h-11 items-center gap-2">
+            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+            Show archived
+          </label>
+          {!splits && !error && <LoadingRows />}
+          {splits && splits.length === 0 && (
+            <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add a split</Button>}>
+              No splits yet.
+            </EmptyState>
+          )}
+          {splits && splits.length > 0 && (
+            <ul className="space-y-3">
+              {splits.map((s) => (
+                <li key={s.id} className={`rounded-lg px-2 py-1 ${editing?.id === s.id ? 'bg-raised' : ''}`}>
+                  <div className="flex items-start justify-between gap-3">
+                    <span className="font-medium">
+                      {s.name}
+                      {s.description && <span className="font-normal text-text-2"> — {s.description}</span>}
+                      {s.archived_on && <span className="block text-sm font-normal text-text-3">archived {formatDate(s.archived_on)}</span>}
+                    </span>
+                    <span className="whitespace-nowrap">
+                      {!s.archived_on && <Button variant="quiet" onClick={() => startEdit(s)}>Edit</Button>}
+                      <Button variant="quiet" onClick={() => toggleArchive(s)}>
+                        {s.archived_on ? 'Unarchive' : 'Archive'}
+                      </Button>
+                    </span>
+                  </div>
+                  <ul className="mt-1 space-y-0.5 text-text-2">
+                    {s.members.map((m) => (
+                      <li key={m.id}>
+                        {m.payee_name} — {formatPercent(parsePercent(m.percent))}
+                        {!s.archived_on && balances[m.account_id] && (
+                          <MemberBalance
+                            member={m}
+                            balance={balances[m.account_id]}
+                            names={names}
+                            onSettle={() => settleUp(m, balances[m.account_id])}
+                          />
+                        )}
+                      </li>
+                    ))}
+                    <li>You — {formatPercent(parsePercent(s.my_share_percent))}</li>
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
+      </PanelLayout>
     </div>
   )
 }
@@ -275,11 +312,11 @@ function MemberBalance({ member, balance, names, onSettle }) {
     : cents < 0 ? `You owe ${member.payee_name} ${formatCents(-cents)}`
     : 'Settled up'
   return (
-    <div className="mt-1 space-y-2 text-paper">
+    <div className="mt-1 space-y-2 text-text">
       <div className="flex items-center gap-3">
         <span>{text}</span>
         {cents !== 0 && (
-          <button type="button" className="text-xs text-accent" onClick={onSettle}>Settle up</button>
+          <Button variant="quiet" onClick={onSettle}>Settle up</Button>
         )}
       </div>
       {balance.transactions.length > 0 && (

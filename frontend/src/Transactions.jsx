@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
-import { formatCents, formatDate, parseCents } from './utils/format.js'
+import { centsToFieldText, formatCents, formatDate, parseCents } from './utils/format.js'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import MoneyInput from './components/MoneyInput.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import LedgerTable from './LedgerTable.jsx'
 import PayeePicker from './PayeePicker.jsx'
 import { basisFromSplit, basisFromTransaction, linesFromBasis, receiptsForTotal, scaleBasis, spreadCents } from './sharedBill.js'
@@ -67,6 +72,9 @@ export default function Transactions({ pickerDate }) {
   const ownPicks = useRef({ account_id: '', category_id: '' })
   const [newCategoryName, setNewCategoryName] = useState('')
   const [formError, setFormError] = useState(null)
+  const [savedNote, setSavedNote] = useState(null)
+  const formRef = useRef(null)
+  const dateRef = useRef(null)
   const [editingId, setEditingId] = useState(null)
   const [predatesCheckNotes, setPredatesCheckNotes] = useState([])
   // Delete confirmation, opened in place of window.confirm (DESIGN.md § Earmarks): null when
@@ -100,13 +108,22 @@ export default function Transactions({ pickerDate }) {
     if (editingId == null) setDate(pickerDate)
   }, [pickerDate])
 
+  // The shell's + Add transaction lands here: bring the form into view with the first field ready.
+  const addTransaction = location.state?.addTransaction
+  useEffect(() => {
+    if (!addTransaction) return
+    navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
+    formRef.current?.scrollIntoView?.({ block: 'start' })
+    dateRef.current?.focus()
+  }, [addTransaction])
+
   // "Record" on a bill's row on Categories lands here with the bill, its due date and its expected
   // amount in route state (DESIGN.md § Paying a bill): the form opens pre-filled and already linked,
   // with the payee and account of the bill's last linked payment. The user still saves it.
   const recordBill = location.state?.recordBill
   useEffect(() => {
     if (!recordBill) return
-    const cents = recordBill.amount_cents == null ? '' : String(-recordBill.amount_cents / 100)
+    const cents = recordBill.amount_cents == null ? '' : centsToFieldText(-recordBill.amount_cents)
     setDate(pickerDate)
     setCategoryLines([{ category_id: String(recordBill.category_id), cents }])
     setAccountLines([{ account_id: '', cents }])
@@ -597,63 +614,74 @@ export default function Transactions({ pickerDate }) {
         ? await api.transactions.update(editingId, body)
         : await api.transactions.create(body)
       setPredatesCheckNotes(saved.notes || [])
+      const wasAdd = !editingId
       resetForm()
+      // After a save in an add form, focus returns to the first field, ready for the next entry.
+      setSavedNote(wasAdd ? 'Recorded.' : null)
+      if (wasAdd) dateRef.current?.focus()
       refresh()
     } catch (err) {
       setFormError(err.message)
     }
   }
 
-  return (
-    <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Transactions</h2>
+  // Names and dates, never ids: "Edit · Loblaws, Oct 3".
+  const editedTx = editingId ? transactions?.find((t) => t.id === editingId) : null
+  const editedWho = editedTx && ((editedTx.payee_id != null && payeesAll?.find((p) => p.id === editedTx.payee_id)?.name) || editedTx.memo)
+  const editedLabel = [editedWho, editedTx && formatDate(editedTx.date)].filter(Boolean).join(', ')
+  const formTitle = editingId ? (editedLabel ? `Edit · ${editedLabel}` : 'Edit transaction') : 'Record a transaction'
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        {error && <p className="text-bad">Could not reach the backend: {error}</p>}
-        {!error && !transactions && <p>Loading…</p>}
-        {transactions && transactions.length === 0 && <p className="text-paper-soft">No transactions yet.</p>}
+  return (
+    <div className="space-y-6 py-4">
+      <h2 className="page-title hidden md:block">Transactions</h2>
+
+      <section className="card space-y-3">
+        {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
+        {!error && !transactions && <LoadingRows />}
+        {transactions && transactions.length === 0 && (
+          <EmptyState>No transactions yet. Record the first one below.</EmptyState>
+        )}
         {transactions && transactions.length > 0 && (
-          <LedgerTable
-            transactions={transactions}
-            names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
-            onSelect={editTransaction}
-          />
+          <div className="overflow-x-auto">
+            <LedgerTable
+              transactions={transactions}
+              names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
+              onSelect={editTransaction}
+              selectedId={editingId}
+            />
+          </div>
         )}
       </section>
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <h2 className="text-sm uppercase tracking-wide text-paper-soft">
-          {editingId ? `Edit transaction #${editingId}` : 'Record a transaction'}
-        </h2>
-        {predatesCheckNotes.length > 0 && (
-          <div className="rounded bg-ink p-2 text-sm text-paper-soft space-y-1">
-            {predatesCheckNotes.map((note, i) => (
-              <p key={i}>{note}</p>
-            ))}
-          </div>
-        )}
-        <form className="space-y-3" onSubmit={submit}>
+      <section ref={formRef} className="card space-y-4">
+        <h2 className="text-section">{formTitle}</h2>
+        {savedNote && <SaveNote>{savedNote}</SaveNote>}
+        {predatesCheckNotes.map((note, i) => (
+          <WarningNote key={i}>{note}</WarningNote>
+        ))}
+        <form className="space-y-4" onSubmit={submit}>
           <label className="block space-y-1">
-            <span className="text-sm">Date</span>
+            <span className="field-label">Date</span>
             <input
+              ref={dateRef}
               type="date"
-              className="w-full rounded bg-ink px-2 py-1"
+              className="w-full field"
               value={date}
               onChange={(e) => setDate(e.target.value)}
             />
           </label>
 
           <label className="block space-y-1">
-            <span className="text-sm">Memo</span>
+            <span className="field-label">Memo</span>
             <input
-              className="w-full rounded bg-ink px-2 py-1"
+              className="w-full field"
               value={memo}
               onChange={(e) => setMemo(e.target.value)}
             />
           </label>
 
           <label className="block space-y-1">
-            <span className="text-sm">Payee (who it went to or came from — optional)</span>
+            <span className="field-label">Payee (who it went to or came from — optional)</span>
             <PayeePicker
               key={formKey}
               payees={payees}
@@ -666,9 +694,9 @@ export default function Transactions({ pickerDate }) {
 
           <div className="space-y-2">
             <label className="block space-y-1">
-              <span className="text-sm">Split (a shared bill — optional)</span>
+              <span className="field-label">Split (a shared bill — optional)</span>
               <select
-                className="w-full rounded bg-ink px-2 py-1"
+                className="w-full field"
                 aria-label="Split"
                 value={splitId}
                 onChange={(e) => chooseSplit(e.target.value)}
@@ -683,22 +711,16 @@ export default function Transactions({ pickerDate }) {
             </label>
             {chosenSplit && (
               <div className="flex flex-wrap gap-2">
+                <MoneyInput
+                  label="Bill total"
+                  value={billTotal}
+                  readOnly={totalLocked}
+                  onChange={(text) => changeBillTotal(text)}
+                />
                 <label className="space-y-1">
-                  <span className="text-sm">Bill total</span>
-                  <input
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    aria-label="Bill total"
-                    className="block w-28 rounded bg-ink px-2 py-1"
-                    value={billTotal}
-                    readOnly={totalLocked}
-                    onChange={(e) => changeBillTotal(e.target.value)}
-                  />
-                </label>
-                <label className="space-y-1">
-                  <span className="text-sm">Paid by</span>
+                  <span className="field-label">Paid by</span>
                   <select
-                    className="block rounded bg-ink px-2 py-1"
+                    className="block field"
                     aria-label="Paid by"
                     value={paidById ?? ''}
                     onChange={(e) => changePaidBy(Number(e.target.value))}
@@ -710,11 +732,11 @@ export default function Transactions({ pickerDate }) {
                   </select>
                 </label>
                 {totalLocked && (
-                  <p className="basis-full text-xs text-paper-soft">
+                  <p className="basis-full text-sm text-text-3">
                     This bill no longer matches its split, so change the amounts below by hand.
                   </p>
                 )}
-                <p className="basis-full text-xs text-paper-soft">
+                <p className="basis-full text-sm text-text-3">
                   Only your share is spending. Every amount below can still be changed before you save.
                 </p>
               </div>
@@ -722,11 +744,11 @@ export default function Transactions({ pickerDate }) {
           </div>
 
           <div className="space-y-2">
-            <span className="text-sm">Account lines (which accounts this touched)</span>
+            <span className="field-label">Account lines (which accounts this touched)</span>
             {accountLines.map((line, i) => (
-              <div key={i} className="flex gap-2">
+              <div key={i} className="flex flex-wrap items-center gap-2">
                 <select
-                  className="flex-1 rounded bg-ink px-2 py-1"
+                  className="field min-w-40 flex-1"
                   value={line.account_id}
                   onChange={(e) => updateAccountLine(i, 'account_id', e.target.value)}
                 >
@@ -735,18 +757,12 @@ export default function Transactions({ pickerDate }) {
                     <option key={a.id} value={a.id}>{a.name}</option>
                   ))}
                 </select>
-                <input
-                  inputMode="decimal"
-                  placeholder="0.00"
-                  className="w-28 rounded bg-ink px-2 py-1"
-                  value={line.cents}
-                  onChange={(e) => updateAccountLine(i, 'cents', e.target.value)}
-                />
+                <MoneyInput signed value={line.cents} onChange={(text) => updateAccountLine(i, 'cents', text)} />
               </div>
             ))}
             <button
               type="button"
-              className="text-sm text-accent"
+              className="btn btn-quiet"
               onClick={() => setAccountLines((lines) => [...lines, { ...emptyLine }])}
             >
               + add account line
@@ -754,11 +770,11 @@ export default function Transactions({ pickerDate }) {
           </div>
 
           <div className="space-y-2">
-            <span className="text-sm">Category lines (what it was for — leave empty for unassigned)</span>
+            <span className="field-label">Category lines (what it was for — leave empty for unassigned)</span>
             {categoryLines.map((line, i) => (
-              <div key={i} className="flex gap-2">
+              <div key={i} className="flex flex-wrap items-center gap-2">
                 <select
-                  className="flex-1 rounded bg-ink px-2 py-1"
+                  className="field min-w-40 flex-1"
                   value={line.category_id}
                   onChange={(e) => updateCategoryLine(i, 'category_id', e.target.value)}
                 >
@@ -768,28 +784,24 @@ export default function Transactions({ pickerDate }) {
                   ))}
                 </select>
                 {chosenSplit && !totalLocked && (
-                  <input
-                    inputMode="decimal"
+                  <MoneyInput
                     placeholder="Receipt"
                     aria-label="Receipt amount"
-                    className="w-24 rounded bg-ink px-2 py-1"
                     value={line.receipt ?? ''}
-                    onChange={(e) => changeReceipt(i, e.target.value)}
+                    onChange={(text) => changeReceipt(i, text)}
                   />
                 )}
-                <input
-                  inputMode="decimal"
-                  placeholder="0.00"
+                <MoneyInput
+                  signed
                   aria-label={chosenSplit && !totalLocked ? 'Your share' : undefined}
-                  className="w-28 rounded bg-ink px-2 py-1"
                   value={line.cents}
-                  onChange={(e) => updateCategoryLine(i, 'cents', e.target.value)}
+                  onChange={(text) => updateCategoryLine(i, 'cents', text)}
                 />
               </div>
             ))}
             <button
               type="button"
-              className="text-sm text-accent"
+              className="btn btn-quiet"
               onClick={() => setCategoryLines((lines) => [...lines, { ...emptyCategoryLine }])}
             >
               + add category line
@@ -797,7 +809,7 @@ export default function Transactions({ pickerDate }) {
           </div>
 
           {(offeredBill || billLink) && (
-            <div className="rounded bg-ink p-2 space-y-2 text-sm">
+            <div className="rounded-lg bg-raised p-3 space-y-2 text-sm">
               <p>
                 {billLink ? 'Marked as paying ' : 'This pays '}
                 <strong>{offeredBill?.goal.name ?? `bill #${billLink.goal_id}`}</strong>, due{' '}
@@ -807,7 +819,7 @@ export default function Transactions({ pickerDate }) {
                 {!billLink && (
                   <button
                     type="button"
-                    className="rounded bg-ink-soft px-2 py-1 text-accent"
+                    className="btn btn-secondary"
                     disabled={!offeredDue}
                     onClick={() => setBillLink({ goal_id: offeredGoalId, goal_due_on: offeredDue })}
                   >
@@ -815,7 +827,7 @@ export default function Transactions({ pickerDate }) {
                   </button>
                 )}
                 <select
-                  className="rounded bg-ink-soft px-2 py-1"
+                  className="field"
                   aria-label="Which due date"
                   value={offeredDue}
                   onChange={(e) => setBillLink({ goal_id: offeredGoalId, goal_due_on: e.target.value })}
@@ -832,7 +844,7 @@ export default function Transactions({ pickerDate }) {
                 </select>
                 <button
                   type="button"
-                  className="text-accent"
+                  className="btn btn-quiet"
                   onClick={() => {
                     if (billLink) setBillLink(null)
                     setDeclinedBills((ids) => [...ids, offeredGoalId])
@@ -846,14 +858,14 @@ export default function Transactions({ pickerDate }) {
 
           {linkedNet !== 0 && (
             <div className="space-y-2">
-              <span className="text-sm">
+              <span className="field-label">
                 {linkedNet > 0 ? 'Which envelope does this fund?' : 'Which envelope does this money leave?'}{' '}
-                <span className="text-paper-soft">Leave empty if it is already earmarked.</span>
+                <span className="text-text-2">Leave empty if it is already earmarked.</span>
               </span>
               {deposits.map((row, i) => (
                 <div key={i} className="flex flex-wrap gap-2">
                   <select
-                    className="flex-1 min-w-32 rounded bg-ink px-2 py-1"
+                    className="flex-1 min-w-32 field"
                     aria-label="Envelope"
                     value={row.category_id}
                     onChange={(e) => updateDeposit(i, 'category_id', e.target.value)}
@@ -863,16 +875,9 @@ export default function Transactions({ pickerDate }) {
                       <option key={c.id} value={c.id}>{c.name}</option>
                     ))}
                   </select>
-                  <input
-                    inputMode="decimal"
-                    placeholder="0.00"
-                    aria-label="Amount"
-                    className="w-28 rounded bg-ink px-2 py-1"
-                    value={row.cents}
-                    onChange={(e) => updateDeposit(i, 'cents', e.target.value)}
-                  />
+                  <MoneyInput aria-label="Amount" value={row.cents} onChange={(text) => updateDeposit(i, 'cents', text)} />
                   <select
-                    className="flex-1 min-w-32 rounded bg-ink px-2 py-1"
+                    className="flex-1 min-w-32 field"
                     aria-label={linkedNet > 0 ? 'Taken from' : 'Goes to'}
                     value={row.other_category_id}
                     onChange={(e) => updateDeposit(i, 'other_category_id', e.target.value)}
@@ -884,7 +889,7 @@ export default function Transactions({ pickerDate }) {
                   </select>
                   <button
                     type="button"
-                    className="text-sm text-accent"
+                    className="btn btn-quiet"
                     onClick={() => setDeposits((rows) => rows.filter((_, idx) => idx !== i))}
                   >
                     remove
@@ -893,30 +898,30 @@ export default function Transactions({ pickerDate }) {
               ))}
               <button
                 type="button"
-                className="text-sm text-accent"
+                className="btn btn-quiet"
                 onClick={() => setDeposits((rows) => [...rows, { ...emptyDeposit }])}
               >
                 + add envelope
               </button>
               {deposits.length > 0 && (
-                <p className="text-sm text-paper-soft">
+                <p className="text-sm text-text-2">
                   {formatCents(depositTotal)} of {formatCents(Math.abs(linkedNet))} directed.
                 </p>
               )}
             </div>
           )}
 
-          {formError && <p className="text-bad text-sm">{formError}</p>}
+          {formError && <RefusalNote>{formError}</RefusalNote>}
 
           <div className="flex gap-2">
-            <button type="submit" className="rounded bg-accent px-3 py-1.5 text-sm font-medium">
+            <button type="submit" className="btn btn-primary">
               {editingId ? 'Save changes' : 'Record transaction'}
             </button>
             {editingId && (
               <>
                 <button
                   type="button"
-                  className="rounded bg-ink px-3 py-1.5 text-sm"
+                  className="btn btn-secondary"
                   onClick={() => {
                     resetForm()
                     setPredatesCheckNotes([])
@@ -926,7 +931,7 @@ export default function Transactions({ pickerDate }) {
                 </button>
                 <button
                   type="button"
-                  className="rounded bg-bad px-3 py-1.5 text-sm font-medium"
+                  className="btn btn-destructive"
                   onClick={openDeleteConfirm}
                 >
                   Delete
@@ -935,7 +940,7 @@ export default function Transactions({ pickerDate }) {
             )}
           </div>
           {deleteConfirm && (
-            <div className="rounded bg-ink p-2 space-y-2 text-sm">
+            <div className="space-y-2 rounded-lg bg-raised p-3">
               <p>Delete this transaction? This cannot be undone.</p>
               {deleteConfirm.hasBatchLines && (
                 <label className="flex items-center gap-2">
@@ -952,14 +957,14 @@ export default function Transactions({ pickerDate }) {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  className="rounded bg-bad px-3 py-1.5 text-sm font-medium"
+                  className="btn btn-destructive"
                   onClick={confirmDelete}
                 >
                   Confirm delete
                 </button>
                 <button
                   type="button"
-                  className="rounded bg-ink-soft px-3 py-1.5 text-sm"
+                  className="btn btn-secondary"
                   onClick={() => setDeleteConfirm(null)}
                 >
                   Never mind
@@ -971,12 +976,12 @@ export default function Transactions({ pickerDate }) {
 
         <form className="flex gap-2 pt-2" onSubmit={addCategory}>
           <input
-            className="flex-1 rounded bg-ink px-2 py-1 text-sm"
+            className="flex-1 field text-sm"
             placeholder="New category name"
             value={newCategoryName}
             onChange={(e) => setNewCategoryName(e.target.value)}
           />
-          <button type="submit" className="rounded bg-ink px-3 py-1.5 text-sm">
+          <button type="submit" className="btn btn-secondary">
             Add category
           </button>
         </form>

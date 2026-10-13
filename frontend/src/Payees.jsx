@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import { ListRow } from './components/ListRow.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import { WarningNote } from './components/Notes.jsx'
 import { formatDate } from './utils/format.js'
 
 export default function Payees({ pickerDate }) {
@@ -40,51 +45,39 @@ export default function Payees({ pickerDate }) {
   }
 
   return (
-    <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Payees</h2>
+    <div className="space-y-6 py-4">
+      <h2 className="page-title hidden md:block">Payees</h2>
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        {error && <p className="text-bad">Could not reach the backend: {error}</p>}
-        {rowError && <p className="text-bad">{rowError}</p>}
+      <section className="card space-y-3">
+        {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
+        {rowError && <WarningNote>{rowError}</WarningNote>}
         {warnings.map((w) => (
-          <p key={w} className="text-sm text-bad">{w}</p>
+          <WarningNote key={w}>{w}</WarningNote>
         ))}
-        <label className="flex items-center gap-2 text-sm">
+        <label className="flex min-h-11 items-center gap-2">
           <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
           Show archived
         </label>
-        {!error && !payees && <p>Loading…</p>}
-        {payees && payees.length === 0 && <p className="text-paper-soft">No payees yet.</p>}
+        {!error && !payees && <LoadingRows />}
+        {payees && payees.length === 0 && (
+          <EmptyState>No payees yet. A payee is added by name from any transaction.</EmptyState>
+        )}
         {payees && payees.length > 0 && (
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-left text-paper-soft">
-                <th className="pb-1">Name</th>
-                <th className="pb-1"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {payees.map((p) => (
-                <tr key={p.id}>
-                  <td className="py-1">
-                    {p.name}
-                    {p.archived_on && (
-                      <div className="text-xs text-paper-soft">archived {formatDate(p.archived_on)}</div>
-                    )}
-                  </td>
-                  <td className="py-1 text-right">
-                    <button
-                      type="button"
-                      className="text-xs text-accent"
-                      onClick={() => (p.archived_on ? unarchivePayee(p) : archivePayee(p))}
-                    >
-                      {p.archived_on ? 'Unarchive' : 'Archive'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <ul>
+            {payees.map((p) => (
+              <ListRow
+                key={p.id}
+                actions={
+                  <Button variant="quiet" onClick={() => (p.archived_on ? unarchivePayee(p) : archivePayee(p))}>
+                    {p.archived_on ? 'Unarchive' : 'Archive'}
+                  </Button>
+                }
+              >
+                {p.name}
+                {p.archived_on && <div className="text-sm text-text-3">archived {formatDate(p.archived_on)}</div>}
+              </ListRow>
+            ))}
+          </ul>
         )}
       </section>
     </div>

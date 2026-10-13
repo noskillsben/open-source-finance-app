@@ -246,7 +246,7 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
     expect(await screen.findByText(/Marked as paying/)).toHaveTextContent('Marked as paying Rent, due Oct 1, 2026.')
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
-    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200', '-1200'])
+    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200.00', '-1200.00'])
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
     expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
   })
@@ -1075,7 +1075,8 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
   function pick(accountName, cents, index) {
     // The account lines' amount boxes come first, then any category line's.
     const amount = screen.getAllByPlaceholderText('0.00')[index]
-    const row = amount.parentElement
+    let row = amount.parentElement
+    while (!row.querySelector('select')) row = row.parentElement
     fireEvent.change(row.querySelector('select'), { target: { value: String(ACCOUNTS.find((x) => x.name === accountName).id) } })
     fireEvent.change(amount, { target: { value: cents } })
   }
