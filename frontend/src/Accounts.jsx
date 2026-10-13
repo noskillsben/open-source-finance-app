@@ -6,7 +6,10 @@ import {
 } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 import Button from './components/Button.jsx'
+import ChoicePicker from './components/ChoicePicker.jsx'
 import EmptyState from './components/EmptyState.jsx'
+import ListFilters from './components/ListFilters.jsx'
+import { useFilters } from './utils/useFilters.js'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
@@ -399,9 +402,17 @@ export default function Accounts({ pickerDate }) {
 
   // Accounts locked to the same payee read as one line with a balance each (DESIGN.md § Payee-locked
   // accounts). Derived here from the list, at read time: a lone locked account keeps its own row.
+  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('accounts.filters', { search: '', type: '', side: '' })
+  const needle = filters.search.trim().toLowerCase()
+  const visible = (accounts ?? []).filter(
+    (a) =>
+      a.name.toLowerCase().includes(needle) &&
+      (filters.type === '' || a.type === filters.type) &&
+      (filters.side === '' || a.on_budget === (filters.side === 'on')),
+  )
   const rows = []
   const groups = new Map()
-  for (const a of accounts ?? []) {
+  for (const a of visible) {
     const shared = a.locked_payee_id != null && accounts.filter((o) => o.locked_payee_id === a.locked_payee_id).length > 1
     if (!shared) rows.push({ account: a })
     else if (!groups.has(a.locked_payee_id)) {
@@ -667,16 +678,14 @@ export default function Accounts({ pickerDate }) {
       {!checkingIsTracking && (
         <label className="block space-y-1">
           <span className="field-label">Category for the difference (optional — otherwise ready to assign)</span>
-          <select
-            className="w-full field"
+          <ChoicePicker
+            items={categories ?? []}
             value={checkForm.category_id}
-            onChange={(e) => updateCheckField('category_id', e.target.value)}
-          >
-            <option value="">Ready to assign</option>
-            {categories?.map((c) => (
-              <option key={c.id} value={c.id}>{c.name}</option>
-            ))}
-          </select>
+            onChange={(id) => updateCheckField('category_id', id)}
+            placeholder="Ready to assign"
+            ariaLabel="Category for the difference"
+            emptyLabel="Ready to assign"
+          />
         </label>
       )}
 
@@ -758,17 +767,32 @@ export default function Accounts({ pickerDate }) {
           {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
           {undoError && <WarningNote>{undoError}</WarningNote>}
           {rowError && <WarningNote>{rowError}</WarningNote>}
-          <label className="flex min-h-11 items-center gap-2">
-            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-            Show archived
-          </label>
+          <ListFilters
+            noun="accounts"
+            search={filters.search}
+            onSearch={(v) => setFilter('search', v)}
+            active={filtersActive}
+            onClear={clearFilters}
+            facets={[
+              { name: 'type', label: 'Type', value: filters.type, onChange: (v) => setFilter('type', v), options: [...ON_BUDGET_TYPES, ...TRACKING_TYPES].map((t) => ({ value: t, label: t })) },
+              { name: 'side', label: 'Side', value: filters.side, onChange: (v) => setFilter('side', v), options: [{ value: 'on', label: 'On-budget' }, { value: 'off', label: 'Tracking' }] },
+            ]}
+          >
+            <label className="flex min-h-11 items-center gap-2">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              Show archived
+            </label>
+          </ListFilters>
           {!error && !accounts && <LoadingRows />}
           {accounts && accounts.length === 0 && (
             <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add an account</Button>}>
               No accounts yet.
             </EmptyState>
           )}
-          {accounts && accounts.length > 0 && (
+          {accounts && accounts.length > 0 && rows.length === 0 && (
+            <p className="text-text-2">No accounts match these filters.</p>
+          )}
+          {accounts && accounts.length > 0 && rows.length > 0 && (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>

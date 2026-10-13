@@ -93,8 +93,8 @@ function renderLedger(state, pickerDate = '2026-10-03') {
 
 async function addCategoryLine(name) {
   fireEvent.click(await screen.findByText('+ add category line'))
-  const select = (await screen.findByRole('option', { name })).closest('select')
-  fireEvent.change(select, { target: { value: String(CATEGORIES.find((c) => c.name === name).id) } })
+  const boxes = await screen.findAllByLabelText('Category')
+  fireEvent.change(boxes[boxes.length - 1], { target: { value: name } })
 }
 
 const dueSelect = () => screen.findByLabelText('Which due date')
@@ -247,7 +247,7 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
 
     expect(await screen.findByText(/Marked as paying/)).toHaveTextContent('Marked as paying Rent, due Oct 1, 2026.')
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
-    expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
+    expect(screen.getByLabelText('Category')).toHaveValue('Rent')
     expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200.00', '-1200.00'])
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
     expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
@@ -257,7 +257,7 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
     calls.lastPayment.mockResolvedValue({ payee_id: 4, account_id: 1 })
     renderLedger(RECORD_RENT)
 
-    await waitFor(() => expect(screen.getByRole('option', { name: 'Chequing' }).closest('select')).toHaveValue('1'))
+    await waitFor(() => expect(screen.getByLabelText('Account')).toHaveValue('Chequing'))
     fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
 
     await waitFor(() => expect(calls.create).toHaveBeenCalled())
@@ -272,7 +272,7 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
     renderLedger(RECORD_RENT)
     await screen.findByText(/Marked as paying/)
     await waitFor(() => expect(calls.lastPayment).toHaveBeenCalledWith(7))
-    expect(screen.getByRole('option', { name: 'Chequing' }).closest('select')).toHaveValue('')
+    expect(screen.getByLabelText('Account')).toHaveValue('')
   })
 })
 
@@ -396,8 +396,7 @@ describe('Ledger form: the date follows the Show as of picker', () => {
 })
 
 function fillAccountLine(cents) {
-  const select = screen.getByRole('option', { name: 'Chequing' }).closest('select')
-  fireEvent.change(select, { target: { value: '1' } })
+  fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Chequing' } })
   fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: cents } })
 }
 
@@ -463,8 +462,7 @@ describe('Ledger form: choosing a payee with the keyboard', () => {
 describe('Ledger form: an outflow from a payee-locked account', () => {
   const payeeBox = () => screen.findByPlaceholderText('Search payees…')
   function fillLockedLine(cents) {
-    const select = screen.getByRole('option', { name: 'Starbucks card' }).closest('select')
-    fireEvent.change(select, { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Starbucks card' } })
     fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: cents } })
   }
 
@@ -576,9 +574,9 @@ describe('Ledger form: a shared bill on a split', () => {
     fireEvent.change(screen.getByLabelText('Paid by'), { target: { value: '20' } })
 
     expect(amounts().slice(1, 3)).toEqual(['-50', '-50'])
-    const accountValues = screen.getAllByRole('combobox').map((s) => s.value)
-    expect(accountValues).toContain('3') // the roommate's receivable
-    expect(accountValues).not.toContain('1') // never Chequing
+    const accountValues = screen.getAllByLabelText('Account').map((s) => s.value)
+    expect(accountValues).toContain('Roommate') // the roommate's receivable
+    expect(accountValues).not.toContain('Chequing') // never Chequing
   })
 
   it('editing the total rescales by the proportions on the saved bill, not by the split', async () => {
@@ -702,9 +700,9 @@ describe('Ledger form: a shared bill on a split', () => {
       fireEvent.change(select, { target: { value: '6' } })
       fireEvent.click(await screen.findByText('+ add category line'))
       fireEvent.click(await screen.findByText('+ add category line'))
-      const selects = () => screen.getAllByRole('combobox').filter((s) => s.querySelector('option[value="11"]'))
-      fireEvent.change(selects()[0], { target: { value: '10' } })
-      fireEvent.change(selects()[1], { target: { value: '11' } })
+      const selects = () => screen.getAllByLabelText('Category')
+      fireEvent.change(selects()[0], { target: { value: 'Groceries' } })
+      fireEvent.change(selects()[1], { target: { value: 'Rent' } })
 
       typeKeys('Receipt amount', '100', 0)
       typeKeys('Receipt amount', '50', 1)
@@ -736,9 +734,9 @@ describe('Ledger form: a shared bill on a split', () => {
       await pickSplit()
       fireEvent.click(await screen.findByText('+ add category line'))
       fireEvent.click(await screen.findByText('+ add category line'))
-      const selects = () => screen.getAllByRole('combobox').filter((s) => s.querySelector('option[value="11"]'))
-      fireEvent.change(selects()[0], { target: { value: '10' } })
-      fireEvent.change(selects()[1], { target: { value: '11' } })
+      const selects = () => screen.getAllByLabelText('Category')
+      fireEvent.change(selects()[0], { target: { value: 'Groceries' } })
+      fireEvent.change(selects()[1], { target: { value: 'Rent' } })
 
       fireEvent.change(screen.getAllByLabelText('Receipt amount')[0], { target: { value: '100' } })
       fireEvent.change(screen.getAllByLabelText('Receipt amount')[1], { target: { value: '50' } })
@@ -808,9 +806,9 @@ describe('Ledger form: a shared bill on a split', () => {
       await pickSplit()
       fireEvent.click(await screen.findByText('+ add category line'))
       fireEvent.click(await screen.findByText('+ add category line'))
-      const selects = () => screen.getAllByRole('combobox').filter((s) => s.querySelector('option[value="11"]'))
-      fireEvent.change(selects()[0], { target: { value: '10' } })
-      fireEvent.change(selects()[1], { target: { value: '11' } })
+      const selects = () => screen.getAllByLabelText('Category')
+      fireEvent.change(selects()[0], { target: { value: 'Groceries' } })
+      fireEvent.change(selects()[1], { target: { value: 'Rent' } })
       fireEvent.change(screen.getAllByLabelText('Receipt amount')[0], { target: { value: '100' } })
       fireEvent.change(screen.getAllByLabelText('Receipt amount')[1], { target: { value: '0.01' } })
 
@@ -852,9 +850,9 @@ describe("Ledger form: 'Settle up' from the Split expenses page", () => {
     renderLedger({ settleUp: { account_id: 3, cents: -3000 } })
 
     await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-30', '30']))
-    expect(screen.getAllByRole('option', { name: 'Roommate' })[0].closest('select')).toHaveValue('3')
+    expect(screen.getAllByLabelText('Account')[0]).toHaveValue('Roommate')
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
-    expect(screen.queryByRole('option', { name: 'Groceries' })).not.toBeInTheDocument() // no category line
+    expect(screen.queryByLabelText('Category')).not.toBeInTheDocument() // no category line
     expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
   })
 
@@ -862,16 +860,15 @@ describe("Ledger form: 'Settle up' from the Split expenses page", () => {
     renderLedger({ settleUp: { account_id: 3, cents: 2050 } })
 
     await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
-    const accountSelects = screen.getAllByRole('option', { name: 'Chequing' }).map((o) => o.closest('select'))
-    expect(accountSelects[1]).toHaveValue('')
+    expect(screen.getAllByLabelText('Account')[1]).toHaveValue('')
   })
 })
 
 describe('Ledger form: picking a payee fills in the category, account and split', () => {
   const HYDRO = { id: 30, name: 'Hydro', archived_on: null, is_me: false }
   const ME = { id: 1, name: 'Me', archived_on: null, is_me: true }
-  const accountSelect = () => screen.getByRole('option', { name: 'Chequing' }).closest('select')
-  const categorySelect = () => screen.getByRole('option', { name: 'Groceries' }).closest('select')
+  const accountSelect = () => screen.getByLabelText('Account')
+  const categorySelect = () => screen.getByLabelText('Category')
 
   beforeEach(() => {
     existingPayees = [ME, HYDRO]
@@ -888,8 +885,8 @@ describe('Ledger form: picking a payee fills in the category, account and split'
     renderLedger()
     await pickHydro()
 
-    await waitFor(() => expect(accountSelect()).toHaveValue('1'))
-    expect(categorySelect()).toHaveValue('10')
+    await waitFor(() => expect(accountSelect()).toHaveValue('Chequing'))
+    expect(categorySelect()).toHaveValue('Groceries')
     expect(calls.payeeFill).toHaveBeenCalledWith(30, '2026-10-03')
   })
 
@@ -901,8 +898,8 @@ describe('Ledger form: picking a payee fills in the category, account and split'
 
     await waitFor(() => expect(calls.payeeFill).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByDisplayValue('Hydro')).toBeInTheDocument())
-    const selects = screen.getAllByRole('option', { name: 'Chequing' }).map((o) => o.closest('select'))
-    expect(selects[0]).toHaveValue('3')
+    const selects = screen.getAllByLabelText('Account')
+    expect(selects[0]).toHaveValue('Roommate')
     expect(selects[1]).toHaveValue('')
   })
 
@@ -912,9 +909,9 @@ describe('Ledger form: picking a payee fills in the category, account and split'
     await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
     await pickHydro()
 
-    const selects = screen.getAllByRole('option', { name: 'Chequing' }).map((o) => o.closest('select'))
-    await waitFor(() => expect(selects[1]).toHaveValue('1'))
-    expect(selects[0]).toHaveValue('3')
+    const selects = screen.getAllByLabelText('Account')
+    await waitFor(() => expect(selects[1]).toHaveValue('Chequing'))
+    expect(selects[0]).toHaveValue('Roommate')
   })
 
   it('fills in nothing for a payee never paid', async () => {
@@ -922,20 +919,20 @@ describe('Ledger form: picking a payee fills in the category, account and split'
     await pickHydro()
     await waitFor(() => expect(calls.payeeFill).toHaveBeenCalled())
     expect(accountSelect()).toHaveValue('')
-    expect(screen.queryByText('Select category…')).not.toBeInTheDocument()
+    expect(screen.queryByLabelText('Category')).not.toBeInTheDocument()
   })
 
   it('keeps what was already typed', async () => {
     calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: null })
     renderLedger()
     await addCategoryLine('Rent')
-    fireEvent.change(screen.getByRole('option', { name: 'Starbucks card' }).closest('select'), { target: { value: '2' } })
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Starbucks card' } })
     await pickHydro()
 
     await waitFor(() => expect(calls.payeeFill).toHaveBeenCalled())
     await waitFor(() => expect(screen.getByDisplayValue('Hydro')).toBeInTheDocument())
-    expect(screen.getByRole('option', { name: 'Starbucks card' }).closest('select')).toHaveValue('2')
-    expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
+    expect(screen.getByLabelText('Account')).toHaveValue('Starbucks card')
+    expect(screen.getByLabelText('Category')).toHaveValue('Rent')
   })
 
   it('does nothing when a bill link is set', async () => {
@@ -947,14 +944,14 @@ describe('Ledger form: picking a payee fills in the category, account and split'
     await waitFor(() => expect(screen.getByDisplayValue('Hydro')).toBeInTheDocument())
     expect(calls.payeeFill).not.toHaveBeenCalled()
     expect(accountSelect()).toHaveValue('')
-    expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
+    expect(screen.getByLabelText('Category')).toHaveValue('Rent')
   })
 
   it('the filled category line follows the account amount until its own amount is edited', async () => {
     calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: null })
     renderLedger()
     await pickHydro()
-    await waitFor(() => expect(categorySelect()).toHaveValue('10'))
+    await waitFor(() => expect(categorySelect()).toHaveValue('Groceries'))
 
     const amounts = () => screen.getAllByPlaceholderText('0.00')
     fireEvent.change(amounts()[0], { target: { value: '-80' } })
@@ -1078,8 +1075,8 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     // The account lines' amount boxes come first, then any category line's.
     const amount = screen.getAllByPlaceholderText('0.00')[index]
     let row = amount.parentElement
-    while (!row.querySelector('select')) row = row.parentElement
-    fireEvent.change(row.querySelector('select'), { target: { value: String(ACCOUNTS.find((x) => x.name === accountName).id) } })
+    while (!row.querySelector('input[aria-label="Account"]')) row = row.parentElement
+    fireEvent.change(row.querySelector('input[aria-label="Account"]'), { target: { value: accountName } })
     fireEvent.change(amount, { target: { value: cents } })
   }
 

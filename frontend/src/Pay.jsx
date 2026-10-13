@@ -4,6 +4,8 @@ import { api } from './api.js'
 import { CADENCES } from './cadences.js'
 import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
+import ListFilters from './components/ListFilters.jsx'
+import { useFilters } from './utils/useFilters.js'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
@@ -127,7 +129,7 @@ export default function Pay({ pickerDate }) {
   const [rowError, setRowError] = useState(null)
   const [warnings, setWarnings] = useState([])
   const [showArchived, setShowArchived] = useState(false)
-  const [filter, setFilter] = useState('')
+  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('income.filters', { search: '', cadence: '' })
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [formError, setFormError] = useState(null)
@@ -246,7 +248,9 @@ export default function Pay({ pickerDate }) {
 
   // A pay already recorded for its next payday is re-opened to correct it, not recorded again.
 
-  const shown = (streams ?? []).filter((s) => s.name.toLowerCase().includes(filter.trim().toLowerCase()))
+  const shown = (streams ?? []).filter(
+    (s) => s.name.toLowerCase().includes(filters.search.trim().toLowerCase()) && (filters.cadence === '' || s.cadence === filters.cadence),
+  )
 
   const formPanel = panelOpen && (
     <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a named pay'} onClose={closePanel} focusKey={focusKey}>
@@ -354,19 +358,21 @@ export default function Pay({ pickerDate }) {
           <WarningNote key={w}>{w}</WarningNote>
         ))}
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex flex-wrap items-center gap-3">
-            <input
-              className="field"
-              placeholder="Search named pays"
-              aria-label="Search named pays"
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-            />
+          <ListFilters
+            noun="named pays"
+            search={filters.search}
+            onSearch={(v) => setFilter('search', v)}
+            active={filtersActive}
+            onClear={clearFilters}
+            facets={[
+              { name: 'cadence', label: 'How often', value: filters.cadence, onChange: (v) => setFilter('cadence', v), options: CADENCES },
+            ]}
+          >
             <label className="flex min-h-11 items-center gap-2">
               <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
               Show archived
             </label>
-          </div>
+          </ListFilters>
           <Link className="btn btn-quiet" to="/income/one-off">
             One-off income
           </Link>
@@ -376,6 +382,9 @@ export default function Pay({ pickerDate }) {
           <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add a named pay</Button>}>
             No named pays yet.
           </EmptyState>
+        )}
+        {streams && streams.length > 0 && shown.length === 0 && (
+          <p className="text-text-2">No named pays match these filters.</p>
         )}
         {shown.length > 0 && (
           <table className="w-full">

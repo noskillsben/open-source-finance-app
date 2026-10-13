@@ -9,6 +9,7 @@ export default function Picker({
   onText,
   placeholder,
   id,
+  ariaLabel,
   disabled,
   items,
   onPick,
@@ -28,6 +29,7 @@ export default function Picker({
     <div className="relative">
       <input
         id={id}
+        aria-label={ariaLabel}
         className="field w-full"
         placeholder={placeholder}
         value={text}

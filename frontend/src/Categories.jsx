@@ -5,7 +5,10 @@ import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import { GoalRow as GoalRowShell } from './components/ListRow.jsx'
 import RecordBillLink from './components/RecordBillLink.jsx'
-import { EMPTY_GOAL, GoalFields, goalBody, goalToForm } from './GoalFields.jsx'
+import { EMPTY_GOAL, GOAL_KINDS, GoalFields, goalBody, goalToForm } from './GoalFields.jsx'
+import ListFilters from './components/ListFilters.jsx'
+import { NEED_LEVELS } from './utils/order.js'
+import { useFilters } from './utils/useFilters.js'
 import { goalSaved } from './goalProgress.js'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
@@ -14,13 +17,6 @@ import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
 
-// The fixed ordinal scale (DESIGN.md § Need levels) — shown in its real order, not alphabetically.
-const NEED_LEVELS = [
-  { value: 'need', label: 'Need' },
-  { value: 'should', label: 'Should' },
-  { value: 'nice_to_have', label: 'Nice to have' },
-  { value: 'want', label: 'Want' },
-]
 const needLabel = (value) => NEED_LEVELS.find((n) => n.value === value)?.label
 
 // Children follow their parent (alphabetical within each level). A child whose parent isn't in the
@@ -69,7 +65,7 @@ function saveCollapsed(ids) {
 // descendant's), minus the descendants of a collapsed group. A parent holding money of its own gets a
 // "<name> itself" line first among its children. A search shows only matches and their ancestors, with
 // every group open, so a collapsed group never hides a hit.
-function viewRows(categories, availableOf, collapsed, search) {
+function viewRows(categories, availableOf, collapsed, search, passes = () => true) {
   const ordered = orderTree(categories)
   const ids = new Set(categories.map((c) => c.id))
   const childrenOf = new Map()
@@ -86,11 +82,16 @@ function viewRows(categories, availableOf, collapsed, search) {
     return totals.get(c.id)
   }
   const query = search.trim().toLowerCase()
+  // A facet (need level, goal kind) narrows to the matching rows and their ancestors; a name search
+  // alone also keeps a match's whole subtree.
+  const faceted = passes.faceted === true
+  const hit = (c) => c.name.toLowerCase().includes(query) && passes(c)
+  const filtering = !!query || faceted
   const keeps = new Map()
   const keep = (c) => {
     if (!keeps.has(c.id)) {
       const below = (childrenOf.get(c.id) ?? []).map(keep).some(Boolean)
-      keeps.set(c.id, c.name.toLowerCase().includes(query) || below)
+      keeps.set(c.id, hit(c) || below)
     }
     return keeps.get(c.id)
   }
@@ -98,14 +99,14 @@ function viewRows(categories, availableOf, collapsed, search) {
   // A match shows its whole subtree, so the group total is the sum of what is on screen.
   function walk(parentId, depth, whole = false) {
     for (const c of childrenOf.get(parentId) ?? []) {
-      const matches = query && c.name.toLowerCase().includes(query)
-      if (query && !whole && !keep(c)) continue
-      const showAll = whole || matches
+      const matches = filtering && hit(c)
+      if (filtering && !whole && !keep(c)) continue
+      const showAll = whole || (matches && !faceted)
       const kids = childrenOf.get(c.id) ?? []
-      const expanded = !!query || !collapsed.includes(c.id)
+      const expanded = filtering || !collapsed.includes(c.id)
       out.push({ category: c, depth, isParent: kids.length > 0, expanded, total: totalOf(c) })
       if (kids.length > 0 && expanded) {
-        if ((!query || showAll) && availableOf(c.id) !== 0) out.push({ itself: c, depth: depth + 1, cents: availableOf(c.id) })
+        if ((!filtering || showAll) && availableOf(c.id) !== 0) out.push({ itself: c, depth: depth + 1, cents: availableOf(c.id) })
         walk(c.id, depth + 1, !!showAll)
       }
     }
@@ -230,7 +231,8 @@ export default function Categories({ pickerDate }) {
   const [moveKey, setMoveKey] = useState(0) // remounts the "Move to…" picker after a move
   const [moveNote, setMoveNote] = useState(null)
   const [collapsed, setCollapsed] = useState(loadCollapsed) // ids of collapsed groups, per device
-  const [search, setSearch] = useState('')
+  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('categories.filters', { search: '', need: '', goal: '' })
+  const search = filters.search
   const [assignError, setAssignError] = useState(null)
   const [goals, setGoals] = useState([]) // every goal shown at the picker date, with its progress
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL)
@@ -432,9 +434,13 @@ export default function Categories({ pickerDate }) {
   const domainName = (id) => domains.find((d) => d.id === id)?.name
   const active = (categories ?? []).filter((c) => !c.archived_on)
   const available = (id) => summary?.categories.find((c) => c.category_id === id)?.available_cents ?? 0
-  const rows = categories ? viewRows(categories, available, collapsed, search) : []
-  const parentIds = rows.filter((r) => r.isParent).map((r) => r.category.id)
   const goalOf = (id) => goals.find((g) => g.goal.category_id === id)
+  const passes = (c) =>
+    (filters.need === '' || (filters.need === 'none' ? !c.need_level : c.need_level === filters.need)) &&
+    (filters.goal === '' || (filters.goal === 'none' ? !goalOf(c.id) : goalOf(c.id)?.goal.kind === filters.goal))
+  passes.faceted = filters.need !== '' || filters.goal !== ''
+  const rows = categories ? viewRows(categories, available, collapsed, search, passes) : []
+  const parentIds = rows.filter((r) => r.isParent).map((r) => r.category.id)
   const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
 
@@ -583,30 +589,36 @@ export default function Categories({ pickerDate }) {
           {warnings.map((w) => (
             <WarningNote key={w}>{w}</WarningNote>
           ))}
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <input
-              className="field"
-              placeholder="Search categories"
-              aria-label="Search categories"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
+          <ListFilters
+            noun="categories"
+            search={search}
+            onSearch={(v) => setFilter('search', v)}
+            active={filtersActive}
+            onClear={clearFilters}
+            facets={[
+              { name: 'need', label: 'Need level', value: filters.need, onChange: (v) => setFilter('need', v), options: [...NEED_LEVELS, { value: 'none', label: 'Not set' }] },
+              { name: 'goal', label: 'Goal', value: filters.goal, onChange: (v) => setFilter('goal', v), options: [...GOAL_KINDS, { value: 'none', label: 'No goal' }] },
+            ]}
+          >
             <label className="flex min-h-11 items-center gap-2">
               <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
               Show archived
             </label>
-            {parentIds.length > 0 && !search.trim() && (
+            {parentIds.length > 0 && !filtersActive && (
               <div className="flex">
                 <Button variant="quiet" onClick={() => setCollapsedIds([])}>Expand all</Button>
                 <Button variant="quiet" onClick={() => setCollapsedIds(parentIds)}>Collapse all</Button>
               </div>
             )}
-          </div>
+          </ListFilters>
           {!error && !categories && <LoadingRows />}
           {categories && categories.length === 0 && (
             <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add a category</Button>}>
               No categories yet.
             </EmptyState>
+          )}
+          {categories && categories.length > 0 && rows.length === 0 && (
+            <p className="text-text-2">No categories match these filters.</p>
           )}
           {rows.length > 0 && (
             <div className="overflow-x-auto">
