@@ -682,3 +682,15 @@ def test_bound_recurring_bill_still_has_no_per_period_cents_and_its_own_wording(
     (row,) = _progress(client)
     assert row["per_period_cents"] is None
     assert row["per_period_text"] == "$87.00 monthly"
+
+
+def test_goal_progress_carries_a_dated_commitments_next_due_date(db_session, category, stream):
+    from app.services.goals import goal_progress
+    goal = _commitment(db_session, category, stream, cadence="monthly", first_due_on=datetime.date(2026, 3, 31))
+    assert goal_progress(db_session, goal, as_of=DAY).commitment_next_due_on == datetime.date(2026, 3, 31)
+
+
+def test_goal_progress_has_no_next_due_date_for_an_each_payday_commitment(db_session, category, stream):
+    from app.services.goals import goal_progress
+    goal = _commitment(db_session, category, stream, cadence=None, first_due_on=None, amount=5000)
+    assert goal_progress(db_session, goal, as_of=DAY).commitment_next_due_on is None

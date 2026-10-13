@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from
 import Accounts from './Accounts.jsx'
 import Categories from './Categories.jsx'
 import Domains from './Domains.jsx'
+import DueDates from './DueDates.jsx'
 import IntegrityCheck from './IntegrityCheck.jsx'
 import { BottomBar, Sidebar, titleFor } from './Nav.jsx'
 import Pay from './Pay.jsx'
@@ -101,6 +102,7 @@ export default function App() {
             <Route path="/income" element={<Pay pickerDate={pickerDate} />} />
             <Route path="/income/one-off" element={<PayRecord pickerDate={pickerDate} />} />
             <Route path="/income/:id/record" element={<PayRecord pickerDate={pickerDate} />} />
+            <Route path="/due-dates" element={<DueDates pickerDate={pickerDate} />} />
             <Route path="/transactions" element={<Transactions pickerDate={pickerDate} />} />
             <Route path="/categories" element={<Categories pickerDate={pickerDate} />} />
             <Route path="/accounts" element={<Accounts pickerDate={pickerDate} />} />

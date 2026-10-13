@@ -22,6 +22,7 @@ const GROUPS = [
     name: 'Plan',
     items: [
       { label: 'Income', to: '/income', Icon: Banknote },
+      { label: 'Due dates', to: '/due-dates', Icon: CalendarClock },
       { label: 'Split expenses', to: '/split-expenses', Icon: Split },
     ],
   },
@@ -85,7 +86,7 @@ const barLink = ({ isActive }) => `${barItem} ${isActive ? 'font-medium text-acc
 
 /** The phone's bottom bar: Categories, Transactions, +, Due dates, More. It is pinned, clears the home
  * indicator, and is hidden while a form is open. The + is Quick add (#37): until that exists it opens
- * the transaction form; Due dates has no page until #275, so it is inert until then. */
+ * the transaction form. */
 export function BottomBar({ onAdd }) {
   const [more, setMore] = useState(false)
   const formOpen = useFormOpen()
@@ -127,10 +128,10 @@ export function BottomBar({ onAdd }) {
             <Plus aria-hidden="true" size={24} />
           </button>
         </div>
-        <button type="button" disabled className={`${barItem} text-text-3`}>
+        <NavLink to="/due-dates" className={barLink} onClick={() => setMore(false)}>
           <CalendarClock aria-hidden="true" size={24} />
           Due dates
-        </button>
+        </NavLink>
         <button
           type="button"
           aria-expanded={more}

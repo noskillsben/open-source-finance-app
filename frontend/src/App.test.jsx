@@ -40,6 +40,7 @@ describe('nav menu', () => {
     expect(within(nav).getByRole('link', { name: 'Categories' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Accounts' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Payees' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Due dates' })).toHaveAttribute('href', '/due-dates')
     expect(within(nav).getByRole('link', { name: 'Split expenses' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Domains' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Data check' })).toBeInTheDocument()
@@ -122,5 +123,16 @@ describe('Show as of date', () => {
     fireEvent.change(input(), { target: { value: '' } })
     expect(input()).toHaveValue(todayIso())
     expect(window.sessionStorage.getItem('pickerDate')).toBeNull()
+  })
+})
+
+describe("the phone's bottom bar", () => {
+  it('has a live Due dates tab, marked current on that page', () => {
+    renderAt('/due-dates')
+    const bar = screen.getByRole('navigation', { name: 'Bottom bar' })
+    const tab = within(bar).getByRole('link', { name: 'Due dates' })
+    expect(tab).toHaveAttribute('href', '/due-dates')
+    expect(tab).toHaveAttribute('aria-current', 'page')
+    expect(within(bar).getByRole('link', { name: 'Categories' })).not.toHaveAttribute('aria-current')
   })
 })
