@@ -122,7 +122,7 @@ export default function Transactions({ pickerDate }) {
       .catch((e) => setFormError(e.message))
   }, [recordBill])
 
-  // "Settle up" on the Splits page lands here with their account and the signed cents to put on it
+  // "Settle up" on the Split expenses page lands here with their account and the signed cents to put on it
   // (DESIGN.md § Splits): a plain transfer, no category, my account left for the user to pick. The
   // amount is editable and the user still saves it.
   const settleUp = location.state?.settleUp

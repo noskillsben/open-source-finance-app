@@ -11,11 +11,16 @@ const GROUPS = [
       { label: 'Categories', to: '/categories' },
       { label: 'Accounts', to: '/accounts' },
       { label: 'Payees', to: '/payees' },
-      { label: 'Splits', to: '/splits' },
       { label: 'Domains', to: '/domains' },
     ],
   },
-  { name: 'Plan', items: [{ label: 'Income', to: '/income' }] },
+  {
+    name: 'Plan',
+    items: [
+      { label: 'Income', to: '/income' },
+      { label: 'Split expenses', to: '/split-expenses' },
+    ],
+  },
   { name: 'Review', items: [] },
 ]
 
