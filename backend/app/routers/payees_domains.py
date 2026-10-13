@@ -1,6 +1,6 @@
 from datetime import date
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -11,7 +11,7 @@ from app.schemas import ArchiveIn, ArchiveOut, DomainCreate, DomainOut, DomainUp
 from app.seed import guard_not_me, is_me
 from app.services.archiving import Archivable, ArchiveError, _visible, archive, unarchive
 from app.services.splits import live_split_block
-from app.services.payees import payee_fill, payee_latest_ledger_date
+from app.services.payees import payee_fill, payee_latest_ledger_date, recent_payees
 
 router = APIRouter()
 
@@ -93,6 +93,15 @@ def list_payees(
     return [
         PayeeOut(id=p.id, name=p.name, created_on=p.created_on, archived_on=p.archived_on, is_me=is_me(p))
         for p in payees
+    ]
+
+
+@router.get("/api/payees/recent", response_model=list[PayeeOut])
+def get_recent_payees(as_of: date, limit: int = Query(6, ge=1, le=20), session: Session = Depends(get_session)) -> list[PayeeOut]:
+    """The payees of the latest transactions, newest first — Quick add's chips. Read-only."""
+    return [
+        PayeeOut(id=p.id, name=p.name, created_on=p.created_on, archived_on=p.archived_on, is_me=is_me(p))
+        for p in recent_payees(session, as_of=as_of, limit=limit)
     ]
 
 

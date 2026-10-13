@@ -145,3 +145,22 @@ def test_anything_archived_as_of_the_picker_date_comes_back_null(db_session, cli
     assert _fill(client, hydro, as_of=datetime.date(2026, 4, 30)) == {
         "category_id": utilities.id, "account_id": cheque.id, "split_id": split.id,
     }
+
+
+def test_recent_payees_are_newest_first_one_each_without_me_or_archived(db_session, client):
+    cheque, food = _account(db_session, "Chequing"), _category(db_session, "Food")
+    names = ["A", "B", "C", "D", "E", "F", "G"]
+    payees = {n: _payee(db_session, n) for n in names}
+    for i, n in enumerate(names):
+        _post(client, payees[n], [(cheque.id, -100)], [(food.id, -100)], day=DAY + datetime.timedelta(days=i))
+    _post(client, payees["A"], [(cheque.id, -100)], [(food.id, -100)], day=DAY + datetime.timedelta(days=20))
+    payees["F"].archived_on = DAY + datetime.timedelta(days=30)
+    db_session.flush()
+    response = client.get("/api/payees/recent", params={"as_of": LATER.isoformat()})
+    assert response.status_code == 200
+    assert [p["name"] for p in response.json()] == ["A", "G", "E", "D", "C", "B"]
+
+
+def test_recent_payees_is_empty_with_no_transactions(db_session, client):
+    _payee(db_session, "Idle")
+    assert client.get("/api/payees/recent", params={"as_of": LATER.isoformat()}).json() == []

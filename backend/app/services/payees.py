@@ -7,8 +7,9 @@ from datetime import date
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.models import Account, Category, CategoryLine, Split, SplitMember, Transaction
+from app.models import Account, Category, CategoryLine, Payee, Split, SplitMember, Transaction
 from app.services.accounts import most_spent_account_id
+from app.seed import is_me
 from app.services.archiving import visible_as_of
 
 
@@ -68,3 +69,23 @@ def payee_fill(session: Session, payee_id: int, *, as_of: date) -> PayeeFill:
     return PayeeFill(
         category_id=live(Category, category_id), account_id=live(Account, account_id), split_id=live(Split, latest.split_id)
     )
+
+
+def recent_payees(session: Session, *, as_of: date, limit: int = 6) -> list[Payee]:
+    """The payees of the most recent transactions, newest first, one row each (the chips on
+    Quick add, DESIGN.md § Visual design → Quick add). Read from the ledger, never stored.
+    Archived-as-of payees and the Me payee are left out: neither is somebody you pay.
+    """
+    latest = (
+        select(Transaction.payee_id, func.max(Transaction.date).label("day"), func.max(Transaction.id).label("tx"))
+        .where(Transaction.payee_id.is_not(None))
+        .group_by(Transaction.payee_id)
+        .subquery()
+    )
+    payees = session.scalars(
+        select(Payee)
+        .join(latest, latest.c.payee_id == Payee.id)
+        .where(visible_as_of(Payee, as_of))
+        .order_by(latest.c.day.desc(), latest.c.tx.desc())
+    ).all()
+    return [p for p in payees if not is_me(p)][:limit]

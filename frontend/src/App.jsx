@@ -9,6 +9,7 @@ import { BottomBar, Sidebar, titleFor } from './Nav.jsx'
 import Pay from './Pay.jsx'
 import PayRecord from './PayRecord.jsx'
 import Payees from './Payees.jsx'
+import QuickAdd from './QuickAdd.jsx'
 import Splits from './Splits.jsx'
 import Transactions from './Transactions.jsx'
 import Button from './components/Button.jsx'
@@ -24,6 +25,7 @@ function Shell({ pickerDate, onPickerDate, onToday, notToday, error, health, chi
   const { pathname } = useLocation()
   const navigate = useNavigate()
   const addTransaction = () => navigate('/transactions', { state: { addTransaction: true } })
+  const quickAdd = () => navigate('/quick-add')
 
   return (
     <div className="md:flex">
@@ -57,7 +59,7 @@ function Shell({ pickerDate, onPickerDate, onToday, notToday, error, health, chi
           {children}
         </main>
       </div>
-      <BottomBar onAdd={addTransaction} />
+      <BottomBar onAdd={quickAdd} />
     </div>
   )
 }
@@ -103,6 +105,7 @@ export default function App() {
             <Route path="/income/one-off" element={<PayRecord pickerDate={pickerDate} />} />
             <Route path="/income/:id/record" element={<PayRecord pickerDate={pickerDate} />} />
             <Route path="/due-dates" element={<DueDates pickerDate={pickerDate} />} />
+            <Route path="/quick-add" element={<QuickAdd pickerDate={pickerDate} />} />
             <Route path="/transactions" element={<Transactions pickerDate={pickerDate} />} />
             <Route path="/categories" element={<Categories pickerDate={pickerDate} />} />
             <Route path="/accounts" element={<Accounts pickerDate={pickerDate} />} />

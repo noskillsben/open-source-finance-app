@@ -4,7 +4,7 @@ import { useId } from 'react'
 // never type="number" (phone keypads have no minus key). With `signed`, a − Spent / + Received
 // toggle sets the direction: the value stays one signed string ("-12.50"), and the toggle adds or
 // removes its leading minus, so the parent keeps parsing it with parseCents.
-export default function MoneyInput({ label, value, onChange, signed = false, placeholder = '0.00', className = '', ...rest }) {
+export default function MoneyInput({ label, value, onChange, signed = false, placeholder = '0.00', className = '', inputClassName = '', ...rest }) {
   const id = useId()
   const spent = value.trim().startsWith('-')
   const received = value.trim() !== '' && !spent
@@ -35,7 +35,7 @@ export default function MoneyInput({ label, value, onChange, signed = false, pla
           id={id}
           type="text"
           inputMode="decimal"
-          className="field w-28 flex-1 tabular text-right"
+          className={`field w-28 flex-1 tabular text-right ${inputClassName}`.trim()}
           placeholder={placeholder}
           value={value}
           onChange={(e) => onChange(e.target.value)}

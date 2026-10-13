@@ -1,14 +1,20 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  Banknote, CalendarClock, Ellipsis, Landmark, Plus, Receipt, ShieldCheck, Split, Tag, Users, Wallet,
+  Banknote, CalendarClock, Ellipsis, Landmark, Plus, Zap, Receipt, ShieldCheck, Split, Tag, Users, Wallet,
 } from 'lucide-react'
 import { useFormOpen } from './components/SidePanel.jsx'
 
 // The page-name table (DESIGN.md § UI conventions): four groups named for what you are doing, plus
 // Settings below them. A group with nothing built yet still renders as a header with no items.
 const GROUPS = [
-  { name: 'Record', items: [{ label: 'Transactions', to: '/transactions', Icon: Receipt }] },
+  {
+    name: 'Record',
+    items: [
+      { label: 'Quick add', to: '/quick-add', Icon: Zap },
+      { label: 'Transactions', to: '/transactions', Icon: Receipt },
+    ],
+  },
   {
     name: 'Assign',
     items: [
@@ -85,8 +91,7 @@ const barItem = 'flex min-h-14 flex-col items-center justify-center gap-0.5 text
 const barLink = ({ isActive }) => `${barItem} ${isActive ? 'font-medium text-accent' : 'text-text-2'}`
 
 /** The phone's bottom bar: Categories, Transactions, +, Due dates, More. It is pinned, clears the home
- * indicator, and is hidden while a form is open. The + is Quick add (#37): until that exists it opens
- * the transaction form. */
+ * indicator, and is hidden while a form is open. The + opens Quick add. */
 export function BottomBar({ onAdd }) {
   const [more, setMore] = useState(false)
   const formOpen = useFormOpen()
