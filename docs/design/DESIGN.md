@@ -426,7 +426,7 @@ Whether a split member who is also a user of the app (multi-user mode, later) se
 
 ### UI conventions
 
-The look is decided once in #251 — colours, fonts, spacing, the shared components, the voice of on-screen wording and Quick add's shape — and recorded here as a *Visual design* section; #252 applies it from one place. Then each page is walked one at a time against it, and that walk files the page's issues under EPIC 6, one per thing a person can do differently afterwards. Page names and the menu are not part of #251; they are settled below. These are the rules it has to respect, collected as they come up:
+The look was decided in #251 — colours, fonts, spacing, the shell, where forms open, the shared components, the voice of on-screen wording and Quick add's shape — and is recorded below under *Visual design*; #252 applies it from one place. Then each page is walked one at a time against it, and that walk files the page's issues under EPIC 6, one per thing a person can do differently afterwards. Page names and the menu are not part of #251; they are settled below. These are the rules it has to respect, collected as they come up:
 
 - **The nav is four groups, named for what you are doing**, with the group names rendered as section headers in the menu, and Settings below them. The groups are the three tempos of the Philosophy section plus the recording surfaces, which are not one of the three: **Record**, **Assign**, **Plan**, **Review**. No screen answers more than one of the three questions; the groups are what keeps them apart. *Income* sits under Plan even though Record on it writes a transaction: setting up named pays and deciding where a paycheque goes is planning, and recording it is the last step of that plan — the same way a bill is recorded from Due dates. *Record* is for money that moved with no plan behind it. Page names are settled here and are not provisional any more — a new surface is named when its issue is filed, against this table.
 
@@ -458,9 +458,75 @@ The look is decided once in #251 — colours, fonts, spacing, the shared compone
 - **Drop-downs are alphabetical**, unless the values have a real order — need → should → nice to have → want, account types grouped by budget side.
 - **Any picker that could ever hold more than five items is searchable** (type-ahead). Categories, payees, accounts, domains, named pays all qualify from day one.
 - **Every list page has filters** — accounts, categories, transactions, due dates, goals. Filtering was one of the things that worked in the old app. Filter state is a per-viewer convenience, not stored data.
-- **Quick add stays**, as a phone-first capture surface inside the same app calling the same record path — pick payee, confirm amount, done. Its exact shape is not the old one and is designed in the visual pass.
-- Contrast: the dark theme is liked, but every control — pickers, placeholders, secondary labels — has to be readable on a phone in daylight, not just body text.
+- **Quick add stays**, as a phone-first capture surface inside the same app calling the same record path — pick payee, confirm amount, done. Its shape is in Visual design → Quick add.
 - Nothing hover-only; no `type="number"` money inputs (phone keypads have no minus key); one currency formatter, one date formatter (`en-CA`).
+
+#### Visual design
+
+Decided 2026-10-13 in #251, from mockups (the *Finance App — Visual Pass* and *Finance App — Accessibility Check* canvases). The tokens below live in the Tailwind theme under these names; nothing else in the frontend holds a colour.
+
+**Colour.** One dark theme. A light theme is not built until it is asked for. Ratios are measured against `surface`.
+
+| Token | Value | Used for |
+| --- | --- | --- |
+| `page` | #111315 | page background |
+| `surface` | #191C1F | cards, tables, the side panel |
+| `raised` | #22262A | menus, picker lists, notes |
+| `line` | #30353A | dividers (decoration, no contrast rule) |
+| `field-line` | #6B737B | input and outlined-button borders — 3.6 : 1 |
+| `text` | #ECEEF0 | body text and amounts — 14.7 : 1 |
+| `text-2` | #B3BAC2 | secondary labels — 8.7 : 1 |
+| `text-3` | #8C949C | hints, placeholders, column headers — 5.6 : 1 |
+| `accent` | #7DB4FF | anything you can press: links, the primary button, the selected menu item, focus rings — 8.0 : 1 |
+| `on-accent` | #0C1622 | text on an accent fill — 8.5 : 1 |
+| `negative` | #FF8A8A | negative amounts, and the one refusal — 7.5 : 1 |
+| `warning` | #F2C35B | due, overdue, not today, notes that offer a fix — 10.4 : 1 |
+| `positive` | #6AD7A4 | status words (recorded, paid) — 9.7 : 1; never an amount |
+
+- Positive amounts are plain `text`. Only negative amounts are coloured.
+- Colour is never the only cue: every negative amount prints its −, every warning says it in words.
+- Negative, warning and positive were checked under simulated deuteranopia and protanopia; coral was rejected because it reads as the warning amber.
+- The accent never means good or bad. Warning informs and offers a fix; negative tint marks the one thing the app refuses, a record that doesn't add up.
+
+**Type.** IBM Plex Sans, self-hosted in the frontend bundle — the app never calls a font service. Weights 400, 500 and 600; nothing lighter than 400.
+
+- Sizes are in rem, so the app follows the browser's and the phone's text-size setting, and every page reflows at 200%.
+- Scale: headline 40 (ready to assign), page title 28 (24 on a phone), section 20, body 16 (17 on a phone), small 14, label 13 (uppercase, letter-spaced; group and column headers only). Nothing on a phone is below 14.
+- Money: tabular figures, right-aligned in columns, a true minus sign (−), the dollar sign always shown, all through the one formatter.
+
+**Spacing and touch.** Steps of 4: 4, 8, 12, 16, 24, 32, 48. Rows are 44 px on a desktop and 56 px on a phone. Nothing you tap is smaller than 44 × 44. Corners: 8 on controls, 12 on cards.
+
+**The shell.**
+- *Desktop:* the menu is a left sidebar showing the group headers, with Settings at its foot. A top bar carries Show as of and **+ Add transaction**. Pages use the full width beside the menu; tables fill it, running text stops at about 70 characters a line.
+- *Phone* (narrower than 768 px): a bottom bar with **Categories, Transactions, +** (Quick add)**, Due dates, More**, where More opens the grouped menu. A top bar shows the page title and Show as of as a date chip.
+- The bottom bar is pinned to the screen, adds the phone's safe-area inset below its buttons, and every page pads its bottom by the bar's height so the last row scrolls clear of it. Full-height layouts use `dvh`, never `vh`. The bar is hidden while a form is open, so it never rides on the keyboard. This is checked on a real phone, not only an emulator.
+
+**Where forms open.**
+- Editing or adding a row opens a **side panel** at the right of its list. The list stays visible with the row highlighted; saving updates the row in place; the panel closes on save, cancel, Escape or ×. With the panel closed the list has the full width.
+- Long forms — the pay screen, a transaction with several lines or a split — open as **a page of their own** with a back link.
+- A dialog is only for a confirmation.
+- On a phone, every form is full screen.
+- After a save in an add form, focus returns to the first field, ready for the next entry.
+
+**Components** — one of each, shared by every page:
+- *Button:* primary is filled accent, one per screen, the thing you came to do; secondary is outlined; quiet is text only; destructive is quiet text in `negative` and asks once.
+- *Money input:* the sign is a **− Spent / + Received** toggle, never typed; a text field with the decimal keypad.
+- *Searchable picker:* type-ahead list, secondary detail on the right, “Add ‘…’ as a new …” last.
+- *List row and goal row:* the goal row sits under its category with its status line, and its one action on the right.
+- *Pill:* status words and the pool pill.
+- *Notes:* a save note (raised, a positive tick), a warning note (warning tint: what is true, and the fix as a link), a refusal (negative tint, only for a record that doesn't add up).
+- *Empty state:* what is missing and the one action that fills it.
+- *Loading:* placeholder rows in the shape of what is coming, no word.
+
+**Wording.** Say what happened and what you can do next. Names and dates, never ids ("Edit · Loblaws, Oct 3", not "Edit transaction #412"). No "error", "invalid" or exclamation marks. A goal whose category is below zero reads "$525.00 short", in `negative`, not "−$525.00 of $1,050.00".
+
+**Quick add.**
+1. *Who:* a search box, with chips for the six most recent payees.
+2. *How much:* a large amount field, **− Spent** selected by default.
+3. Category, account and date, filled in from the last payment to that payee (the date is Show as of), each one tap to change, with a line saying where they came from.
+4. *Save*, at thumb height.
+
+After saving, a save note offers **Add another** and **Done** (back to the page you came from). An overspent category saves with a warning note. A category with a live recurring bill asks "This pays Hydro, due Oct 1? Yes / No" — never linked silently. A split pre-filled from the last payment shows one line and opens the full form. **More details** opens the full form with everything already typed.
 
 ### Reporting and visuals
 
@@ -600,6 +666,7 @@ A **history replay** plays a recorded money history into a fresh database throug
 - 2026-10-11 — Paying a $450 loan instalment that is $380 principal now pre-fills Debt payments −380 and a second line of −70 for you to name, instead of Debt payments −450 that you had to split by hand. Mechanism: the boundary-category pre-fill reads the amount that landed on the tracking account; whatever else left the budget becomes a blank-category remainder line. The split comes from the account lines the user types from the statement, never from the terms. A payment that lands whole (a line of credit or card, where interest is charged onto the account separately) pre-fills one line as before. Considered and rejected: working interest out from the rate and compounding rule (a guess presented as fact, and a v1 reader for terms that have none), and an interest-category field per account (a second default beside the boundary category, to save one pick per payment). **Deletes:** the whole-movement pre-fill and the user guide's "change it to −380 and add an Interest line" step. Schema: nothing. User guide: the "Money leaving the budget for a loan" bullet. Build: #266.
 - 2026-10-12 — The transaction list is called **Transactions**; the pay screen's label is **Income** and it moves to Plan, beside a new **Due dates** page that lists every bill and dated set-aside soonest first, with what is saved toward each and, for a bill, Record. Pay history becomes Income history. The first time anyone used the pages as a person, *Ledger* read as jargon, *Pay* sat under Record although it is mostly planning, and a quarterly set-aside was lost in the category tree. Mechanism: labels and addresses in the name table (`/ledger` → `/transactions`, `/pay` → `/income`); Due dates reads the existing goals and opens the existing goal form — no bill table, no second editor; why Income sits under Plan is argued in the nav bullet. **Deletes:** the *Ledger*, *Pay* and *Pay history* labels and their addresses, and "never a separate 'what's due' list" (Nothing posts itself; log 2026-09-21) — the rule it protected was no pending-transaction state, and Due dates lists goal rows, not transactions, so that rule now says so directly. Also narrows #251 to the look alone; each page is then walked one at a time and its issues filed under EPIC 6. Schema: nothing. User guide: every bullet naming the Ledger or Pay as a page; a Due dates bullet. Build: #274 (renames and menu), #275 (Due dates).
 - 2026-10-12 — A new install starts with only Me and Debt payments: no starter categories or domains. The starter set guessed wrong for the one person using the app, who is more granular than any default. Mechanism: two lines left in the seed list. **Deletes:** the seven starter categories, the six starter domains, and Debt payments' Financial domain. An existing install keeps its rows until they are archived by hand, since the seed step never removes anything. A starter set may return as an onboarding choice, never as a seed; nothing is filed for it. Schema: nothing. User guide: the starter-set bullet goes. Build: #276.
+- 2026-10-13 — The app gets one look: near-black, one blue accent for anything you can press, rose for negative amounts, amber for warnings, IBM Plex Sans at 16 px (17 on a phone) that follows the phone's text size, full-width pages with a sidebar on a desktop and a bottom bar on a phone, and forms in a side panel beside their list instead of under it. Quick add is pick a payee, type the amount, save. Mechanism: tokens in the Tailwind theme under the names in Visual design, a self-hosted font, one shared component of each kind. Contrast was measured (every text token at least 5.6 : 1 on the card surface) and colour blindness simulated, which moved negative from coral to rose. **Deletes:** today's tokens (ink and paper, the indigo accent, green and red for money; three of them fail AA), the fixed narrow column, forms placed under their lists, positive amounts in green, and the standalone contrast bullet, now Visual design's measured palette. Also settles two #220 items: a goal below zero reads "$525.00 short", and focus returns to the first field after an add. Schema: nothing. User guide: the Quick add bullet when #37 lands; nothing else until #252. Build: #252 (every existing page), #37 (Quick add), #38 (verify every control). Answers #251.
 
 ## Still to figure out
 

@@ -46,7 +46,7 @@ Start from the latest `main`: `git fetch origin`, then `git checkout main` and `
 
 **Frontend**
 - Functional components only. Every `fetch` goes through `src/api.js` and its one request helper, which surfaces the backend's error `detail` on every non-OK response.
-- Tailwind tokens only, no hex in JSX. One `formatCents` and one date formatter in `src/utils/format.js` (`en-CA`; parse ISO dates at noon UTC).
+- Tailwind tokens only, no hex in JSX; the token names and values are DESIGN.md § UI conventions → Visual design. IBM Plex Sans is self-hosted, never loaded from a font service. One `formatCents` and one date formatter in `src/utils/format.js` (`en-CA`; parse ISO dates at noon UTC).
 - Money inputs are never `type="number"` (phone keypads have no minus key). Nothing is hover-only. Every picker that could hold more than five items is searchable; drop-downs are alphabetical unless the values have a real order.
 - Works on a narrow phone, a desktop, and a foldable's inner screen.
 
