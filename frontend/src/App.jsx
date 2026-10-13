@@ -90,11 +90,11 @@ export default function App() {
         )}
 
         <Routes>
-          <Route path="/" element={<Navigate to="/ledger" replace />} />
-          <Route path="/pay" element={<Pay pickerDate={pickerDate} />} />
-          <Route path="/pay/one-off" element={<PayRecord pickerDate={pickerDate} />} />
-          <Route path="/pay/:id/record" element={<PayRecord pickerDate={pickerDate} />} />
-          <Route path="/ledger" element={<Transactions pickerDate={pickerDate} />} />
+          <Route path="/" element={<Navigate to="/transactions" replace />} />
+          <Route path="/income" element={<Pay pickerDate={pickerDate} />} />
+          <Route path="/income/one-off" element={<PayRecord pickerDate={pickerDate} />} />
+          <Route path="/income/:id/record" element={<PayRecord pickerDate={pickerDate} />} />
+          <Route path="/transactions" element={<Transactions pickerDate={pickerDate} />} />
           <Route path="/categories" element={<Categories pickerDate={pickerDate} />} />
           <Route path="/accounts" element={<Accounts pickerDate={pickerDate} />} />
           <Route path="/payees" element={<Payees pickerDate={pickerDate} />} />

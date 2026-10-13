@@ -49,7 +49,7 @@ export default function Splits({ pickerDate }) {
   // Settle up is a plain transfer for the full balance, opened on the Ledger form (DESIGN.md § Splits):
   // their account takes the opposite of what they owe, mine is left for the user to pick.
   function settleUp(member, balance) {
-    navigate('/ledger', { state: { settleUp: { account_id: member.account_id, cents: -balance.balance_cents } } })
+    navigate('/transactions', { state: { settleUp: { account_id: member.account_id, cents: -balance.balance_cents } } })
   }
 
   function newMember(member = {}) {

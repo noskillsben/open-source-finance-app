@@ -232,7 +232,7 @@ export default function Pay({ pickerDate }) {
 
   return (
     <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Pay</h2>
+      <h2 className="text-xl font-semibold">Income</h2>
 
       <section className="rounded-lg bg-ink-soft p-4 space-y-2">
         {error && <p className="text-bad">Could not reach the backend: {error}</p>}
@@ -254,7 +254,7 @@ export default function Pay({ pickerDate }) {
               Show archived
             </label>
           </div>
-          <Link className="text-sm text-accent" to="/pay/one-off">
+          <Link className="text-sm text-accent" to="/income/one-off">
             One-off income
           </Link>
         </div>
@@ -283,7 +283,7 @@ export default function Pay({ pickerDate }) {
                   <td className="py-1">{formatDate(s.next_payday)}</td>
                   <td className="py-1 text-right space-x-3 whitespace-nowrap">
                     {!s.archived_on && (
-                      <Link className="text-xs text-accent" to={`/pay/${s.id}/record`}>
+                      <Link className="text-xs text-accent" to={`/income/${s.id}/record`}>
                         {s.next_payday_recorded ? 'Re-open' : 'Record'}
                       </Link>
                     )}

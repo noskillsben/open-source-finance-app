@@ -53,14 +53,14 @@ function renderCategories() {
     <MemoryRouter initialEntries={['/categories']}>
       <Routes>
         <Route path="/categories" element={<Categories pickerDate="2026-10-03" />} />
-        <Route path="/ledger" element={<Ledger />} />
+        <Route path="/transactions" element={<Ledger />} />
       </Routes>
     </MemoryRouter>
   )
 }
 
 describe('a recurring bill\'s row: Record', () => {
-  it('names the earliest unpaid due date and opens the Ledger with the bill to record', async () => {
+  it('names the earliest unpaid due date and opens Transactions with the bill to record', async () => {
     goals = [rentRow()]
     renderCategories()
 

@@ -357,7 +357,7 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
           {!archived && goal.kind === 'recurring_bill' && nextDue && (
             <Link
               className="text-xs text-accent"
-              to="/ledger"
+              to="/transactions"
               state={{
                 recordBill: {
                   goal_id: goal.id,

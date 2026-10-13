@@ -68,10 +68,10 @@ const CATEGORIES = [
 
 function renderSalary() {
   return render(
-    <MemoryRouter initialEntries={['/pay/3']}>
+    <MemoryRouter initialEntries={['/income/3']}>
       <Routes>
-        <Route path="/pay/:id" element={<PayRecord pickerDate="2026-09-23" />} />
-        <Route path="/pay" element={<p>Pay list</p>} />
+        <Route path="/income/:id" element={<PayRecord pickerDate="2026-09-23" />} />
+        <Route path="/income" element={<p>Pay list</p>} />
       </Routes>
     </MemoryRouter>
   )
@@ -79,9 +79,9 @@ function renderSalary() {
 
 function renderOneOff() {
   return render(
-    <MemoryRouter initialEntries={['/pay/one-off']}>
+    <MemoryRouter initialEntries={['/income/one-off']}>
       <Routes>
-        <Route path="/pay/one-off" element={<PayRecord pickerDate="2026-09-23" />} />
+        <Route path="/income/one-off" element={<PayRecord pickerDate="2026-09-23" />} />
       </Routes>
     </MemoryRouter>
   )
