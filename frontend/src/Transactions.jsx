@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
 import { centsToFieldText, formatCents, formatDate, parseCents } from './utils/format.js'
 import Button from './components/Button.jsx'
+import { useRegisterFormOpen } from './components/SidePanel.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
@@ -74,6 +75,8 @@ export default function Transactions({ pickerDate }) {
   const [formError, setFormError] = useState(null)
   const [savedNote, setSavedNote] = useState(null)
   const formRef = useRef(null)
+  // The phone's bottom bar hides while this form is being edited or has focus (the keyboard is up).
+  const [formFocused, setFormFocused] = useState(false)
   const dateRef = useRef(null)
   const [editingId, setEditingId] = useState(null)
   const [predatesCheckNotes, setPredatesCheckNotes] = useState([])
@@ -625,6 +628,8 @@ export default function Transactions({ pickerDate }) {
     }
   }
 
+  useRegisterFormOpen(formFocused || editingId != null)
+
   // Names and dates, never ids: "Edit · Loblaws, Oct 3".
   const editedTx = editingId ? transactions?.find((t) => t.id === editingId) : null
   const editedWho = editedTx && ((editedTx.payee_id != null && payeesAll?.find((p) => p.id === editedTx.payee_id)?.name) || editedTx.memo)
@@ -653,7 +658,14 @@ export default function Transactions({ pickerDate }) {
         )}
       </section>
 
-      <section ref={formRef} className="card space-y-4">
+      <section
+        ref={formRef}
+        className="card space-y-4"
+        onFocus={() => setFormFocused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget)) setFormFocused(false)
+        }}
+      >
         <h2 className="text-section">{formTitle}</h2>
         {savedNote && <SaveNote>{savedNote}</SaveNote>}
         {predatesCheckNotes.map((note, i) => (

@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 // The shell hides its bottom bar while a form is open, so it never rides on the keyboard. Each
 // open SidePanel registers itself here; without a provider (a page rendered alone) it is a no-op.
@@ -6,12 +6,24 @@ const FormOpenContext = createContext(null)
 
 export function FormOpenProvider({ children }) {
   const [count, setCount] = useState(0)
-  const value = { open: count > 0, register: () => { setCount((c) => c + 1); return () => setCount((c) => c - 1) } }
+  const register = useCallback(() => {
+    setCount((c) => c + 1)
+    return () => setCount((c) => c - 1)
+  }, [])
+  const value = useMemo(() => ({ open: count > 0, register }), [count, register])
   return <FormOpenContext.Provider value={value}>{children}</FormOpenContext.Provider>
 }
 
 export function useFormOpen() {
   return useContext(FormOpenContext)?.open ?? false
+}
+
+/** Registers a form as open while `active`, so the shell hides its bottom bar. The Transactions form
+ * is inline, so it passes true while it is being edited or has focus (the keyboard is up). */
+export function useRegisterFormOpen(active) {
+  const ctx = useContext(FormOpenContext)
+  const register = ctx?.register
+  useEffect(() => (active && register ? register() : undefined), [active, register])
 }
 
 /** A page with an optional side panel at its right (DESIGN.md § Visual design → Where forms open):

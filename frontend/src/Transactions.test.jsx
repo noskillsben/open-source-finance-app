@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Transactions from './Transactions.jsx'
+import { BottomBar } from './Nav.jsx'
+import { FormOpenProvider } from './components/SidePanel.jsx'
 
 // What the mocked backend already holds; a test sets these before rendering.
 let existingTransactions = []
@@ -1145,5 +1147,24 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     pick('Credit line', '100', 1)
 
     expect(screen.queryByDisplayValue('Debt payments')).toBeNull()
+  })
+})
+
+describe("the phone's bottom bar (#252)", () => {
+  it('is absent while the Transactions form has focus, and back when it does not', async () => {
+    render(
+      <MemoryRouter initialEntries={['/transactions']}>
+        <FormOpenProvider>
+          <BottomBar onAdd={() => {}} />
+          <Transactions pickerDate="2026-10-03" />
+        </FormOpenProvider>
+      </MemoryRouter>,
+    )
+    const date = await screen.findByLabelText('Date')
+    expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
+    fireEvent.focus(date)
+    expect(screen.queryByRole('navigation', { name: 'Bottom bar' })).not.toBeInTheDocument()
+    fireEvent.blur(date)
+    expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
   })
 })
