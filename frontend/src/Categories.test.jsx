@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import Categories from './Categories.jsx'
@@ -42,6 +42,11 @@ const rentRow = (overrides = {}) => ({
   bill_status: 'due', bill_status_text: 'due Oct 1 · not paid',
   ...overrides,
 })
+
+// Tapping a row opens it in the side panel; there is no Edit button (DESIGN.md § Row actions).
+async function openRent() {
+  fireEvent.click(await screen.findByRole('row', { name: /Move money/ }))
+}
 
 function Ledger() {
   const { state } = useLocation()
@@ -134,7 +139,7 @@ describe("a Target's one pace (#198)", () => {
     streams = [{ id: 3, name: 'Salary' }]
     setGoal.mockClear()
     renderCategories()
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    await openRent()
     fireEvent.change(await screen.findByLabelText('Kind'), { target: { value: 'target' } })
     fireEvent.change(screen.getByLabelText('Goal name'), { target: { value: 'Vacation' } })
     fireEvent.change(screen.getByLabelText('Amount to reach'), { target: { value: '1000.00' } })
@@ -240,7 +245,7 @@ describe("a Commitment's cadence (#156)", () => {
     goals = []
     setGoal.mockClear()
     renderCategories()
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    await openRent()
     fireEvent.change(await screen.findByLabelText('Kind'), { target: { value: 'commitment' } })
     fireEvent.change(screen.getByLabelText('Goal name'), { target: { value: 'Vacation fund' } })
   }
@@ -307,7 +312,7 @@ describe('Edit (#168)', () => {
     Element.prototype.scrollIntoView = scrollIntoView
     try {
       renderCategories()
-      fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+      await openRent()
       await screen.findByText('Edit · Rent')
       expect(scrollIntoView).toHaveBeenCalled()
       expect(scrollIntoView.mock.contexts.at(-1).tagName).toBe('ASIDE')
@@ -321,7 +326,7 @@ describe('absorb overspending', () => {
   it('saves the switch from the category form', async () => {
     goals = []
     renderCategories()
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    await openRent()
     fireEvent.click(screen.getByRole('checkbox', { name: /Absorb overspending/ }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
@@ -375,5 +380,89 @@ describe('the visual pass (#252)', () => {
     expect(short).toHaveClass('text-negative')
     expect(screen.queryByText('Domains')).toBeNull()
     expect(screen.queryByLabelText('Domain name')).toBeNull()
+  })
+})
+
+// #286: one control per row, collapsible groups with their totals.
+describe('rows and groups (#286)', () => {
+  const cat = (id, name, parent_id = null) => ({
+    id, name, parent_id, archived_on: null, need_level: null, linked_accounts: [], pool_id: null, absorb_overspending: false,
+  })
+  const tree = [cat(1, 'Food'), cat(2, 'Groceries', 1), cat(3, 'Dining out', 1), cat(4, 'Rent')]
+
+  async function renderTree(available) {
+    goals = []
+    const { api } = await import('./api.js')
+    api.categories.list = () => Promise.resolve(tree)
+    api.earmarkMoves = { create: vi.fn(() => Promise.resolve({})) }
+    summaryRows = Object.entries(available).map(([id, cents]) => ({
+      category_id: Number(id), available_cents: cents, pool_available_cents: 0, pool_absorber: null,
+    }))
+    localStorage.clear()
+    renderCategories()
+    await screen.findByText('Rent')
+  }
+
+  it('shows the group total on the parent, and no "itself" line when the parent holds nothing', async () => {
+    await renderTree({ 1: 0, 2: 5000, 3: 2500, 4: 0 })
+    const food = screen.getByText('Food', { selector: 'span' }).closest('tr')
+    expect(food).toHaveTextContent('$75.00')
+    expect(screen.queryByText('Food itself')).toBeNull()
+  })
+
+  it('adds a "Food itself" line first among the children when the parent holds money of its own', async () => {
+    await renderTree({ 1: 1000, 2: 5000, 3: 2500, 4: 0 })
+    expect(screen.getByText('Food', { selector: 'span' }).closest('tr')).toHaveTextContent('$85.00')
+    expect(screen.getByText('Food itself').closest('tr')).toHaveTextContent('$10.00')
+  })
+
+  it('collapses and expands a group, remembers it on the device, and has Expand all / Collapse all', async () => {
+    await renderTree({ 1: 0, 2: 5000, 3: 2500, 4: 0 })
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Food' }))
+    expect(screen.queryByText('Groceries')).toBeNull()
+    expect(JSON.parse(localStorage.getItem('categories.collapsed'))).toEqual([1])
+    fireEvent.click(screen.getByRole('button', { name: 'Expand all' }))
+    expect(screen.getByText('Groceries')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse all' }))
+    expect(screen.queryByText('Dining out')).toBeNull()
+  })
+
+  it('a search expands a collapsed group holding a match', async () => {
+    await renderTree({ 1: 0, 2: 5000, 3: 2500, 4: 0 })
+    fireEvent.click(screen.getByRole('button', { name: 'Collapse Food' }))
+    expect(screen.queryByText('Groceries')).toBeNull()
+    fireEvent.change(screen.getByLabelText('Search categories'), { target: { value: 'groc' } })
+    expect(screen.getByText('Groceries')).toBeInTheDocument()
+    expect(screen.queryByText('Dining out')).toBeNull()
+  })
+
+  it('gives a category row one button, Move money, and Edit and Archive live in the panel', async () => {
+    await renderTree({ 1: 0, 2: 0, 3: 0, 4: 0 })
+    const rent = screen.getByText('Rent').closest('tr')
+    expect(within(rent).getAllByRole('button').map((b) => b.textContent)).toEqual(['Move money'])
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull()
+    fireEvent.click(within(rent).getByRole('button', { name: 'Move money' }))
+    expect(await screen.findByRole('button', { name: 'Archive' })).toBeInTheDocument()
+    expect(screen.getByLabelText('Amount')).toBeInTheDocument()
+  })
+
+  it('Move money Add posts an earmark move into the category from the panel', async () => {
+    await renderTree({ 1: 0, 2: 0, 3: 0, 4: 0 })
+    const { api } = await import('./api.js')
+    fireEvent.click(within(screen.getByText('Rent').closest('tr')).getByRole('button', { name: 'Move money' }))
+    fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '25.00' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    await waitFor(() => expect(api.earmarkMoves.create).toHaveBeenCalledWith({ date: '2026-10-03', cents: 2500, to_category_id: 4 }))
+  })
+
+  it('has no amount box on a goal row', async () => {
+    await renderTree({ 1: 0, 2: 0, 3: 0, 4: 0 })
+    goals = [rentRow({ goal: { ...rentRow().goal, category_id: 4 } })]
+    const { api } = await import('./api.js')
+    api.goals.list = () => Promise.resolve(goals)
+    renderCategories()
+    await screen.findAllByRole('link', { name: 'Record Oct 1' })
+    expect(screen.queryByLabelText(/Amount to add to or withdraw from/)).toBeNull()
   })
 })

@@ -61,9 +61,11 @@ describe('bottom bar', () => {
   it('carries Categories, Transactions, +, Due dates and More', () => {
     bar(false)
     const nav = screen.getByRole('navigation', { name: 'Bottom bar' })
-    for (const name of ['Categories', 'Transactions', 'Add transaction', 'Due dates', 'More']) {
-      expect(nav).toHaveTextContent(name === 'Add transaction' ? '+' : name)
+    for (const name of ['Categories', 'Transactions', 'Due dates', 'More']) {
+      expect(nav).toHaveTextContent(name)
     }
+    expect(screen.getByRole('button', { name: 'Quick add' })).toBeInTheDocument()
+    expect(nav.querySelectorAll('svg')).toHaveLength(5)
     fireEvent.click(screen.getByRole('button', { name: 'More' }))
     expect(screen.getByRole('navigation', { name: 'More' })).toBeInTheDocument()
   })

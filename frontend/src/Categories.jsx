@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
 import { CADENCES } from './cadences.js'
@@ -40,6 +41,73 @@ function orderTree(categories) {
   }
   walk(null, 0)
   return rows
+}
+
+const COLLAPSED_KEY = 'categories.collapsed'
+
+// Which groups are collapsed is a per-device convenience (DESIGN.md § Nested and grouped lists), so it
+// lives in localStorage and the page works without it.
+function loadCollapsed() {
+  try {
+    const ids = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]')
+    return Array.isArray(ids) ? ids : []
+  } catch {
+    return []
+  }
+}
+
+function saveCollapsed(ids) {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify(ids))
+  } catch {
+    // private window or blocked storage: the state just doesn't survive a reload
+  }
+}
+
+// What the table shows: each category once, with its group total (its own money plus every
+// descendant's), minus the descendants of a collapsed group. A parent holding money of its own gets a
+// "<name> itself" line first among its children. A search shows only matches and their ancestors, with
+// every group open, so a collapsed group never hides a hit.
+function viewRows(categories, availableOf, collapsed, search) {
+  const ordered = orderTree(categories)
+  const ids = new Set(categories.map((c) => c.id))
+  const childrenOf = new Map()
+  for (const { category: c } of ordered) {
+    const key = c.parent_id !== null && ids.has(c.parent_id) ? c.parent_id : null
+    if (!childrenOf.has(key)) childrenOf.set(key, [])
+    childrenOf.get(key).push(c)
+  }
+  const totals = new Map()
+  const totalOf = (c) => {
+    if (!totals.has(c.id)) {
+      totals.set(c.id, (childrenOf.get(c.id) ?? []).reduce((sum, child) => sum + totalOf(child), availableOf(c.id)))
+    }
+    return totals.get(c.id)
+  }
+  const query = search.trim().toLowerCase()
+  const keeps = new Map()
+  const keep = (c) => {
+    if (!keeps.has(c.id)) {
+      const below = (childrenOf.get(c.id) ?? []).map(keep).some(Boolean)
+      keeps.set(c.id, c.name.toLowerCase().includes(query) || below)
+    }
+    return keeps.get(c.id)
+  }
+  const out = []
+  function walk(parentId, depth) {
+    for (const c of childrenOf.get(parentId) ?? []) {
+      if (query && !keep(c)) continue
+      const kids = childrenOf.get(c.id) ?? []
+      const expanded = !!query || !collapsed.includes(c.id)
+      out.push({ category: c, depth, isParent: kids.length > 0, expanded, total: totalOf(c) })
+      if (kids.length > 0 && expanded) {
+        if (!query && availableOf(c.id) !== 0) out.push({ itself: c, depth: depth + 1, cents: availableOf(c.id) })
+        walk(c.id, depth + 1)
+      }
+    }
+  }
+  walk(null, 0)
+  return out
 }
 
 // Goal kinds and cadences (DESIGN.md § Goals). One goal per category; "No goal" archives it.
@@ -331,9 +399,9 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
   )
 }
 
-// The goal row under a category: name, "$X of $Y", due date, per-period amount, and its own
-// Add / Withdraw box — the same earmark move as the row above, so progress and available stay one number.
-function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams }) {
+// The goal row under a category: name, "$X of $Y", due date, per-period amount. Its one control is
+// Record on a recurring bill; moving money is the category row's Move money.
+function GoalRow({ progress, depth, archived, streams, onSelect, selected }) {
   const { goal, balance_cents: balance, target_cents: target, due_date: due } = progress
   const { bill_status: billStatus, bill_status_text: billStatusText, last_paid_text: lastPaidText } = progress
   const { commitment_cadence_text: cadenceLine, commitment_progress_text: progressLine, per_period_text: perPeriodText } = progress
@@ -357,6 +425,7 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
         <Link
           className="btn btn-quiet"
           to="/transactions"
+          onClick={(e) => e.stopPropagation()}
           state={{
             recordBill: {
               goal_id: goal.id,
@@ -379,25 +448,7 @@ function GoalRow({ progress, depth, amount, onAmount, onMove, archived, streams 
       )}
     </>
   )
-  const action = !archived && (
-    <form
-      className="flex items-center gap-2"
-      onSubmit={(e) => {
-        e.preventDefault()
-        onMove('add')
-      }}
-    >
-      <MoneyInput
-        aria-label={`Amount to add to or withdraw from ${goal.name}`}
-        value={amount}
-        onChange={onAmount}
-        placeholder="Amount"
-      />
-      <Button type="submit" variant="quiet">Add</Button>
-      <Button variant="quiet" onClick={() => onMove('withdraw')}>Withdraw</Button>
-    </form>
-  )
-  return <GoalRowShell depth={depth} colSpan={6} name={goal.name} status={status} action={action} />
+  return <GoalRowShell depth={depth} colSpan={5} name={goal.name} status={status} onSelect={onSelect} selected={selected} />
 }
 
 const EMPTY_FORM = { name: '', needLevel: '', parent: {}, pool: {}, domain: {}, absorb: false }
@@ -431,7 +482,12 @@ export default function Categories({ pickerDate }) {
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
   const [saved, setSaved] = useState(null) // the save note after an add
   const [summary, setSummary] = useState(null) // ready to assign, overspent and each category's available
-  const [amounts, setAmounts] = useState({}) // the assign box's text per category id
+  const [moveAmount, setMoveAmount] = useState('') // the panel's Move money amount
+  const [moveTo, setMoveTo] = useState({}) // the panel's "Move to…" pick, { id, text }
+  const [moveKey, setMoveKey] = useState(0) // remounts the "Move to…" picker after a move
+  const [moveNote, setMoveNote] = useState(null)
+  const [collapsed, setCollapsed] = useState(loadCollapsed) // ids of collapsed groups, per device
+  const [search, setSearch] = useState('')
   const [assignError, setAssignError] = useState(null)
   const [goals, setGoals] = useState([]) // every goal shown at the picker date, with its progress
   const [goalForm, setGoalForm] = useState(EMPTY_GOAL)
@@ -440,7 +496,6 @@ export default function Categories({ pickerDate }) {
   const [linkIds, setLinkIds] = useState([]) // account ids the category being edited is linked to
   const [linkFilter, setLinkFilter] = useState('')
   const [linkedWarning, setLinkedWarning] = useState(null) // shown after money leaves a linked category
-  const [moving, setMoving] = useState(null) // { category, to: { id, text }, amount } while moving out of a category
 
   function refresh() {
     api.categories.list(pickerDate, showArchived).then(setCategories).catch((e) => setError(e.message))
@@ -475,9 +530,28 @@ export default function Categories({ pickerDate }) {
       absorb: category.absorb_overspending,
     })
     setGoalForm(goalToForm(goals.find((g) => g.goal.category_id === category.id)?.goal))
+    resetMove()
     setLinkIds(category.linked_accounts.map((a) => a.id))
     setLinkFilter('')
     setFormError(null)
+  }
+
+  function resetMove() {
+    setMoveAmount('')
+    setMoveTo({})
+    setMoveKey((k) => k + 1)
+    setMoveNote(null)
+    setAssignError(null)
+    setLinkedWarning(null)
+  }
+
+  function setCollapsedIds(ids) {
+    setCollapsed(ids)
+    saveCollapsed(ids)
+  }
+
+  function toggleGroup(id) {
+    setCollapsedIds(collapsed.includes(id) ? collapsed.filter((x) => x !== id) : [...collapsed, id])
   }
 
   function resetForm() {
@@ -541,39 +615,45 @@ export default function Categories({ pickerDate }) {
 
   // One earmark move line, dated the "Show as of" date, between ready to assign and the category:
   // Add moves money into the category, Withdraw moves it back out.
-  async function addOrWithdraw(category, direction, boxKey = category.id) {
+  async function addOrWithdraw(category, direction) {
     setAssignError(null)
     setLinkedWarning(null)
-    const cents = parseCents(amounts[boxKey])
+    setMoveNote(null)
+    const cents = parseCents(moveAmount)
     if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move for ${category.name}.`)
     const side = direction === 'add' ? { to_category_id: category.id } : { from_category_id: category.id }
     try {
       await api.earmarkMoves.create({ date: pickerDate, cents, ...side })
       setLinkedWarning(direction === 'withdraw' ? linkedNote(category) : null)
-      setAmounts({ ...amounts, [boxKey]: '' })
+      setMoveAmount('')
+      setMoveNote(`${direction === 'add' ? 'Added' : 'Withdrew'} ${formatCents(cents)} ${direction === 'add' ? 'to' : 'from'} ${category.name}.`)
       refresh()
     } catch (err) {
       setAssignError(err.message)
     }
   }
 
-  // Two earmark lines, out of `moving.category` and into the picked category.
-  async function moveToCategory(e) {
+  // Two earmark lines, out of `category` and into the picked category.
+  async function moveToCategory(e, category) {
     e.preventDefault()
     setAssignError(null)
     setLinkedWarning(null)
-    const cents = parseCents(moving.amount)
-    if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move out of ${moving.category.name}.`)
-    if (unmatched(moving.to) || moving.to.id == null) return setAssignError('Pick the category to move the money to.')
+    setMoveNote(null)
+    const cents = parseCents(moveAmount)
+    if (cents === null || cents <= 0) return setAssignError(`Enter an amount to move out of ${category.name}.`)
+    if (unmatched(moveTo) || moveTo.id == null) return setAssignError('Pick the category to move the money to.')
     try {
       await api.earmarkMoves.create({
         date: pickerDate,
         cents,
-        from_category_id: moving.category.id,
-        to_category_id: moving.to.id,
+        from_category_id: category.id,
+        to_category_id: moveTo.id,
       })
-      setLinkedWarning(linkedNote(moving.category))
-      setMoving(null)
+      setLinkedWarning(linkedNote(category))
+      setMoveAmount('')
+      setMoveTo({})
+      setMoveKey((k) => k + 1)
+      setMoveNote(`Moved ${formatCents(cents)} out of ${category.name}.`)
       refresh()
     } catch (err) {
       setAssignError(err.message)
@@ -587,6 +667,7 @@ export default function Categories({ pickerDate }) {
     try {
       const result = await api.categories.archive(category.id, pickerDate)
       setWarnings(result.warnings.map((w) => `${category.name}: ${w}`))
+      if (editing?.id === category.id) closePanel()
       refresh()
     } catch (err) {
       setRowError(err.message)
@@ -598,16 +679,18 @@ export default function Categories({ pickerDate }) {
     setWarnings([])
     try {
       await api.categories.unarchive(category.id)
+      if (editing?.id === category.id) closePanel()
       refresh()
     } catch (err) {
       setRowError(err.message)
     }
   }
 
-  const rows = categories ? orderTree(categories) : []
   const domainName = (id) => domains.find((d) => d.id === id)?.name
   const active = (categories ?? []).filter((c) => !c.archived_on)
   const available = (id) => summary?.categories.find((c) => c.category_id === id)?.available_cents ?? 0
+  const rows = categories ? viewRows(categories, available, collapsed, search) : []
+  const parentIds = rows.filter((r) => r.isParent).map((r) => r.category.id)
   const goalOf = (id) => goals.find((g) => g.goal.category_id === id)
   const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
@@ -618,6 +701,36 @@ export default function Categories({ pickerDate }) {
       onClose={closePanel}
       focusKey={focusKey}
     >
+      {editing && !editing.archived_on && (
+        <section aria-label="Move money" className="mb-4 space-y-3 rounded-lg bg-raised p-3">
+          <h4 className="text-section">Move money</h4>
+          {assignError && <WarningNote>{assignError}</WarningNote>}
+          {moveNote && <SaveNote>{moveNote}</SaveNote>}
+          {linkedWarning && <WarningNote>{linkedWarning}</WarningNote>}
+          <form
+            className="space-y-3"
+            onSubmit={(e) => {
+              e.preventDefault()
+              addOrWithdraw(editing, 'add')
+            }}
+          >
+            <MoneyInput label="Amount" value={moveAmount} onChange={setMoveAmount} />
+            <div className="flex gap-3">
+              <Button type="submit" variant="secondary">Add</Button>
+              <Button variant="secondary" onClick={() => addOrWithdraw(editing, 'withdraw')}>Withdraw</Button>
+            </div>
+          </form>
+          <form className="space-y-3" onSubmit={(e) => moveToCategory(e, editing)}>
+            <NamePicker
+              key={moveKey}
+              label="Move to…"
+              items={active.filter((c) => c.id !== editing.id)}
+              onChange={(id, text) => setMoveTo({ id, text })}
+            />
+            <Button type="submit" variant="secondary">Move</Button>
+          </form>
+        </section>
+      )}
       <form key={formKey} onSubmit={submit} className="space-y-4">
         {formError && <RefusalNote>{formError}</RefusalNote>}
         {saved && <SaveNote>{saved}</SaveNote>}
@@ -686,6 +799,17 @@ export default function Categories({ pickerDate }) {
           <Button variant="secondary" onClick={closePanel}>{editing ? 'Cancel' : 'Done'}</Button>
         </div>
       </form>
+      {editing && (
+        <div className="mt-6 border-t border-line pt-3">
+          {/* Archive, quiet negative, at the panel's foot (DESIGN.md § Row actions). */}
+          <Button
+            variant="destructive"
+            onClick={() => (editing.archived_on ? unarchiveCategory(editing) : archiveCategory(editing))}
+          >
+            {editing.archived_on ? 'Unarchive' : 'Archive'}
+          </Button>
+        </div>
+      )}
     </SidePanel>
   )
 
@@ -711,30 +835,30 @@ export default function Categories({ pickerDate }) {
         <section className="card space-y-3">
           {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
           {rowError && <WarningNote>{rowError}</WarningNote>}
-          {assignError && <WarningNote>{assignError}</WarningNote>}
-          {linkedWarning && <WarningNote>{linkedWarning}</WarningNote>}
+          {!panelOpen && assignError && <WarningNote>{assignError}</WarningNote>}
+          {!panelOpen && linkedWarning && <WarningNote>{linkedWarning}</WarningNote>}
           {warnings.map((w) => (
             <WarningNote key={w}>{w}</WarningNote>
           ))}
-          {moving && (
-            <form key={moving.category.id} onSubmit={moveToCategory} className="space-y-3 rounded-lg bg-raised p-3">
-              <h3 className="text-section">Move money out of {moving.category.name}</h3>
-              <NamePicker
-                label="Move to"
-                items={active.filter((c) => c.id !== moving.category.id)}
-                onChange={(id, text) => setMoving({ ...moving, to: { id, text } })}
-              />
-              <MoneyInput label="Amount" value={moving.amount} onChange={(amount) => setMoving({ ...moving, amount })} />
-              <div className="flex gap-3">
-                <Button type="submit">Move</Button>
-                <Button variant="secondary" onClick={() => setMoving(null)}>Cancel</Button>
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+            <input
+              className="field"
+              placeholder="Search categories"
+              aria-label="Search categories"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <label className="flex min-h-11 items-center gap-2">
+              <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
+              Show archived
+            </label>
+            {parentIds.length > 0 && !search.trim() && (
+              <div className="flex">
+                <Button variant="quiet" onClick={() => setCollapsedIds([])}>Expand all</Button>
+                <Button variant="quiet" onClick={() => setCollapsedIds(parentIds)}>Collapse all</Button>
               </div>
-            </form>
-          )}
-          <label className="flex min-h-11 items-center gap-2">
-            <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
-            Show archived
-          </label>
+            )}
+          </div>
           {!error && !categories && <LoadingRows />}
           {categories && categories.length === 0 && (
             <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add a category</Button>}>
@@ -750,79 +874,118 @@ export default function Categories({ pickerDate }) {
                     <th>Domain</th>
                     <th>Need level</th>
                     <th className="text-right">Available</th>
-                    <th>Move money</th>
-                    <th></th>
+                    <th><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map(({ category: c, depth }) => (
-                    <Fragment key={c.id}>
-                      <tr className={editing?.id === c.id ? 'bg-raised' : undefined}>
-                        <td className="py-1" style={{ paddingLeft: `${depth * 1.25}rem` }}>
-                          {c.name}
-                          {c.linked_accounts.length > 0 && (
-                            <div className="text-sm text-text-3">
-                              money is in {c.linked_accounts.map((a) => a.name).join(' and ')}
+                  {rows.map((row) => {
+                    if (row.itself) {
+                      const c = row.itself
+                      return (
+                        <tr
+                          key={`${c.id}-itself`}
+                          className={`cursor-pointer text-text-2 ${editing?.id === c.id ? 'bg-raised' : ''}`}
+                          onClick={() => startEdit(c)}
+                        >
+                          <td className="py-1" style={{ paddingLeft: `${row.depth * 1.25 + 1.5}rem` }}>{c.name} itself</td>
+                          <td></td>
+                          <td></td>
+                          <td className={`tabular py-1 text-right ${row.cents < 0 ? 'text-negative' : ''}`}>{formatCents(row.cents)}</td>
+                          <td></td>
+                        </tr>
+                      )
+                    }
+                    const { category: c, depth, isParent, expanded, total } = row
+                    const shown = isParent ? total : available(c.id)
+                    const Chevron = expanded ? ChevronDown : ChevronRight
+                    return (
+                      <Fragment key={c.id}>
+                        <tr
+                          className={`cursor-pointer ${editing?.id === c.id ? 'bg-raised' : ''}`}
+                          tabIndex={0}
+                          onClick={() => startEdit(c)}
+                          onKeyDown={(e) => {
+                            if (e.target === e.currentTarget && e.key === 'Enter') startEdit(c)
+                          }}
+                        >
+                          <td className="py-1" style={{ paddingLeft: `${depth * 1.25 + (isParent ? 0 : 1.5)}rem` }}>
+                            <div className="flex items-center gap-1">
+                              {isParent && (
+                                <button
+                                  type="button"
+                                  aria-label={`${expanded ? 'Collapse' : 'Expand'} ${c.name}`}
+                                  aria-expanded={expanded}
+                                  className="btn btn-quiet px-0 text-text-2"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleGroup(c.id)
+                                  }}
+                                >
+                                  <Chevron aria-hidden="true" size={20} />
+                                </button>
+                              )}
+                              {isParent ? (
+                                <span
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    toggleGroup(c.id)
+                                  }}
+                                >
+                                  {c.name}
+                                </span>
+                              ) : (
+                                c.name
+                              )}
                             </div>
-                          )}
-                          {c.archived_on && (
-                            <div className="text-sm text-text-3">archived {formatDate(c.archived_on)}</div>
-                          )}
-                        </td>
-                        <td className="py-1">{domainName(c.domain_id) ?? ''}</td>
-                        <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
-                        <td className={`tabular py-1 text-right ${available(c.id) < 0 ? 'text-negative' : ''}`}>
-                          {formatCents(available(c.id))}
-                          {(poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
-                            <div className="text-sm text-text-3">
-                              +{formatCents(poolAvailable(c.id))} available if overspent
-                              {poolAbsorber(c.id) && `, then ${poolAbsorber(c.id)} absorbs the rest`}
-                            </div>
-                          )}
-                        </td>
-                        <td className="py-1 whitespace-nowrap">
-                          {!c.archived_on && (
-                            <form
-                              className="flex items-center gap-2"
-                              onSubmit={(e) => {
-                                e.preventDefault()
-                                addOrWithdraw(c, 'add')
-                              }}
-                            >
-                              <MoneyInput
-                                aria-label={`Amount to add to or withdraw from ${c.name}`}
-                                placeholder="Amount"
-                                value={amounts[c.id] ?? ''}
-                                onChange={(text) => setAmounts({ ...amounts, [c.id]: text })}
-                              />
-                              <Button type="submit" variant="quiet">Add</Button>
-                              <Button variant="quiet" onClick={() => addOrWithdraw(c, 'withdraw')}>Withdraw</Button>
-                              <Button variant="quiet" onClick={() => setMoving({ category: c, to: {}, amount: '' })}>
-                                Move to another category
+                            {c.linked_accounts.length > 0 && (
+                              <div className="text-sm text-text-3">
+                                money is in {c.linked_accounts.map((a) => a.name).join(' and ')}
+                              </div>
+                            )}
+                            {c.archived_on && (
+                              <div className="text-sm text-text-3">archived {formatDate(c.archived_on)}</div>
+                            )}
+                          </td>
+                          <td className="py-1">{domainName(c.domain_id) ?? ''}</td>
+                          <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
+                          <td className={`tabular py-1 text-right ${shown < 0 ? 'text-negative' : ''}`}>
+                            {formatCents(shown)}
+                            {(poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
+                              <div className="text-sm text-text-3">
+                                +{formatCents(poolAvailable(c.id))} available if overspent
+                                {poolAbsorber(c.id) && `, then ${poolAbsorber(c.id)} absorbs the rest`}
+                              </div>
+                            )}
+                          </td>
+                          <td className="py-1 text-right whitespace-nowrap">
+                            {/* On a phone the row has no visible control: tapping it opens the form. */}
+                            {!c.archived_on && (
+                              <Button
+                                variant="secondary"
+                                className="hidden md:inline-flex"
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  startEdit(c)
+                                }}
+                              >
+                                Move money
                               </Button>
-                            </form>
-                          )}
-                        </td>
-                        <td className="py-1 text-right whitespace-nowrap">
-                          <Button variant="quiet" onClick={() => startEdit(c)}>Edit</Button>
-                          <Button variant="quiet" onClick={() => (c.archived_on ? unarchiveCategory(c) : archiveCategory(c))}>
-                            {c.archived_on ? 'Unarchive' : 'Archive'}
-                          </Button>
-                        </td>
-                      </tr>
-                      {goalOf(c.id) && (
-                        <GoalRow
-                          progress={goalOf(c.id)}
-                          depth={depth}
-                          amount={amounts[`goal-${c.id}`] ?? ''}
-                          onAmount={(text) => setAmounts({ ...amounts, [`goal-${c.id}`]: text })}
-                          onMove={(direction) => addOrWithdraw(c, direction, `goal-${c.id}`)}
-                          archived={!!c.archived_on}
-                          streams={streams}
-                        />
-                      )}
-                    </Fragment>
-                  ))}
+                            )}
+                          </td>
+                        </tr>
+                        {goalOf(c.id) && (
+                          <GoalRow
+                            progress={goalOf(c.id)}
+                            depth={depth}
+                            archived={!!c.archived_on}
+                            streams={streams}
+                            selected={editing?.id === c.id}
+                            onSelect={() => startEdit(c)}
+                          />
+                        )}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>
