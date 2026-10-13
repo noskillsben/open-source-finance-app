@@ -231,7 +231,7 @@ export default function Categories({ pickerDate }) {
   const [moveKey, setMoveKey] = useState(0) // remounts the "Move to…" picker after a move
   const [moveNote, setMoveNote] = useState(null)
   const [collapsed, setCollapsed] = useState(loadCollapsed) // ids of collapsed groups, per device
-  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('categories.filters', { search: '', need: '', goal: '' })
+  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('categories.filters', { search: '', need: '', goal: '', overspent: false })
   const search = filters.search
   const [assignError, setAssignError] = useState(null)
   const [goals, setGoals] = useState([]) // every goal shown at the picker date, with its progress
@@ -437,8 +437,9 @@ export default function Categories({ pickerDate }) {
   const goalOf = (id) => goals.find((g) => g.goal.category_id === id)
   const passes = (c) =>
     (filters.need === '' || (filters.need === 'none' ? !c.need_level : c.need_level === filters.need)) &&
+    (!filters.overspent || available(c.id) < 0) &&
     (filters.goal === '' || (filters.goal === 'none' ? !goalOf(c.id) : goalOf(c.id)?.goal.kind === filters.goal))
-  passes.faceted = filters.need !== '' || filters.goal !== ''
+  passes.faceted = filters.need !== '' || filters.goal !== '' || filters.overspent
   const rows = categories ? viewRows(categories, available, collapsed, search, passes) : []
   const parentIds = rows.filter((r) => r.isParent).map((r) => r.category.id)
   const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
@@ -595,6 +596,7 @@ export default function Categories({ pickerDate }) {
             onSearch={(v) => setFilter('search', v)}
             active={filtersActive}
             onClear={clearFilters}
+            checks={[{ name: 'overspent', label: 'Overspent', checked: filters.overspent, onChange: (v) => setFilter('overspent', v) }]}
             facets={[
               { name: 'need', label: 'Need level', value: filters.need, onChange: (v) => setFilter('need', v), options: [...NEED_LEVELS, { value: 'none', label: 'Not set' }] },
               { name: 'goal', label: 'Goal', value: filters.goal, onChange: (v) => setFilter('goal', v), options: [...GOAL_KINDS, { value: 'none', label: 'No goal' }] },

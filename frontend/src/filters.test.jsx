@@ -16,6 +16,7 @@ let accounts = []
 let categories = []
 let goals = []
 let streams = []
+let summary = []
 
 vi.mock('./api.js', () => ({
   api: {
@@ -25,7 +26,7 @@ vi.mock('./api.js', () => ({
     },
     categories: { list: () => Promise.resolve(categories) },
     domains: { list: () => Promise.resolve([]) },
-    readyToAssign: () => Promise.resolve({ ready_to_assign_cents: 0, overspent_cents: 0, categories: [] }),
+    readyToAssign: () => Promise.resolve({ ready_to_assign_cents: 0, overspent_cents: 0, categories: summary }),
     goals: { list: () => Promise.resolve(goals) },
     incomeStreams: { list: () => Promise.resolve(streams) },
     payees: { list: () => Promise.resolve([]) },
@@ -177,6 +178,34 @@ describe('Categories filters', () => {
     expect(NEED_LEVELS.map((n) => n.value)).toEqual(['need', 'should', 'nice_to_have', 'want'])
     const kinds = GOAL_KINDS.map((k) => k.label)
     expect(kinds).toEqual([...kinds].sort((a, b) => a.localeCompare(b)))
+  })
+})
+
+describe('Categories overspent filter', () => {
+  it('shows only negative-available categories, combines with the name search, and clears', async () => {
+    categories = [category(1, 'Rent'), category(2, 'Eating out'), category(3, 'Phone'), category(4, 'Pets')]
+    goals = []
+    summary = [
+      { category_id: 1, available_cents: 500 }, { category_id: 2, available_cents: -2000 },
+      { category_id: 3, available_cents: -100 }, { category_id: 4, available_cents: 0 },
+    ]
+    render(<MemoryRouter><Categories pickerDate="2026-10-03" /></MemoryRouter>)
+    await screen.findByText('Rent')
+
+    fireEvent.click(screen.getByLabelText('Overspent'))
+    expect(screen.getByText('Eating out')).toBeInTheDocument()
+    expect(screen.getByText('Phone')).toBeInTheDocument()
+    expect(screen.queryByText('Rent')).toBeNull()
+    expect(screen.queryByText('Pets')).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('Search categories'), { target: { value: 'pho' } })
+    expect(screen.getByText('Phone')).toBeInTheDocument()
+    expect(screen.queryByText('Eating out')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }))
+    expect(screen.getByLabelText('Overspent')).not.toBeChecked()
+    expect(screen.getByText('Rent')).toBeInTheDocument()
+    expect(screen.getByText('Pets')).toBeInTheDocument()
   })
 })
 

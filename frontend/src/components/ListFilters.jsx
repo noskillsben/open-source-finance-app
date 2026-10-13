@@ -3,7 +3,7 @@ import Button from './Button.jsx'
 // The one filter bar every list page uses: a name search, a choice per facet, optional extra controls
 // (e.g. "Show archived"), and a Clear button that appears once anything is narrowing the list.
 //   facets: [{ name, label, value, onChange, options: [{ value, label }] }] — value '' means "all".
-export default function ListFilters({ noun, search, onSearch, facets = [], active, onClear, children }) {
+export default function ListFilters({ noun, search, onSearch, facets = [], checks = [], active, onClear, children }) {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
       <input
@@ -26,6 +26,12 @@ export default function ListFilters({ noun, search, onSearch, facets = [], activ
             <option key={o.value} value={o.value}>{o.label}</option>
           ))}
         </select>
+      ))}
+      {checks.map((c) => (
+        <label key={c.name} className="flex min-h-11 items-center gap-2">
+          <input type="checkbox" checked={c.checked} onChange={(e) => c.onChange(e.target.checked)} />
+          {c.label}
+        </label>
       ))}
       {children}
       {active && <Button variant="quiet" onClick={onClear}>Clear filters</Button>}
