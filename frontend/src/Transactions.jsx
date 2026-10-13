@@ -6,6 +6,7 @@ import Button from './components/Button.jsx'
 import { useRegisterFormOpen } from './components/SidePanel.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
+import ChoicePicker from './components/ChoicePicker.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import LedgerTable from './LedgerTable.jsx'
@@ -714,8 +715,9 @@ export default function Transactions({ pickerDate }) {
                 onChange={(e) => chooseSplit(e.target.value)}
               >
                 <option value="">No split</option>
-                {splitsAll
-                  ?.filter((s) => !s.archived_on || String(s.id) === splitId)
+                {[...(splitsAll ?? [])]
+                  .filter((s) => !s.archived_on || String(s.id) === splitId)
+                  .sort((a, b) => a.name.localeCompare(b.name))
                   .map((s) => (
                     <option key={s.id} value={s.id}>{s.name}{s.archived_on ? ' (archived)' : ''}</option>
                   ))}
@@ -738,7 +740,7 @@ export default function Transactions({ pickerDate }) {
                     onChange={(e) => changePaidBy(Number(e.target.value))}
                   >
                     {mePayeeId != null && <option value={mePayeeId}>Me</option>}
-                    {chosenSplit.members.map((m) => (
+                    {[...chosenSplit.members].sort((a, b) => a.payee_name.localeCompare(b.payee_name)).map((m) => (
                       <option key={m.payee_id} value={m.payee_id}>{m.payee_name}</option>
                     ))}
                   </select>
@@ -759,16 +761,15 @@ export default function Transactions({ pickerDate }) {
             <span className="field-label">Account lines (which accounts this touched)</span>
             {accountLines.map((line, i) => (
               <div key={i} className="flex flex-wrap items-center gap-2">
-                <select
-                  className="field min-w-40 flex-1"
-                  value={line.account_id}
-                  onChange={(e) => updateAccountLine(i, 'account_id', e.target.value)}
-                >
-                  <option value="">Select account…</option>
-                  {accounts?.map((a) => (
-                    <option key={a.id} value={a.id}>{a.name}</option>
-                  ))}
-                </select>
+                <div className="min-w-40 flex-1">
+                  <ChoicePicker
+                    items={accounts ?? []}
+                    value={line.account_id}
+                    onChange={(id) => updateAccountLine(i, 'account_id', id)}
+                    placeholder="Select account…"
+                    ariaLabel="Account"
+                  />
+                </div>
                 <MoneyInput signed value={line.cents} onChange={(text) => updateAccountLine(i, 'cents', text)} />
               </div>
             ))}
@@ -785,16 +786,15 @@ export default function Transactions({ pickerDate }) {
             <span className="field-label">Category lines (what it was for — leave empty for unassigned)</span>
             {categoryLines.map((line, i) => (
               <div key={i} className="flex flex-wrap items-center gap-2">
-                <select
-                  className="field min-w-40 flex-1"
-                  value={line.category_id}
-                  onChange={(e) => updateCategoryLine(i, 'category_id', e.target.value)}
-                >
-                  <option value="">Select category…</option>
-                  {categories?.map((c) => (
-                    <option key={c.id} value={c.id}>{c.name}</option>
-                  ))}
-                </select>
+                <div className="min-w-40 flex-1">
+                  <ChoicePicker
+                    items={categories ?? []}
+                    value={line.category_id}
+                    onChange={(id) => updateCategoryLine(i, 'category_id', id)}
+                    placeholder="Select category…"
+                    ariaLabel="Category"
+                  />
+                </div>
                 {chosenSplit && !totalLocked && (
                   <MoneyInput
                     placeholder="Receipt"
@@ -876,29 +876,26 @@ export default function Transactions({ pickerDate }) {
               </span>
               {deposits.map((row, i) => (
                 <div key={i} className="flex flex-wrap gap-2">
-                  <select
-                    className="flex-1 min-w-32 field"
-                    aria-label="Envelope"
-                    value={row.category_id}
-                    onChange={(e) => updateDeposit(i, 'category_id', e.target.value)}
-                  >
-                    <option value="">Select envelope…</option>
-                    {envelopes.map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <div className="flex-1 min-w-32">
+                    <ChoicePicker
+                      items={envelopes}
+                      value={row.category_id}
+                      onChange={(id) => updateDeposit(i, 'category_id', id)}
+                      placeholder="Select envelope…"
+                      ariaLabel="Envelope"
+                    />
+                  </div>
                   <MoneyInput aria-label="Amount" value={row.cents} onChange={(text) => updateDeposit(i, 'cents', text)} />
-                  <select
-                    className="flex-1 min-w-32 field"
-                    aria-label={linkedNet > 0 ? 'Taken from' : 'Goes to'}
-                    value={row.other_category_id}
-                    onChange={(e) => updateDeposit(i, 'other_category_id', e.target.value)}
-                  >
-                    <option value="">{linkedNet > 0 ? 'From ready to assign' : 'To ready to assign'}</option>
-                    {categories?.filter((c) => String(c.id) !== row.category_id).map((c) => (
-                      <option key={c.id} value={c.id}>{c.name}</option>
-                    ))}
-                  </select>
+                  <div className="flex-1 min-w-32">
+                    <ChoicePicker
+                      items={(categories ?? []).filter((c) => String(c.id) !== row.category_id)}
+                      value={row.other_category_id}
+                      onChange={(id) => updateDeposit(i, 'other_category_id', id)}
+                      placeholder={linkedNet > 0 ? 'From ready to assign' : 'To ready to assign'}
+                      ariaLabel={linkedNet > 0 ? 'Taken from' : 'Goes to'}
+                      emptyLabel={linkedNet > 0 ? 'From ready to assign' : 'To ready to assign'}
+                    />
+                  </div>
                   <button
                     type="button"
                     className="btn btn-quiet"

@@ -8,9 +8,9 @@ import { parseCents } from './utils/format.js'
 
 // Goal kinds and cadences (DESIGN.md § Goals). One goal per category; "No goal" archives it.
 export const GOAL_KINDS = [
+  { value: 'commitment', label: 'Commitment' },
   { value: 'recurring_bill', label: 'Recurring bill' },
   { value: 'target', label: 'Target' },
-  { value: 'commitment', label: 'Commitment' },
 ]
 // A fixed-amount Commitment's cadence, in this order; "Each payday" is the empty cadence, and there
 // is no every-N-weeks (that stays on bills).
