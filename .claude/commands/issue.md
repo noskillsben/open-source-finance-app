@@ -4,7 +4,7 @@ Work on GitHub issue #$ARGUMENTS in this repository. In this command the session
 
 1. Run `gh issue view $ARGUMENTS --comments`. If it has a parent EPIC, `gh issue view` the parent too and note where this issue sits in the order.
 2. Read every section of `docs/design/DESIGN.md` the issue cites, in full. If it cites nothing, find the covering section and say which one you are using.
-3. Check manager.md § "Hand back to the Architect". If any condition holds (labelled `decision`, DESIGN.md silent on what is needed, a second mechanism, no `**What changes:**` opener), stop and tell Ben: "that's a design question; it goes to the Architect before code", with the reason. Build nothing. Then go to "Stopping for Ben".
+3. Check manager.md § "Hand back to the Architect". If any condition holds (labelled `decision`, DESIGN.md silent on what is needed, a second mechanism, no `**What changes:**` opener), stop and tell Ben: "that's a design question; run `/decide N` to settle it before code" (N is the decision issue; if there isn't one yet, file it first, as a `decision` issue saying what is undecided, and give its number), with the reason. Build nothing. Then go to "Stopping for Ben".
 4. If a Manager comment already holds a scoped prompt, that prompt is the plan (a later correction comment supersedes the parts it names). Otherwise write one in manager.md's shape (§ Writing the Claude Code prompt) and post it with `gh issue comment`.
 
 ## 2. Build
