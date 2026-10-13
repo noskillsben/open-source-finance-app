@@ -38,7 +38,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Payees
 
-- See your payees in the Payees list. Click a row to open it in the side panel, where **Edit** is the form and **Archive** sits at the foot; Archive archives it as of the "Show as of" date (the payee "Me" can't be archived, and neither can anyone who's in a live split — take them out on the Split expenses page first). Tick "Show archived" to see archived payees and "Unarchive" one; that's refused if another payee now has the same name.
+- See your payees in the Payees list. Click "Archive" on a row to archive it as of the "Show as of" date (the payee "Me" can't be archived, and neither can anyone who's in a live split — take them out on the Split expenses page first). Tick "Show archived" to see archived payees and "Unarchive" one; that's refused if another payee now has the same name.
 
 ## Split expenses
 

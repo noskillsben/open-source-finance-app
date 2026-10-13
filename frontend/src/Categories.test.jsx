@@ -436,6 +436,15 @@ describe('rows and groups (#286)', () => {
     expect(screen.queryByText('Dining out')).toBeNull()
   })
 
+  it('a matching parent shows its whole subtree, so its total matches what is visible', async () => {
+    await renderTree({ 1: 1000, 2: 5000, 3: 2500, 4: 0 })
+    fireEvent.change(screen.getByLabelText('Search categories'), { target: { value: 'food' } })
+    expect(screen.getByText('Groceries')).toBeInTheDocument()
+    expect(screen.getByText('Dining out')).toBeInTheDocument()
+    expect(screen.getByText('Food itself')).toBeInTheDocument()
+    expect(screen.queryByText('Rent')).toBeNull()
+  })
+
   it('gives a category row one button, Move money, and Edit and Archive live in the panel', async () => {
     await renderTree({ 1: 0, 2: 0, 3: 0, 4: 0 })
     const rent = screen.getByText('Rent').closest('tr')

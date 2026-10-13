@@ -94,15 +94,18 @@ function viewRows(categories, availableOf, collapsed, search) {
     return keeps.get(c.id)
   }
   const out = []
-  function walk(parentId, depth) {
+  // A match shows its whole subtree, so the group total is the sum of what is on screen.
+  function walk(parentId, depth, whole = false) {
     for (const c of childrenOf.get(parentId) ?? []) {
-      if (query && !keep(c)) continue
+      const matches = query && c.name.toLowerCase().includes(query)
+      if (query && !whole && !keep(c)) continue
+      const showAll = whole || matches
       const kids = childrenOf.get(c.id) ?? []
       const expanded = !!query || !collapsed.includes(c.id)
       out.push({ category: c, depth, isParent: kids.length > 0, expanded, total: totalOf(c) })
       if (kids.length > 0 && expanded) {
-        if (!query && availableOf(c.id) !== 0) out.push({ itself: c, depth: depth + 1, cents: availableOf(c.id) })
-        walk(c.id, depth + 1)
+        if ((!query || showAll) && availableOf(c.id) !== 0) out.push({ itself: c, depth: depth + 1, cents: availableOf(c.id) })
+        walk(c.id, depth + 1, !!showAll)
       }
     }
   }
