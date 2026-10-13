@@ -1,5 +1,9 @@
 Settle decision issue #$ARGUMENTS with Ben. In this command the session is the Architect: you decide with him, record the decision in the design document, and file what it creates. `docs/design/seats/architect.md` is the rulebook and `CLAUDE.md` the conventions; this file says only what order to do things in. Work in this session, with Ben, not in a subagent: a decision needs back-and-forth.
 
+## 0. Start from `main`
+
+Bring the checkout to the latest `main` as CLAUDE.md § Finishing a session says (`git fetch origin`, `git checkout main`, `git pull --ff-only`). If the working tree is dirty or `main` won't fast-forward, stop and tell Ben in chat rather than work around it. This session is interactive, so no push notification is needed.
+
 ## 1. Read
 
 1. Run `gh issue view $ARGUMENTS --comments`. If it has a parent EPIC, `gh issue view` the parent too and note where this issue sits in the order.
@@ -18,7 +22,7 @@ You may edit `docs/design/DESIGN.md`, `docs/design/seats/` and `CLAUDE.md` (the 
 
 ## 4. Close
 
-Follow architect.md § Closing the session. Then show `git diff` and suggest a commit message. You never commit, push, merge, or touch the board; Ben reviews the diff and commits.
+Follow architect.md § Closing the session. Then show `git diff` and suggest a commit message, and say the edits are uncommitted on `main` and Ben moves them to a branch when he commits. You never commit, branch, stash, push, merge, or touch the board; Ben reviews the diff and commits.
 
 ## Never
 
