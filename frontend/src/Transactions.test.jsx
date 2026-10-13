@@ -845,7 +845,7 @@ describe('Ledger form: a shared bill on a split', () => {
   })
 })
 
-describe("Ledger form: 'Settle up' from the Splits page", () => {
+describe("Ledger form: 'Settle up' from the Split expenses page", () => {
   it('pre-fills a plain transfer for the full balance when they owe me: their account down, mine up', async () => {
     renderLedger({ settleUp: { account_id: 3, cents: -3000 } })
 

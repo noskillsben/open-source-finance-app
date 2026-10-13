@@ -98,7 +98,7 @@ export default function App() {
           <Route path="/categories" element={<Categories pickerDate={pickerDate} />} />
           <Route path="/accounts" element={<Accounts pickerDate={pickerDate} />} />
           <Route path="/payees" element={<Payees pickerDate={pickerDate} />} />
-          <Route path="/splits" element={<Splits pickerDate={pickerDate} />} />
+          <Route path="/split-expenses" element={<Splits pickerDate={pickerDate} />} />
           <Route path="/domains" element={<Domains pickerDate={pickerDate} />} />
           <Route path="/settings/data-check" element={<IntegrityCheck />} />
         </Routes>

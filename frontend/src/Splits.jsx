@@ -134,7 +134,7 @@ export default function Splits({ pickerDate }) {
 
   return (
     <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Splits</h2>
+      <h2 className="text-xl font-semibold">Split expenses</h2>
 
       <section className="rounded-lg bg-ink-soft p-4 space-y-3">
         <p className="text-sm text-paper-soft">

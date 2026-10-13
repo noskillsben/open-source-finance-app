@@ -26,7 +26,7 @@ vi.mock('./api.js', () => ({
 
 function renderSplits() {
   return render(
-    <MemoryRouter initialEntries={['/splits']}>
+    <MemoryRouter initialEntries={['/split-expenses']}>
       <Splits pickerDate="2026-10-05" />
       <Where />
     </MemoryRouter>,
@@ -74,7 +74,7 @@ describe('percent parsing', () => {
   })
 })
 
-describe('the Splits page', () => {
+describe('the Split expenses page', () => {
   beforeEach(() => {
     createSplit.mockReset()
     updateSplit.mockReset()
