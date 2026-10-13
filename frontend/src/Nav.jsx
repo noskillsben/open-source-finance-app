@@ -1,31 +1,34 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
+import {
+  Banknote, CalendarClock, Ellipsis, Landmark, Plus, Receipt, ShieldCheck, Split, Tag, Users, Wallet,
+} from 'lucide-react'
 import { useFormOpen } from './components/SidePanel.jsx'
 
 // The page-name table (DESIGN.md § UI conventions): four groups named for what you are doing, plus
 // Settings below them. A group with nothing built yet still renders as a header with no items.
 const GROUPS = [
-  { name: 'Record', items: [{ label: 'Transactions', to: '/transactions' }] },
+  { name: 'Record', items: [{ label: 'Transactions', to: '/transactions', Icon: Receipt }] },
   {
     name: 'Assign',
     items: [
-      { label: 'Categories', to: '/categories' },
-      { label: 'Accounts', to: '/accounts' },
-      { label: 'Payees', to: '/payees' },
-      { label: 'Domains', to: '/domains' },
+      { label: 'Categories', to: '/categories', Icon: Wallet },
+      { label: 'Accounts', to: '/accounts', Icon: Landmark },
+      { label: 'Payees', to: '/payees', Icon: Users },
+      { label: 'Domains', to: '/domains', Icon: Tag },
     ],
   },
   {
     name: 'Plan',
     items: [
-      { label: 'Income', to: '/income' },
-      { label: 'Split expenses', to: '/split-expenses' },
+      { label: 'Income', to: '/income', Icon: Banknote },
+      { label: 'Split expenses', to: '/split-expenses', Icon: Split },
     ],
   },
   { name: 'Review', items: [] },
 ]
 
-const SETTINGS = { name: 'Settings', items: [{ label: 'Data check', to: '/settings/data-check' }] }
+const SETTINGS = { name: 'Settings', items: [{ label: 'Data check', to: '/settings/data-check', Icon: ShieldCheck }] }
 
 /** The page title for the phone's top bar: the nav label of the longest matching route. */
 export function titleFor(pathname) {
@@ -37,7 +40,7 @@ export function titleFor(pathname) {
 }
 
 function linkClass({ isActive }) {
-  return `flex min-h-11 items-center rounded-lg px-3 text-base ${
+  return `flex min-h-11 items-center gap-3 rounded-lg px-3 text-base ${
     isActive ? 'bg-raised font-medium text-accent' : 'text-text-2 hover:bg-raised'
   }`
 }
@@ -50,6 +53,7 @@ function NavGroup({ group, onNavigate }) {
         {group.items.map((item) => (
           <li key={item.to}>
             <NavLink to={item.to} className={linkClass} onClick={onNavigate}>
+              <item.Icon aria-hidden="true" size={20} className="shrink-0" />
               {item.label}
             </NavLink>
           </li>
@@ -76,12 +80,12 @@ export function Sidebar() {
   )
 }
 
-const barItem = 'flex min-h-14 flex-col items-center justify-center gap-0.5 text-sm'
+const barItem = 'flex min-h-14 flex-col items-center justify-center gap-0.5 text-xs'
 const barLink = ({ isActive }) => `${barItem} ${isActive ? 'font-medium text-accent' : 'text-text-2'}`
 
 /** The phone's bottom bar: Categories, Transactions, +, Due dates, More. It is pinned, clears the home
- * indicator, and is hidden while a form is open. "+" opens the transaction form; Due dates has no page
- * until #275, so it is inert until then. */
+ * indicator, and is hidden while a form is open. The + is Quick add (#37): until that exists it opens
+ * the transaction form; Due dates has no page until #275, so it is inert until then. */
 export function BottomBar({ onAdd }) {
   const [more, setMore] = useState(false)
   const formOpen = useFormOpen()
@@ -103,23 +107,28 @@ export function BottomBar({ onAdd }) {
         className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden"
       >
         <NavLink to="/categories" className={barLink} onClick={() => setMore(false)}>
+          <Wallet aria-hidden="true" size={24} />
           Categories
         </NavLink>
         <NavLink to="/transactions" className={barLink} onClick={() => setMore(false)}>
+          <Receipt aria-hidden="true" size={24} />
           Transactions
         </NavLink>
-        <button
-          type="button"
-          aria-label="Add transaction"
-          className={`${barItem} text-accent`}
-          onClick={() => {
-            setMore(false)
-            onAdd()
-          }}
-        >
-          <span aria-hidden="true" className="text-section">+</span>
-        </button>
+        <div className="flex items-start justify-center">
+          <button
+            type="button"
+            aria-label="Quick add"
+            className="-mt-4 flex h-14 w-14 items-center justify-center rounded-full bg-accent text-on-accent"
+            onClick={() => {
+              setMore(false)
+              onAdd()
+            }}
+          >
+            <Plus aria-hidden="true" size={24} />
+          </button>
+        </div>
         <button type="button" disabled className={`${barItem} text-text-3`}>
+          <CalendarClock aria-hidden="true" size={24} />
           Due dates
         </button>
         <button
@@ -128,6 +137,7 @@ export function BottomBar({ onAdd }) {
           className={`${barItem} ${more ? 'text-accent' : 'text-text-2'}`}
           onClick={() => setMore((v) => !v)}
         >
+          <Ellipsis aria-hidden="true" size={24} />
           More
         </button>
       </nav>

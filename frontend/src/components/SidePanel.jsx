@@ -1,3 +1,4 @@
+import { X } from 'lucide-react'
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 
 // The shell hides its bottom bar while a form is open, so it never rides on the keyboard. Each
@@ -65,8 +66,8 @@ export default function SidePanel({ title, onClose, focusKey = 0, children }) {
     >
       <div className="mb-4 flex items-center justify-between gap-3">
         <h3 className="text-section">{title}</h3>
-        <button type="button" aria-label="Close" className="btn btn-quiet text-section" onClick={onClose}>
-          ×
+        <button type="button" aria-label="Close" className="btn btn-quiet text-text-2" onClick={onClose}>
+          <X aria-hidden="true" size={20} />
         </button>
       </div>
       {children}
