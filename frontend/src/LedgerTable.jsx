@@ -91,7 +91,11 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId 
               ))}
             </td>
             <td className="py-1 align-top">
-              {t.category_lines.length === 0 && <span className="text-text-2">unassigned</span>}
+              {t.category_lines.length === 0 && (
+                <span className="text-text-2">
+                  {t.account_lines.reduce((sum, l) => sum + (l.budget_cents ?? 0), 0) === 0 ? '—' : 'unassigned'}
+                </span>
+              )}
               {t.category_lines.map((l) => (
                 <div key={l.id}>
                   {entityLabel(categories, l.category_id, `#${l.category_id}`)}: <Amount cents={l.cents} />

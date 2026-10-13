@@ -46,4 +46,28 @@ describe('LedgerTable', () => {
     table()
     expect(screen.getByText('Weekly shop').closest('tr')).not.toHaveClass('cursor-pointer')
   })
+  describe('category column with no category lines', () => {
+    const bare = (id, lines) => ({
+      id, date: '2026-10-01', memo: `m${id}`, payee_id: null, income_stream_id: null, goal_id: null, goal_due_on: null, split_id: null,
+      account_lines: lines.map(([cents, budget_cents], i) => ({ id: id * 10 + i, account_id: 1, cents, budget_cents })),
+      category_lines: [],
+    })
+    const label = (lines) => {
+      const { unmount } = render(<MemoryRouter><LedgerTable transactions={[bare(1, lines)]} names={NAMES} /></MemoryRouter>)
+      const cell = screen.getByText('m1').closest('tr').querySelectorAll('td')[4]
+      const text = cell.textContent
+      unmount()
+      return text
+    }
+
+    it('shows a dash when the budget movement is 0 (card payment, tracking opening adjustment)', () => {
+      expect(label([[-300, 0], [300, 0]])).toBe('—')
+      expect(label([[-1500000, 0], [0, 0]])).toBe('—')
+    })
+
+    it('keeps "unassigned" when the budget movement is not 0 (credit draw, cash gift)', () => {
+      expect(label([[0, 0], [2000, 2000]])).toBe('unassigned')
+      expect(label([[5000, 5000]])).toBe('unassigned')
+    })
+  })
 })
