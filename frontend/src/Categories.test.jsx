@@ -301,16 +301,16 @@ describe("a Commitment's cadence (#156)", () => {
 })
 
 describe('Edit (#168)', () => {
-  it('scrolls the form into view', async () => {
+  it('opens in a side panel titled with the name, and brings it into view', async () => {
     goals = []
     const scrollIntoView = vi.fn()
     Element.prototype.scrollIntoView = scrollIntoView
     try {
       renderCategories()
       fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
-      await screen.findByText('Edit Rent')
+      await screen.findByText('Edit · Rent')
       expect(scrollIntoView).toHaveBeenCalled()
-      expect(scrollIntoView.mock.contexts.at(-1).tagName).toBe('FORM')
+      expect(scrollIntoView.mock.contexts.at(-1).tagName).toBe('ASIDE')
     } finally {
       delete Element.prototype.scrollIntoView
     }
@@ -349,6 +349,7 @@ describe('add a category', () => {
     let finish
     createCategory.mockReturnValue(new Promise((resolve) => { finish = resolve }))
     renderCategories()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a category' }))
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Groceries' } })
     const button = screen.getByRole('button', { name: 'Add category' })
     fireEvent.click(button)
@@ -362,5 +363,17 @@ describe('add a category', () => {
     await waitFor(() => expect(screen.getByLabelText('Name')).not.toBeDisabled())
     expect(screen.getByLabelText('Name')).toHaveValue('')
     expect(screen.getByRole('button', { name: 'Add category' })).not.toBeDisabled()
+    expect(screen.getByLabelText('Name')).toHaveFocus() // #220: ready for the next entry
+  })
+})
+
+describe('the visual pass (#252)', () => {
+  it('reads an overdrawn goal as "$525.00 short" in negative, and lists no Domains on this page (#220)', async () => {
+    goals = [rentRow({ balance_cents: -52500 })]
+    renderCategories()
+    const short = await screen.findByText('$525.00 short')
+    expect(short).toHaveClass('text-negative')
+    expect(screen.queryByText('Domains')).toBeNull()
+    expect(screen.queryByLabelText('Domain name')).toBeNull()
   })
 })

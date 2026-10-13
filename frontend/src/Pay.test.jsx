@@ -56,6 +56,7 @@ describe('add a named pay', () => {
         <Pay pickerDate="2026-09-23" />
       </MemoryRouter>
     )
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add a named pay' }))[0])
     const type = (label, value) => fireEvent.change(screen.getByLabelText(label), { target: { value } })
     type('Name', 'Salary')
     type('How often', 'monthly')
@@ -76,5 +77,6 @@ describe('add a named pay', () => {
     finish({})
     await waitFor(() => expect(screen.getByLabelText('Name')).not.toBeDisabled())
     expect(screen.getByRole('button', { name: 'Add named pay' })).not.toBeDisabled()
+    expect(screen.getByLabelText('Name')).toHaveFocus() // #220: ready for the next entry
   })
 })

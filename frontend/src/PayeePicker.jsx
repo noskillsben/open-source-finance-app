@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import Picker from './components/Picker.jsx'
 
 /** Searchable, alphabetical payee picker with an inline "add new" option (DESIGN.md §
  * Payees — picked the same way categories are added by name today, but searchable: every
@@ -7,7 +8,6 @@ import { useEffect, useRef, useState } from 'react'
  */
 export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError }) {
   const [query, setQuery] = useState('')
-  const [open, setOpen] = useState(false)
   // A ref, not state: state isn't updated until the next render, so a second press in the same
   // instant would still see "not adding".
   const adding = useRef(false)
@@ -28,13 +28,11 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
   function choose(payee) {
     onSelect(payee.id)
     setQuery(payee.name)
-    setOpen(false)
   }
 
   function clear() {
     onSelect(null)
     setQuery('')
-    setOpen(false)
   }
 
   async function addNew() {
@@ -51,10 +49,6 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
   }
 
   function onKeyDown(e) {
-    if (e.key === 'Escape') {
-      setOpen(false)
-      return
-    }
     // Empty box or a payee already chosen: Enter keeps its normal form-submit behaviour.
     if (e.key !== 'Enter' || trimmed === '' || payeeId !== null) return
     e.preventDefault()
@@ -64,51 +58,21 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
   }
 
   return (
-    <div className="relative">
-      <input
-        className="w-full rounded bg-ink px-2 py-1"
-        placeholder="Search payees…"
-        value={query}
-        onChange={(e) => {
-          setQuery(e.target.value)
-          setOpen(true)
-          if (payeeId !== null) onSelect(null)
-        }}
-        onKeyDown={onKeyDown}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
-      />
-      {open && (
-        <div className="absolute z-10 mt-1 w-full rounded bg-ink-soft shadow-lg max-h-48 overflow-auto text-sm">
-          {trimmed === '' && (
-            <button type="button" className="block w-full text-left px-2 py-1 text-paper-soft hover:bg-ink" onMouseDown={clear}>
-              No payee
-            </button>
-          )}
-          {matches.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              className="block w-full text-left px-2 py-1 hover:bg-ink"
-              onMouseDown={() => choose(p)}
-            >
-              {p.name}
-            </button>
-          ))}
-          {matches.length === 0 && trimmed === '' && (
-            <p className="px-2 py-1 text-paper-soft">No payees yet.</p>
-          )}
-          {onAdd && trimmed !== '' && !exactMatch && (
-            <button
-              type="button"
-              className="block w-full text-left px-2 py-1 text-accent hover:bg-ink"
-              onMouseDown={addNew}
-            >
-              + add payee "{trimmed}"
-            </button>
-          )}
-        </div>
-      )}
-    </div>
+    <Picker
+      text={query}
+      onText={(typed) => {
+        setQuery(typed)
+        if (payeeId !== null) onSelect(null)
+      }}
+      placeholder="Search payees…"
+      items={matches}
+      onPick={choose}
+      onClear={clear}
+      clearLabel="No payee"
+      onAdd={onAdd ? addNew : undefined}
+      addNoun="payee"
+      emptyText="No payees yet."
+      onKeyDown={onKeyDown}
+    />
   )
 }

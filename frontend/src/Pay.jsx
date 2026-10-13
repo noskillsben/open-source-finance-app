@@ -2,6 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
 import { CADENCES } from './cadences.js'
+import Button from './components/Button.jsx'
+import EmptyState from './components/EmptyState.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
+import MoneyInput from './components/MoneyInput.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
 import { formatDate, parseCents } from './utils/format.js'
@@ -89,7 +95,7 @@ function DeductionFields({ deductions, categories, onChange }) {
   const set = (i, patch) => onChange(deductions.map((d, idx) => (idx === i ? { ...d, ...patch } : d)))
   const remove = (i) => onChange(deductions.filter((_, idx) => idx !== i))
   return (
-    <fieldset className="rounded bg-ink p-3 space-y-3">
+    <fieldset className="rounded-lg bg-raised p-3 space-y-3">
       <legend className="px-1 text-sm font-medium">Expected deductions</legend>
       {deductions.map((d, i) => (
         <div key={i} className="flex items-end gap-2">
@@ -101,26 +107,13 @@ function DeductionFields({ deductions, categories, onChange }) {
               onChange={(id, text) => set(i, { category: { id, text } })}
             />
           </div>
-          <label className="block text-sm w-28">
-            <span className="text-paper-soft">Amount</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              className="mt-1 w-full rounded bg-ink-soft px-2 py-1"
-              value={d.amount}
-              onChange={(e) => set(i, { amount: e.target.value })}
-            />
-          </label>
-          <button type="button" className="text-xs text-accent pb-2" onClick={() => remove(i)}>Remove</button>
+          <MoneyInput label="Amount" value={d.amount} onChange={(amount) => set(i, { amount })} />
+          <Button variant="quiet" onClick={() => remove(i)}>Remove</Button>
         </div>
       ))}
-      <button
-        type="button"
-        className="text-xs text-accent"
-        onClick={() => onChange([...deductions, { category: {}, amount: '' }])}
-      >
+      <Button variant="quiet" onClick={() => onChange([...deductions, { category: {}, amount: '' }])}>
         + Add deduction
-      </button>
+      </Button>
     </fieldset>
   )
 }
@@ -140,6 +133,9 @@ export default function Pay({ pickerDate }) {
   const [formError, setFormError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [formKey, setFormKey] = useState(0)
+  const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
+  const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
+  const [saved, setSaved] = useState(null) // the save note after an add
 
   function refresh() {
     api.incomeStreams.list(pickerDate, showArchived).then(setStreams).catch((e) => setError(e.message))
@@ -150,7 +146,23 @@ export default function Pay({ pickerDate }) {
 
   useEffect(refresh, [pickerDate, showArchived])
 
+  function startAdd() {
+    resetForm()
+    setPanelOpen(true)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
+  }
+
+  function closePanel() {
+    resetForm()
+    setPanelOpen(false)
+    setSaved(null)
+  }
+
   function startEdit(stream) {
+    setPanelOpen(true)
+    setSaved(null)
+    setFocusKey((k) => k + 1)
     setFormKey((k) => k + 1)
     setEditing(stream)
     setForm(streamToForm(stream, categories, accounts, payees))
@@ -192,14 +204,20 @@ export default function Pay({ pickerDate }) {
     setSaving(true)
     try {
       const body = streamBody(form, pickerDate, deductions)
-      if (editing) await api.incomeStreams.update(editing.id, body)
-      else await api.incomeStreams.create(body)
-      resetForm()
+      if (editing) {
+        await api.incomeStreams.update(editing.id, body)
+        closePanel()
+      } else {
+        await api.incomeStreams.create(body)
+        resetForm()
+        setSaved(`Added ${body.name}.`)
+      }
       refresh()
     } catch (err) {
       setFormError(err.message)
     } finally {
       setSaving(false)
+      setFocusKey((k) => k + 1)
     }
   }
 
@@ -230,40 +248,139 @@ export default function Pay({ pickerDate }) {
 
   const shown = (streams ?? []).filter((s) => s.name.toLowerCase().includes(filter.trim().toLowerCase()))
 
-  return (
-    <div className="py-6 space-y-6">
-      <h2 className="text-xl font-semibold">Income</h2>
+  const formPanel = panelOpen && (
+    <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a named pay'} onClose={closePanel} focusKey={focusKey}>
+      <form key={formKey} onSubmit={submit} className="space-y-4">
+          <p className="text-sm text-text-2">
+            Lumpy income? You can always set it monthly and estimate the least and most you receive in a month.
+          </p>
+          {formError && <RefusalNote>{formError}</RefusalNote>}
+          {saved && <SaveNote>{saved}</SaveNote>}
+          <label className="block space-y-1">
+            <span className="field-label">Name</span>
+            <input
+              className="w-full field"
+              value={form.name}
+              disabled={saving}
+              onChange={(e) => setForm({ ...form, name: e.target.value })}
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="field-label">Payee (optional)</span>
+            <PayeePicker
+              payees={payees}
+              payeeId={form.payee.id ?? null}
+              onSelect={(id) => setForm({ ...form, payee: { id, text: payees.find((p) => p.id === id)?.name ?? '' } })}
+              onAdd={addPayee}
+              onError={setFormError}
+            />
+          </label>
+          <label className="block space-y-1">
+            <span className="field-label">How often</span>
+            <select
+              className="w-full field"
+              value={form.cadence}
+              onChange={(e) => setForm({ ...form, cadence: e.target.value })}
+            >
+              <option value="">Choose…</option>
+              {CADENCES.map((c) => (
+                <option key={c.value} value={c.value}>{c.label}</option>
+              ))}
+            </select>
+          </label>
+          {form.cadence === 'weeks' && (
+            <label className="block space-y-1">
+              <span className="field-label">Number of weeks</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                className="w-full field"
+                value={form.weeks}
+                onChange={(e) => setForm({ ...form, weeks: e.target.value.replace(/[^0-9]/g, '') })}
+              />
+            </label>
+          )}
+          <label className="block space-y-1">
+            <span className="field-label">Next payday you know about</span>
+            <input
+              type="date"
+              className="w-full field"
+              value={form.anchorPayday}
+              onChange={(e) => setForm({ ...form, anchorPayday: e.target.value })}
+            />
+          </label>
+          <MoneyInput label="Expected gross (optional)" value={form.gross} onChange={(text) => setForm({ ...form, gross: text })} />
+          <div className="flex gap-3">
+            <MoneyInput className="flex-1" label="Expected net, low" value={form.netLow} onChange={(text) => setForm({ ...form, netLow: text })} />
+            <MoneyInput className="flex-1" label="Expected net, high" value={form.netHigh} onChange={(text) => setForm({ ...form, netHigh: text })} />
+          </div>
+          <NamePicker
+            label="Income category (where this pay lands)"
+            items={categories}
+            initialId={form.incomeCategory.id}
+            onChange={(id, text) => setForm({ ...form, incomeCategory: { id, text } })}
+          />
+          <NamePicker
+            label="Destination account"
+            items={accounts}
+            initialId={form.destinationAccount.id}
+            onChange={(id, text) => setForm({ ...form, destinationAccount: { id, text } })}
+          />
+          <DeductionFields
+            deductions={form.deductions}
+            categories={categories}
+            onChange={(deductions) => setForm({ ...form, deductions })}
+          />
+          <div className="flex gap-3">
+            <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add named pay'}</Button>
+            <Button variant="secondary" onClick={closePanel}>{editing ? 'Cancel' : 'Done'}</Button>
+          </div>
+      </form>
+    </SidePanel>
+  )
 
-      <section className="rounded-lg bg-ink-soft p-4 space-y-2">
-        {error && <p className="text-bad">Could not reach the backend: {error}</p>}
-        {rowError && <p className="text-bad">{rowError}</p>}
+  return (
+    <div className="space-y-6 py-4">
+      <div className="flex items-center justify-between gap-3">
+        <h2 className="page-title hidden md:block">Income</h2>
+        <Button className="ml-auto" onClick={startAdd}>Add a named pay</Button>
+      </div>
+
+      <PanelLayout panel={formPanel}>
+      <section className="card space-y-3">
+        {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
+        {rowError && <WarningNote>{rowError}</WarningNote>}
         {warnings.map((w) => (
-          <p key={w} className="text-sm text-bad">{w}</p>
+          <WarningNote key={w}>{w}</WarningNote>
         ))}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <input
-              className="rounded bg-ink px-2 py-1 text-sm"
+              className="field"
               placeholder="Search named pays"
               aria-label="Search named pays"
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
             />
-            <label className="flex items-center gap-2 text-sm">
+            <label className="flex min-h-11 items-center gap-2">
               <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
               Show archived
             </label>
           </div>
-          <Link className="text-sm text-accent" to="/income/one-off">
+          <Link className="btn btn-quiet" to="/income/one-off">
             One-off income
           </Link>
         </div>
-        {!error && !streams && <p>Loading…</p>}
-        {streams && streams.length === 0 && <p className="text-paper-soft">No named pays yet.</p>}
+        {!error && !streams && <LoadingRows />}
+        {streams && streams.length === 0 && (
+          <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add a named pay</Button>}>
+            No named pays yet.
+          </EmptyState>
+        )}
         {shown.length > 0 && (
-          <table className="w-full text-sm">
+          <table className="w-full">
             <thead>
-              <tr className="text-left text-paper-soft">
+              <tr className="text-left text-text-2">
                 <th className="pb-1">Name</th>
                 <th className="pb-1">Cadence</th>
                 <th className="pb-1">Next payday</th>
@@ -276,25 +393,25 @@ export default function Pay({ pickerDate }) {
                   <td className="py-1">
                     {s.name}
                     {s.archived_on && (
-                      <div className="text-xs text-paper-soft">archived {formatDate(s.archived_on)}</div>
+                      <div className="text-sm text-text-3">archived {formatDate(s.archived_on)}</div>
                     )}
                   </td>
                   <td className="py-1">{cadenceText(s)}</td>
                   <td className="py-1">{formatDate(s.next_payday)}</td>
                   <td className="py-1 text-right space-x-3 whitespace-nowrap">
                     {!s.archived_on && (
-                      <Link className="text-xs text-accent" to={`/income/${s.id}/record`}>
+                      <Link className="btn btn-quiet" to={`/income/${s.id}/record`}>
                         {s.next_payday_recorded ? 'Re-open' : 'Record'}
                       </Link>
                     )}
                     {!s.archived_on && (
-                      <button type="button" className="text-xs text-accent" onClick={() => startEdit(s)}>
+                      <button type="button" className="btn btn-quiet" onClick={() => startEdit(s)}>
                         Edit
                       </button>
                     )}
                     <button
                       type="button"
-                      className="text-xs text-accent"
+                      className="btn btn-quiet"
                       onClick={() => (s.archived_on ? unarchiveStream(s) : archiveStream(s))}
                     >
                       {s.archived_on ? 'Unarchive' : 'Archive'}
@@ -306,124 +423,7 @@ export default function Pay({ pickerDate }) {
           </table>
         )}
       </section>
-
-      <form key={formKey} onSubmit={submit} className="rounded-lg bg-ink-soft p-4 space-y-3">
-        <h3 className="font-medium">{editing ? `Edit ${editing.name}` : 'Add a named pay'}</h3>
-        <p className="text-sm text-paper-soft">
-          Lumpy income? You can always set it monthly and estimate the least and most you receive in a month.
-        </p>
-        {formError && <p className="text-bad">{formError}</p>}
-        <label className="block text-sm">
-          <span className="text-paper-soft">Name</span>
-          <input
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
-            value={form.name}
-            disabled={saving}
-            onChange={(e) => setForm({ ...form, name: e.target.value })}
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-paper-soft">Payee (optional)</span>
-          <PayeePicker
-            payees={payees}
-            payeeId={form.payee.id ?? null}
-            onSelect={(id) => setForm({ ...form, payee: { id, text: payees.find((p) => p.id === id)?.name ?? '' } })}
-            onAdd={addPayee}
-            onError={setFormError}
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-paper-soft">How often</span>
-          <select
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
-            value={form.cadence}
-            onChange={(e) => setForm({ ...form, cadence: e.target.value })}
-          >
-            <option value="">Choose…</option>
-            {CADENCES.map((c) => (
-              <option key={c.value} value={c.value}>{c.label}</option>
-            ))}
-          </select>
-        </label>
-        {form.cadence === 'weeks' && (
-          <label className="block text-sm">
-            <span className="text-paper-soft">Number of weeks</span>
-            <input
-              type="text"
-              inputMode="numeric"
-              className="mt-1 w-full rounded bg-ink px-2 py-1"
-              value={form.weeks}
-              onChange={(e) => setForm({ ...form, weeks: e.target.value.replace(/[^0-9]/g, '') })}
-            />
-          </label>
-        )}
-        <label className="block text-sm">
-          <span className="text-paper-soft">Next payday you know about</span>
-          <input
-            type="date"
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
-            value={form.anchorPayday}
-            onChange={(e) => setForm({ ...form, anchorPayday: e.target.value })}
-          />
-        </label>
-        <label className="block text-sm">
-          <span className="text-paper-soft">Expected gross (optional)</span>
-          <input
-            type="text"
-            inputMode="decimal"
-            className="mt-1 w-full rounded bg-ink px-2 py-1"
-            value={form.gross}
-            onChange={(e) => setForm({ ...form, gross: e.target.value })}
-          />
-        </label>
-        <div className="flex gap-3">
-          <label className="block text-sm flex-1">
-            <span className="text-paper-soft">Expected net, low</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              className="mt-1 w-full rounded bg-ink px-2 py-1"
-              value={form.netLow}
-              onChange={(e) => setForm({ ...form, netLow: e.target.value })}
-            />
-          </label>
-          <label className="block text-sm flex-1">
-            <span className="text-paper-soft">Expected net, high</span>
-            <input
-              type="text"
-              inputMode="decimal"
-              className="mt-1 w-full rounded bg-ink px-2 py-1"
-              value={form.netHigh}
-              onChange={(e) => setForm({ ...form, netHigh: e.target.value })}
-            />
-          </label>
-        </div>
-        <NamePicker
-          label="Income category (where this pay lands)"
-          items={categories}
-          initialId={form.incomeCategory.id}
-          onChange={(id, text) => setForm({ ...form, incomeCategory: { id, text } })}
-        />
-        <NamePicker
-          label="Destination account"
-          items={accounts}
-          initialId={form.destinationAccount.id}
-          onChange={(id, text) => setForm({ ...form, destinationAccount: { id, text } })}
-        />
-        <DeductionFields
-          deductions={form.deductions}
-          categories={categories}
-          onChange={(deductions) => setForm({ ...form, deductions })}
-        />
-        <div className="flex gap-3">
-          <button type="submit" disabled={saving} className="rounded bg-accent px-3 py-1 text-ink disabled:opacity-50">
-            {editing ? 'Save' : 'Add named pay'}
-          </button>
-          {editing && (
-            <button type="button" className="text-sm text-accent" onClick={resetForm}>Cancel</button>
-          )}
-        </div>
-      </form>
+      </PanelLayout>
     </div>
   )
 }

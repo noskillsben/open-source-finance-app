@@ -27,9 +27,14 @@ export function useLedgerNames(pickerDate) {
   return names
 }
 
+// Positive amounts are plain text; only a negative one is coloured, and it prints its minus sign.
+function Amount({ cents }) {
+  return <span className={`tabular ${cents < 0 ? 'text-negative' : ''}`}>{formatCents(cents)}</span>
+}
+
 /** The Ledger's list of transactions (DESIGN.md § Transactions). Without `onSelect` it is read-only:
  * no row click, no pointer — the Splits page shows it this way. */
-export default function LedgerTable({ transactions, names, onSelect }) {
+export default function LedgerTable({ transactions, names, onSelect, selectedId }) {
   const { accounts, categories, payees, goals, splits } = names
   function splitLabel(id) {
     const match = splits?.find((s) => s.id === id)
@@ -43,9 +48,9 @@ export default function LedgerTable({ transactions, names, onSelect }) {
   }
 
   return (
-    <table className="w-full text-sm">
+    <table className="w-full">
       <thead>
-        <tr className="text-left text-paper-soft">
+        <tr className="text-left text-text-2">
           <th className="pb-1">Date</th>
           <th className="pb-1">Memo</th>
           <th className="pb-1">Payee</th>
@@ -57,7 +62,7 @@ export default function LedgerTable({ transactions, names, onSelect }) {
         {transactions.map((t) => (
           <tr
             key={t.id}
-            className={onSelect ? 'cursor-pointer hover:bg-ink' : undefined}
+            className={`${onSelect ? 'cursor-pointer hover:bg-raised' : ''} ${selectedId === t.id ? 'bg-raised' : ''}`.trim() || undefined}
             onClick={onSelect ? () => onSelect(t) : undefined}
           >
             <td className="py-1 align-top">
@@ -65,7 +70,7 @@ export default function LedgerTable({ transactions, names, onSelect }) {
               {t.income_stream_id != null && (
                 <div>
                   <Link
-                    className="text-xs text-accent"
+                    className="btn btn-quiet"
                     to={`/income/${t.income_stream_id}/record?date=${t.date}`}
                     onClick={(e) => e.stopPropagation()}
                   >
@@ -81,22 +86,22 @@ export default function LedgerTable({ transactions, names, onSelect }) {
             <td className="py-1 align-top">
               {t.account_lines.map((l) => (
                 <div key={l.id}>
-                  {entityLabel(accounts, l.account_id, `#${l.account_id}`)}: {formatCents(l.cents)}
+                  {entityLabel(accounts, l.account_id, `#${l.account_id}`)}: <Amount cents={l.cents} />
                 </div>
               ))}
             </td>
             <td className="py-1 align-top">
-              {t.category_lines.length === 0 && <span className="text-paper-soft">unassigned</span>}
+              {t.category_lines.length === 0 && <span className="text-text-2">unassigned</span>}
               {t.category_lines.map((l) => (
                 <div key={l.id}>
-                  {entityLabel(categories, l.category_id, `#${l.category_id}`)}: {formatCents(l.cents)}
+                  {entityLabel(categories, l.category_id, `#${l.category_id}`)}: <Amount cents={l.cents} />
                 </div>
               ))}
               {t.split_id != null && (
-                <div className="text-xs text-paper-soft">Split: {splitLabel(t.split_id)}</div>
+                <div className="text-sm text-text-3">Split: {splitLabel(t.split_id)}</div>
               )}
               {t.goal_id != null && (
-                <div className="text-xs text-paper-soft">
+                <div className="text-sm text-text-3">
                   pays {billLabel(t.goal_id)}, due {formatDate(t.goal_due_on)}
                 </div>
               )}

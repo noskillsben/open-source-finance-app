@@ -51,6 +51,10 @@ const HEAT = {
   account_lines: [{ id: 1, account_id: 3, cents: 5000 }], category_lines: [],
 }
 
+async function openAddForm() {
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Add a split' }))[0])
+}
+
 async function addMember(payeeName, percent, index) {
   fireEvent.click(screen.getByRole('button', { name: '+ Add a person' }))
   const picker = (await screen.findAllByPlaceholderText('Search payees…'))[index]
@@ -125,6 +129,7 @@ describe('the Split expenses page', () => {
 
   it('shows your share update as percentages are typed, and warns past 100%', async () => {
     renderSplits()
+    await openAddForm()
     expect(await screen.findByText('Your share: 100%')).toBeInTheDocument()
 
     await addMember('Sam', '30', 0)
@@ -137,6 +142,7 @@ describe('the Split expenses page', () => {
   it('shows the backend refusal detail when a save is refused', async () => {
     createSplit.mockRejectedValue(new Error('The members add up to 110%, which is more than 100%.'))
     renderSplits()
+    await openAddForm()
     fireEvent.change(await screen.findByLabelText('Split name'), { target: { value: 'Rent' } })
     await addMember('Sam', '50', 0)
     fireEvent.click(screen.getByRole('button', { name: 'Add split' }))
@@ -158,7 +164,7 @@ describe('the Split expenses page', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText('Sam still owes you $60.00; their balance stays on Accounts.')).toBeInTheDocument()
-    expect(screen.getByRole('button', { name: 'Add split' })).toBeInTheDocument() // the form was reset, the note stayed
+    expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument() // the panel closed, the note stayed
 
     fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
     expect(screen.queryByText(/still owes you/)).not.toBeInTheDocument()

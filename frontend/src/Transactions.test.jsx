@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Transactions from './Transactions.jsx'
+import { BottomBar } from './Nav.jsx'
+import { FormOpenProvider } from './components/SidePanel.jsx'
 
 // What the mocked backend already holds; a test sets these before rendering.
 let existingTransactions = []
@@ -246,7 +248,7 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
     expect(await screen.findByText(/Marked as paying/)).toHaveTextContent('Marked as paying Rent, due Oct 1, 2026.')
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
     expect(screen.getByRole('option', { name: 'Rent' }).closest('select')).toHaveValue('11')
-    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200', '-1200'])
+    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200.00', '-1200.00'])
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
     expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
   })
@@ -1075,7 +1077,8 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
   function pick(accountName, cents, index) {
     // The account lines' amount boxes come first, then any category line's.
     const amount = screen.getAllByPlaceholderText('0.00')[index]
-    const row = amount.parentElement
+    let row = amount.parentElement
+    while (!row.querySelector('select')) row = row.parentElement
     fireEvent.change(row.querySelector('select'), { target: { value: String(ACCOUNTS.find((x) => x.name === accountName).id) } })
     fireEvent.change(amount, { target: { value: cents } })
   }
@@ -1144,5 +1147,24 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     pick('Credit line', '100', 1)
 
     expect(screen.queryByDisplayValue('Debt payments')).toBeNull()
+  })
+})
+
+describe("the phone's bottom bar (#252)", () => {
+  it('is absent while the Transactions form has focus, and back when it does not', async () => {
+    render(
+      <MemoryRouter initialEntries={['/transactions']}>
+        <FormOpenProvider>
+          <BottomBar onAdd={() => {}} />
+          <Transactions pickerDate="2026-10-03" />
+        </FormOpenProvider>
+      </MemoryRouter>,
+    )
+    const date = await screen.findByLabelText('Date')
+    expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
+    fireEvent.focus(date)
+    expect(screen.queryByRole('navigation', { name: 'Bottom bar' })).not.toBeInTheDocument()
+    fireEvent.blur(date)
+    expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
   })
 })

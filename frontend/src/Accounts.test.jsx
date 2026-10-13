@@ -36,6 +36,12 @@ vi.mock('./api.js', () => ({
   },
 }))
 
+// The add and edit forms open in the side panel; the loan terms start folded under a one-line summary.
+async function openAdd() {
+  fireEvent.click((await screen.findAllByRole('button', { name: 'Add an account' }))[0])
+}
+const openTerms = () => fireEvent.click(screen.getByRole('button', { name: 'Loan terms' }))
+
 async function saveCheck(statedBalance) {
   fireEvent.click(await screen.findByRole('button', { name: 'Check balance' }))
   fireEvent.change(await screen.findByLabelText('Stated balance'), { target: { value: statedBalance } })
@@ -130,6 +136,7 @@ describe('add an account: opening balance', () => {
 
   async function fillAndSave(openingBalance) {
     render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Wallet' } })
     fireEvent.change(screen.getByLabelText('Opening balance'), { target: { value: openingBalance } })
     fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
@@ -189,6 +196,7 @@ describe('payee-locked accounts', () => {
     createAccount.mockResolvedValue({})
     render(<Accounts pickerDate="2026-10-03" />)
 
+    await openAdd()
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Starbucks card' } })
     fireEvent.focus(screen.getByPlaceholderText('Search payees…'))
     fireEvent.mouseDown(await screen.findByText('Starbucks'))
@@ -223,33 +231,30 @@ describe("lender's terms", () => {
     createAccount.mockResolvedValue({})
   })
 
-  it.each(['Credit card', 'Line of credit', 'Loan', 'Money owed to me', 'Mortgage', 'Payment plan'])(
-    'opens the section by default for %s',
+  it.each(['Credit card', 'Line of credit', 'Loan', 'Money owed to me', 'Mortgage', 'Payment plan', 'Cash', 'Chequing', 'Savings', 'Investment', 'Asset'])(
+    'folds the loan terms under a one-line summary for %s, and the toggle unfolds them',
     async (type) => {
       accounts = []
       render(<Accounts pickerDate="2026-10-03" />)
+      await openAdd()
       fireEvent.change(await screen.findByLabelText('Type'), { target: { value: type } })
 
+      expect(screen.queryByLabelText('Annual rate (%)')).toBeNull()
+      expect(screen.getByText('Nothing entered')).toBeTruthy()
+      openTerms()
       expect(screen.getByLabelText('Annual rate (%)')).toBeTruthy()
-      expect(screen.queryByRole('button', { name: "Add lender's terms" })).toBeNull()
+      expect(screen.queryByText(/lender/i)).toBeNull() // "Loan terms" everywhere
     },
   )
 
-  it.each(['Cash', 'Chequing', 'Savings', 'Investment', 'Asset'])('puts %s behind the toggle', async (type) => {
-    accounts = []
-    render(<Accounts pickerDate="2026-10-03" />)
-    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: type } })
-
-    expect(screen.queryByLabelText('Annual rate (%)')).toBeNull()
-    fireEvent.click(screen.getByRole('button', { name: "Add lender's terms" }))
-    expect(screen.getByLabelText('Annual rate (%)')).toBeTruthy()
-  })
-
-  it('opens the toggle on its own when the account already has terms', async () => {
+  it('shows what the account already states in the summary, and unfolds to the fields', async () => {
     accounts = [account({ id: 3, name: 'Nest egg', type: 'Savings', terms: { credit_limit_cents: 0, annual_rate: '2.5000' } })]
     render(<Accounts pickerDate="2026-10-03" />)
     fireEvent.click(await screen.findByText('Nest egg', { selector: 'td' }))
 
+    expect(screen.queryByLabelText('Annual rate (%)')).toBeNull()
+    expect(screen.getAllByText('2.5%').length).toBeGreaterThan(0)
+    openTerms()
     expect(screen.getByLabelText('Annual rate (%)').value).toBe('2.5000')
   })
 
@@ -259,12 +264,15 @@ describe("lender's terms", () => {
     fireEvent.click(await screen.findByText('Wallet', { selector: 'td' }))
 
     expect(screen.queryByLabelText('Annual rate (%)')).toBeNull()
+    expect(screen.getByText('Nothing entered')).toBeTruthy()
   })
 
   it('saves blank as null and a typed 0 as 0, with nothing pre-filled', async () => {
     accounts = []
     render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
     fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Credit card' } })
+    openTerms()
     expect(screen.getByLabelText('Grace days after the statement closes').value).toBe('')
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Visa' } })
     fireEvent.change(screen.getByLabelText('Annual rate (%)'), { target: { value: '19.99' } })
@@ -283,7 +291,9 @@ describe("lender's terms", () => {
   it('refuses a statement close day outside 1-31 before it is sent', async () => {
     accounts = []
     render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
     fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Credit card' } })
+    openTerms()
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Visa' } })
     fireEvent.change(screen.getByLabelText('Statement closes on day (1–31)'), { target: { value: '32' } })
     fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
@@ -301,6 +311,7 @@ describe("lender's terms", () => {
     accounts = [account({ id: 4, name: 'Home loan', type: 'Mortgage', on_budget: false, terms: existing })]
     render(<Accounts pickerDate="2026-10-03" />)
     fireEvent.click(await screen.findByText('Home loan', { selector: 'td' }))
+    openTerms()
     fireEvent.change(screen.getByLabelText('Annual rate (%)'), { target: { value: '4.5' } })
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
@@ -323,17 +334,20 @@ describe("lender's terms", () => {
 
 describe('boundary category', () => {
   const picker = () => screen.findByLabelText(/Category money leaves the budget through/)
+  const queryPicker = () => screen.queryByLabelText(/Category money leaves the budget through/)
 
   beforeEach(() => {
     createAccount.mockReset()
     createAccount.mockResolvedValue({})
   })
 
-  it('pre-fills Debt payments for a debt type, found by its seeded key, and sends it', async () => {
+  it('shows only while the account is tracking, and pre-fills Debt payments for a debt type, found by its seeded key', async () => {
     accounts = []
     render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
 
-    expect(await picker()).toHaveValue('')
+    await screen.findByLabelText('Name')
+    expect(queryPicker()).toBeNull() // Chequing is on-budget: nothing reads the boundary category
     fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Car loan' } })
     fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'Loan' } })
     expect(await picker()).toHaveValue('Debt payments')
@@ -343,13 +357,42 @@ describe('boundary category', () => {
     expect(createAccount.mock.calls[0][0].boundary_category_id).toBe(12)
   })
 
-  it('stays blank for the other types, and an edit does not backfill', async () => {
+  it('is hidden again when the account is switched to on-budget', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Loan' } })
+    expect(await picker()).toBeTruthy()
+    fireEvent.click(screen.getByLabelText(/On-budget \(money here/))
+    expect(queryPicker()).toBeNull()
+  })
+
+  it('stays blank on an edit of a tracking account: an edit does not backfill', async () => {
     accounts = [account({ id: 6, name: 'Old loan', type: 'Loan', on_budget: false, boundary_category_id: null })]
     render(<Accounts pickerDate="2026-10-03" />)
 
-    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Savings' } })
-    expect(await picker()).toHaveValue('')
-    fireEvent.click(screen.getByText('Old loan'))
+    fireEvent.click(await screen.findByText('Old loan'))
     await waitFor(async () => expect(await picker()).toHaveValue(''))
+  })
+})
+
+describe('the on-budget floor and the credit limit', () => {
+  it('shows the floor only while the account is on-budget', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    expect(await screen.findByLabelText('On-budget floor')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText(/On-budget \(money here/))
+    expect(screen.queryByLabelText('On-budget floor')).toBeNull()
+  })
+
+  it('words an unknown credit limit as "unknown", never 0.00', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Credit card' } })
+    const limit = screen.getByLabelText(/Credit limit/)
+    expect(limit).toHaveValue('')
+    expect(limit).toHaveAttribute('placeholder', 'unknown')
   })
 })
