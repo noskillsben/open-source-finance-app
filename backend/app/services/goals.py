@@ -165,6 +165,9 @@ class Progress:
     # A recurring bill's amount and cadence ("$87.00 yearly", "$120.00 every 2 weeks") or a Target's
     # per-period amount and cadence ("$100.00 monthly"), worded once here. Null for any other goal.
     per_period_text: str | None = None
+    # A fixed Commitment with a due month: the date its next due falls on (the period's due date),
+    # so the Due dates page can sort by it. Null for any other goal.
+    commitment_next_due_on: date | None = None
 
 
 def goal_progress(session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None = None) -> Progress:
@@ -187,6 +190,7 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date, stream: IncomeSt
         due_date=due_date(session, goal),
         per_period_cents=per_period,
         per_period_text=per_period_text(goal, per_period, stream),
+        commitment_next_due_on=_commitment_period(goal, as_of)[1] if _is_dated_commitment(goal) else None,
         **commitment_row_text(session, goal, as_of=as_of),
     )
 
@@ -211,6 +215,11 @@ def _commitment_period(goal: Goal, day: date) -> tuple[date, date]:
     while _commitment_due(goal, n) < day:
         n += 1
     return _commitment_due(goal, n - 1) + timedelta(days=1), _commitment_due(goal, n)
+
+
+def _is_dated_commitment(goal: Goal) -> bool:
+    """A fixed Commitment with a cadence and a first due month (the ones `commitment_row_text` words)."""
+    return goal.kind == "commitment" and goal.amount_cents is not None and goal.cadence is not None and goal.first_due_on is not None
 
 
 def _assigned_cents(session: Session, category_id: int, start: date, through: date) -> int:

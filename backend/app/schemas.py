@@ -624,6 +624,8 @@ class GoalProgressOut(BaseModel):
     # A recurring bill's amount and cadence ("$87.00 yearly") or a Target's per-period amount and
     # cadence ("$100.00 monthly"), worded once on the server; null for any other goal.
     per_period_text: str | None = None
+    # A fixed Commitment with a due month: its next due date, for the Due dates page to sort by.
+    commitment_next_due_on: date | None = None
     # A recurring bill's status ("overdue" / "due" / "next_due") and its wording, worded once on
     # the server (DESIGN.md § Paying a bill); null for any other kind.
     bill_status: str | None = None
