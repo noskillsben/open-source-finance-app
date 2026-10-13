@@ -591,7 +591,7 @@ export default function PayRecord({ pickerDate }) {
       for (const r of archivedRows) batch.push(...r.lines)
       await api.payBatch.replace(txn.id, batch)
 
-      navigate('/pay')
+      navigate('/income')
     } catch (err) {
       setFormError(err.message)
       // For a named pay, a partial write (the transaction saved but the batch 400'd) must be
@@ -616,7 +616,7 @@ export default function PayRecord({ pickerDate }) {
     try {
       if (removeBatchOnDelete) await api.payBatch.replace(existingTransaction.id, [])
       await api.transactions.remove(existingTransaction.id)
-      navigate('/pay')
+      navigate('/income')
     } catch (err) {
       setFormError(err.message)
     }

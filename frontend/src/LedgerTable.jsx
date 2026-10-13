@@ -66,7 +66,7 @@ export default function LedgerTable({ transactions, names, onSelect }) {
                 <div>
                   <Link
                     className="text-xs text-accent"
-                    to={`/pay/${t.income_stream_id}/record?date=${t.date}`}
+                    to={`/income/${t.income_stream_id}/record?date=${t.date}`}
                     onClick={(e) => e.stopPropagation()}
                   >
                     Re-open pay

@@ -112,7 +112,7 @@ describe('the Splits page', () => {
     balances[3] = { account_id: 3, balance_cents: 5000, transactions: [HEAT] }
     renderSplits()
     fireEvent.click(await screen.findByRole('button', { name: 'Settle up' }))
-    expect(screen.getByTestId('where')).toHaveTextContent('/ledger|{"settleUp":{"account_id":3,"cents":-5000}}')
+    expect(screen.getByTestId('where')).toHaveTextContent('/transactions|{"settleUp":{"account_id":3,"cents":-5000}}')
   })
 
   it('Settle up when I owe them puts the money onto their account', async () => {
@@ -120,7 +120,7 @@ describe('the Splits page', () => {
     balances[3] = { account_id: 3, balance_cents: -2050, transactions: [HEAT] }
     renderSplits()
     fireEvent.click(await screen.findByRole('button', { name: 'Settle up' }))
-    expect(screen.getByTestId('where')).toHaveTextContent('/ledger|{"settleUp":{"account_id":3,"cents":2050}}')
+    expect(screen.getByTestId('where')).toHaveTextContent('/transactions|{"settleUp":{"account_id":3,"cents":2050}}')
   })
 
   it('shows your share update as percentages are typed, and warns past 100%', async () => {

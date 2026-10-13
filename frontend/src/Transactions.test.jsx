@@ -81,7 +81,7 @@ vi.mock('./api.js', () => ({
 
 function renderLedger(state, pickerDate = '2026-10-03') {
   const page = (date) => (
-    <MemoryRouter initialEntries={[{ pathname: '/ledger', state }]}>
+    <MemoryRouter initialEntries={[{ pathname: '/transactions', state }]}>
       <Transactions pickerDate={date} />
     </MemoryRouter>
   )

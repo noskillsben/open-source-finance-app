@@ -4,7 +4,7 @@ import { NavLink } from 'react-router-dom'
 // The page-name table (DESIGN.md § UI conventions): four groups named for what you are doing, plus
 // Settings below them. A group with nothing built yet still renders as a header with no items.
 const GROUPS = [
-  { name: 'Record', items: [{ label: 'Pay', to: '/pay' }, { label: 'Ledger', to: '/ledger' }] },
+  { name: 'Record', items: [{ label: 'Transactions', to: '/transactions' }] },
   {
     name: 'Assign',
     items: [
@@ -15,7 +15,7 @@ const GROUPS = [
       { label: 'Domains', to: '/domains' },
     ],
   },
-  { name: 'Plan', items: [] },
+  { name: 'Plan', items: [{ label: 'Income', to: '/income' }] },
   { name: 'Review', items: [] },
 ]
 
