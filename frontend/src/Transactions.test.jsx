@@ -237,6 +237,23 @@ describe('Ledger form: which bill and due date a payment paid', () => {
   })
 })
 
+describe('Ledger form: save notes', () => {
+  it('clears the save note and the predates note once the next entry starts (#220)', async () => {
+    calls.create.mockResolvedValue({ notes: ['This predates the last balance check.'] })
+    renderLedger()
+    await addCategoryLine('Rent')
+    fillAccountLine('-1200')
+    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '-1200' } })
+    fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
+    expect(await screen.findByText('Recorded.')).toBeInTheDocument()
+    expect(screen.getByText('This predates the last balance check.')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByLabelText('Memo'), { target: { value: 'next' } })
+    expect(screen.queryByText('Recorded.')).not.toBeInTheDocument()
+    expect(screen.queryByText('This predates the last balance check.')).not.toBeInTheDocument()
+  })
+})
+
 describe("Ledger form: 'Record' from a bill's row on Categories", () => {
   const RECORD_RENT = {
     recordBill: { goal_id: 7, goal_due_on: '2026-10-01', category_id: 11, amount_cents: 120000 },

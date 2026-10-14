@@ -3,6 +3,8 @@ import { useState } from 'react'
 // The searchable picker (DESIGN.md § Visual design → Components): a type-ahead box over a raised
 // list, secondary detail on the right of each suggestion, and "Add '…' as a new …" last. It only
 // draws; the parent owns the text and decides what picking, clearing and adding mean.
+//   inline: the list takes its own room in the flow instead of floating over the fields below (a panel
+//   whose scroll would clip it).
 //   items: [{ id, name, detail? }], already filtered and ordered by the caller.
 export default function Picker({
   text,
@@ -19,6 +21,7 @@ export default function Picker({
   addNoun,
   emptyText,
   onKeyDown,
+  inline,
 }) {
   const [open, setOpen] = useState(false)
   const trimmed = text.trim()
@@ -54,7 +57,7 @@ export default function Picker({
         <div
           // Tapping a row must not blur the input: the list would close (or the parent unmount) before the click lands.
           onMouseDown={(e) => e.preventDefault()}
-          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg bg-raised text-base shadow-lg">
+          className={`${inline ? '' : 'absolute z-20 '}mt-1 max-h-60 w-full overflow-auto rounded-lg bg-raised text-base shadow-lg`}>
           {trimmed === '' && onClear && (
             <button type="button" className={`${row} text-text-2`} onClick={() => { onClear(); setOpen(false) }}>
               {clearLabel}

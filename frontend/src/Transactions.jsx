@@ -693,7 +693,15 @@ export default function Transactions({ pickerDate }) {
         {predatesCheckNotes.map((note, i) => (
           <WarningNote key={i}>{note}</WarningNote>
         ))}
-        <form className="space-y-4" onSubmit={submit}>
+        <form
+          className="space-y-4"
+          onSubmit={submit}
+          // The next entry has started: last save's notes have done their job.
+          onChange={() => {
+            if (savedNote) setSavedNote(null)
+            if (predatesCheckNotes.length) setPredatesCheckNotes([])
+          }}
+        >
           <label className="block space-y-1">
             <span className="field-label">Date</span>
             <input

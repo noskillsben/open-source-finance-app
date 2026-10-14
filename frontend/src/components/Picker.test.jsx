@@ -49,3 +49,17 @@ describe('Picker tapping', () => {
     expect(screen.queryByText('Rent')).toBeNull()
   })
 })
+
+describe('Picker inline list (#220)', () => {
+  it('takes its own room instead of floating over the fields below', () => {
+    render(<Picker text="" onText={() => {}} ariaLabel="Payee" items={items} onPick={() => {}} inline />)
+    fireEvent.focus(screen.getByLabelText('Payee'))
+    expect(screen.getByText('Rent').closest('div')).not.toHaveClass('absolute')
+  })
+
+  it('floats by default', () => {
+    render(<Picker text="" onText={() => {}} ariaLabel="Payee" items={items} onPick={() => {}} />)
+    fireEvent.focus(screen.getByLabelText('Payee'))
+    expect(screen.getByText('Rent').closest('div')).toHaveClass('absolute')
+  })
+})
