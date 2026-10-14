@@ -34,7 +34,7 @@ Plan your income streams — reliable like a paycheque, or less reliable like se
 
 ### Transactions
 
-A transaction is money actually moving. Categories carry a domain (food, shelter, entertainment — user-defined, with defaults) and a default need level (need, should, nice to have, want). Both feed reporting and the "what do I actually need in an emergency" view.
+A transaction is money actually moving. Categories carry a domain (food, shelter, entertainment — user-defined, with defaults) and a need level (need, should, nice to have, want). Both feed reporting and the "what do I actually need in an emergency" view.
 
 ### Accounts
 
@@ -214,7 +214,7 @@ When a category whose goal is due within five years is linked to an account of t
 
 ### Categories
 
-What money is spent on and saved for. Categories are flat rows. Each category has a domain, a default need level, at most one goal, and three optional relationships that any category can be on either end of — there are no category types:
+What money is spent on and saved for. Categories are flat rows. Each category has a domain, a need level, at most one goal, and three optional relationships that any category can be on either end of — there are no category types:
 
 - `parent_id` — grouping for the tree view. The tree is a view: it sums children for display and nothing else. **Every category is postable, parent or not** — "Car" can carry its own spending above "Car insurance" and "Car repairs". There is no heading-only category; the old app's quietest bug was money posted to a heading by mis-tap and vanishing from "ready to assign".
 - `pool_id` — the category this one draws on when it overspends. See "Pools" below.
@@ -244,9 +244,7 @@ A domain is an extra label for reporting, nothing more. It exists so the user is
 
 ### Need levels
 
-A fixed ordinal scale, not a table: `need` < `should` < `nice_to_have` < `want`. A category has a default; a transaction category line can override it (groceries are a need; the wagyu run is a want). Fixed because the ordering is what makes it reportable and what makes it a sort key on the pay screen. For the emergency-fund report, "essentials" = need only; "comfortable" = need + should.
-
-The line-level override is stored and carried by the API, but no form sets it and no rule reads it yet — its two consumers, the pay screen’s sort key and the emergency-fund report, are both ahead of it. It is watched by #106: a control in EPIC 6, or the column goes.
+A fixed ordinal scale, not a table: `need` < `should` < `nice_to_have` < `want`. A category has one, and every line posted to it takes it; there is no per-line override. Groceries are a need; if the wagyu run should count as a want, it goes in its own category (Treats), the same way a different domain does. Reports and the pay screen's sort key read the category's level as it is on the day you look, not a copy stored on the line. Fixed because the ordering is what makes it reportable and what makes it a sort key on the pay screen. For the emergency-fund report, "essentials" = need only; "comfortable" = need + should.
 
 ### Goals
 
@@ -299,7 +297,7 @@ There are no special transaction types. A transaction is money actually moving i
 
 **Account lines:** `transaction_id`, `account_id`, `cents` (signed), `budget_cents` (how many of those cents landed on-budget, computed from the floor at write time — see Settings never rewrite history). One per account touched.
 
-**Category lines:** `transaction_id`, `category_id`, `cents` (signed), `need_level`. Zero or more.
+**Category lines:** `transaction_id`, `category_id`, `cents` (signed). Zero or more.
 
 **Invariant:** every account line stores `budget_cents` — the line's own `cents` when its account was on-budget at write time, and 0 when it was tracking. That is the whole definition: no floor, no running balance, no dependence on the order rows were written in, and `Σ budget_cents` over every line is exactly the nominal balance of the on-budget accounts. The *budget movement* of a transaction is the sum of its lines' `budget_cents`. If the transaction has category lines, they must sum to the budget movement. If it has none, the budget movement is unassigned: positive is income ready to assign, negative is uncategorised spending (the app warns, but records it). Enforced in the service layer on every write; a periodic integrity check reports any drift. Direction is carried by the sign of the lines and nothing else — there is no `income` flag, no `from`/`to` pair.
 
@@ -340,7 +338,7 @@ A paycheque, a refund and a loan draw are told apart by their lines, not by a ty
 
 Stores, companies and people the user receives money from and sends money to. Protected: **Me** (the user) — default and mostly invisible.
 
-Picking a payee fills in the category and account from the last transaction with that payee. When that transaction had several category lines, the category comes from its largest line, and the category's own default need level then applies. This is read from the ledger and never stored, the same lookup a bill's "record now" uses for its last payment. The same lookup fills in the split, when that last transaction used one: pick Hydro, and Hydro's last bill was shared on Household, so the form opens with Household chosen and the shares worked out. Pick payee → category, need, account and split filled in → confirm amount → done. Anything filled in can be cleared before saving. A payee with no transactions fills in nothing. A payee stores no default category: that would be a second answer to the question the ledger already answers, and it goes stale the day you start buying something else there. Aliases ("WALMART #3021" is Walmart) arrive with a bank-statement import, their only consumer, and not before.
+Picking a payee fills in the category and account from the last transaction with that payee. When that transaction had several category lines, the category comes from its largest line. This is read from the ledger and never stored, the same lookup a bill's "record now" uses for its last payment. The same lookup fills in the split, when that last transaction used one: pick Hydro, and Hydro's last bill was shared on Household, so the form opens with Household chosen and the shares worked out. Pick payee → category, account and split filled in → confirm amount → done. Anything filled in can be cleared before saving. A payee with no transactions fills in nothing. A payee stores no default category: that would be a second answer to the question the ledger already answers, and it goes stale the day you start buying something else there. Aliases ("WALMART #3021" is Walmart) arrive with a bank-statement import, their only consumer, and not before.
 
 Three different questions, three different answers, none duplicated: *who paid me* is the payee; *what kind of income* is the category (Salary income, Gig income); *which plan did this fulfil* is the named-pay or bill link on the header.
 
@@ -683,6 +681,7 @@ A **history replay** plays a recorded money history into a fresh database throug
 - 2026-10-13 — The Splits page is called **Split expenses** and sits in the Plan group instead of Assign; its address is `/split-expenses`. Reason: the page answers *can I afford what's coming* — shared bills at your share, what you owe or are owed, settling up as the last step — the same planning-then-record shape as Income and Due dates, so Plan, not Assign. Mechanism: one table row moved and renamed, the Assign entity-pages argument no longer lists Splits, and the Plan sentence in the nav bullet names it. "Split" stays the word for the rule, and the section name Splits stays for the concept. **Deletes:** Splits from Assign. Schema: nothing. User guide: every bullet that names the Splits page now says Split expenses (the menu bullet moves it from Assign to Plan). Build: #280.
 - 2026-10-13 — Every control looks like what it is: the phone's bottom bar shows icons, the + is a round button, menus carry icons, each row has one button instead of five links, and nested categories collapse with their group total on the parent. Found in Chrome after #252 shipped: Visual design named no icon set and no row layout, so the bar was words and every category row carried Add, Withdraw, Move to another category, Edit and Archive as text. Mechanism: Lucide icons bundled with the app; row actions move into the side panel (Move money, Edit, Archive); the tree view's group totals, already promised in Categories, are now specified. **Deletes:** the goal row's inline Add / Withdraw amount box and every per-row action link. Schema: nothing. User guide: the assign-money and goal bullets say Move money instead of the Add / Withdraw box; a bullet on collapsing groups. Build: #286.
 - 2026-10-14 — The app has no Home page, and the name stops being held: nothing sits before the four groups. #98 asked whether a landing surface was wanted once everything else was built; the answer is no. **Deletes:** the reserved name "Home" and the parked last item of EPIC 6 (#98), plus the written limit on what a Home could show, which only mattered if one was built. Schema: nothing. User guide: no user-facing change.
+- 2026-10-14 — A transaction line has no need level of its own: every line takes its category's level, and "the wagyu run is a want" is a separate category. #106 watched a per-line override that nothing could set and nothing read; the answer is delete, not build. Spending, the pay screen's sort and the emergency-fund report read the category's level at read time, as domain already does. **Deletes:** the per-line need level — the stored column, the API field on transaction lines, and the "a line can override it" sentence in Need levels — and the "category's own default need level then applies" step in the payee fill. Schema: migration dropping the column from the category-line table, with a populated-database test (fixture per CLAUDE.md). User guide: the category bullets say "need level" where they say "default need level"; no other change. Build: #298.
 
 ## Still to figure out
 
