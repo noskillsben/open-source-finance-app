@@ -144,3 +144,15 @@ describe("the phone's bottom bar", () => {
     expect(within(bar).getByRole('link', { name: 'Categories' })).not.toHaveAttribute('aria-current')
   })
 })
+
+describe('+ Add transaction', () => {
+  it('opens the form as a page of its own and hides the phone bottom bar while it is shown', async () => {
+    renderAt('/transactions')
+    expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
+    fireEvent.click(await screen.findByRole('button', { name: '+ Add transaction' }))
+    expect(await screen.findByLabelText('Date')).toBeInTheDocument()
+    expect(screen.queryByRole('navigation', { name: 'Bottom bar' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Transactions' }))
+    expect(await screen.findByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
+  })
+})

@@ -1,3 +1,4 @@
+import { ArrowLeft } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
@@ -75,9 +76,12 @@ export default function Transactions({ pickerDate }) {
   const [newCategoryName, setNewCategoryName] = useState('')
   const [formError, setFormError] = useState(null)
   const [savedNote, setSavedNote] = useState(null)
-  const formRef = useRef(null)
-  // The phone's bottom bar hides while this form is being edited or has focus (the keyboard is up).
-  const [formFocused, setFormFocused] = useState(false)
+  // The form is a page of its own (DESIGN.md § Visual design → Where forms open), shown in place of the
+  // list while `formOpen`. It is component state on /transactions, not a sub-path: route state
+  // pre-fills it and nothing else needs to link to it.
+  const [formOpen, setFormOpen] = useState(false)
+  // The row just saved, highlighted when the list comes back.
+  const [highlightId, setHighlightId] = useState(null)
   const dateRef = useRef(null)
   const [editingId, setEditingId] = useState(null)
   const [predatesCheckNotes, setPredatesCheckNotes] = useState([])
@@ -112,13 +116,24 @@ export default function Transactions({ pickerDate }) {
     if (editingId == null) setDate(pickerDate)
   }, [pickerDate])
 
-  // The shell's + Add transaction lands here: bring the form into view with the first field ready.
+  // The first field is ready whenever the form view opens.
+  useEffect(() => {
+    if (formOpen) dateRef.current?.focus()
+  }, [formOpen])
+
+  function openAdd() {
+    resetForm()
+    setSavedNote(null)
+    setPredatesCheckNotes([])
+    setFormOpen(true)
+  }
+
+  // The shell's + Add transaction lands here: a blank form, even if the list's own form was open.
   const addTransaction = location.state?.addTransaction
   useEffect(() => {
     if (!addTransaction) return
     navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
-    formRef.current?.scrollIntoView?.({ block: 'start' })
-    dateRef.current?.focus()
+    openAdd()
   }, [addTransaction])
 
   // "Record" on a bill's row on Categories lands here with the bill, its due date and its expected
@@ -127,6 +142,7 @@ export default function Transactions({ pickerDate }) {
   const recordBill = location.state?.recordBill
   useEffect(() => {
     if (!recordBill) return
+    setFormOpen(true)
     const cents = recordBill.amount_cents == null ? '' : centsToFieldText(-recordBill.amount_cents)
     setDate(pickerDate)
     setCategoryLines([{ category_id: String(recordBill.category_id), cents }])
@@ -149,6 +165,7 @@ export default function Transactions({ pickerDate }) {
   const quickAdd = location.state?.quickAdd
   useEffect(() => {
     if (!quickAdd) return
+    setFormOpen(true)
     setDate(quickAdd.date)
     setAccountLines([{ account_id: quickAdd.account_id != null ? String(quickAdd.account_id) : '', cents: quickAdd.amount_text }])
     setCategoryLines(
@@ -170,6 +187,7 @@ export default function Transactions({ pickerDate }) {
   const settleUp = location.state?.settleUp
   useEffect(() => {
     if (!settleUp) return
+    setFormOpen(true)
     const theirs = String(settleUp.cents / 100)
     const mine = String(-settleUp.cents / 100)
     setDate(pickerDate)
@@ -463,7 +481,9 @@ export default function Transactions({ pickerDate }) {
     setCategoryFollows(false)
     setTotalFollows(false)
     setPredatesCheckNotes([])
+    setSavedNote(null)
     setDeleteConfirm(null)
+    setFormOpen(true)
     setEditingId(t.id)
     setDate(t.date)
     setMemo(t.memo || '')
@@ -528,10 +548,18 @@ export default function Transactions({ pickerDate }) {
       }
       await api.transactions.remove(editingId)
       resetForm()
+      setFormOpen(false)
       refresh()
     } catch (err) {
       setFormError(err.message)
     }
+  }
+
+  // The back link and Cancel leave without saving.
+  function closeForm() {
+    resetForm()
+    setPredatesCheckNotes([])
+    setFormOpen(false)
   }
 
   async function addCategory(e) {
@@ -640,17 +668,19 @@ export default function Transactions({ pickerDate }) {
         : await api.transactions.create(body)
       setPredatesCheckNotes(saved.notes || [])
       const wasAdd = !editingId
+      const savedId = saved.id ?? editingId
       resetForm()
-      // After a save in an add form, focus returns to the first field, ready for the next entry.
+      // Saving returns to the list with the saved row highlighted.
       setSavedNote(wasAdd ? 'Recorded.' : null)
-      if (wasAdd) dateRef.current?.focus()
+      setHighlightId(savedId ?? null)
+      setFormOpen(false)
       refresh()
     } catch (err) {
       setFormError(err.message)
     }
   }
 
-  useRegisterFormOpen(formFocused || editingId != null)
+  useRegisterFormOpen(formOpen)
 
   // Names and dates, never ids: "Edit · Loblaws, Oct 3".
   const editedTx = editingId ? transactions?.find((t) => t.id === editingId) : null
@@ -658,50 +688,46 @@ export default function Transactions({ pickerDate }) {
   const editedLabel = [editedWho, editedTx && formatDate(editedTx.date)].filter(Boolean).join(', ')
   const formTitle = editingId ? (editedLabel ? `Edit · ${editedLabel}` : 'Edit transaction') : 'Record a transaction'
 
+  if (!formOpen) {
+    return (
+      <div className="space-y-6 py-4">
+        <h2 className="page-title hidden md:block">Transactions</h2>
+
+        <section className="card space-y-3">
+          {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
+          {savedNote && <SaveNote>{savedNote}</SaveNote>}
+          {predatesCheckNotes.map((note, i) => (
+            <WarningNote key={i}>{note}</WarningNote>
+          ))}
+          {!error && !transactions && <LoadingRows />}
+          {transactions && transactions.length === 0 && (
+            <EmptyState action={<Button onClick={openAdd}>Record a transaction</Button>}>No transactions yet.</EmptyState>
+          )}
+          {transactions && transactions.length > 0 && (
+            <div className="overflow-x-auto">
+              <LedgerTable
+                transactions={transactions}
+                names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
+                onSelect={editTransaction}
+                selectedId={highlightId}
+              />
+            </div>
+          )}
+        </section>
+      </div>
+    )
+  }
+
   return (
-    <div className="space-y-6 py-4">
-      <h2 className="page-title hidden md:block">Transactions</h2>
+    <div className="space-y-4 py-4">
+      <button type="button" className="btn btn-quiet" onClick={closeForm}>
+        <ArrowLeft aria-hidden="true" size={20} />
+        Transactions
+      </button>
 
-      <section className="card space-y-3">
-        {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
-        {!error && !transactions && <LoadingRows />}
-        {transactions && transactions.length === 0 && (
-          <EmptyState>No transactions yet. Record the first one below.</EmptyState>
-        )}
-        {transactions && transactions.length > 0 && (
-          <div className="overflow-x-auto">
-            <LedgerTable
-              transactions={transactions}
-              names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
-              onSelect={editTransaction}
-              selectedId={editingId}
-            />
-          </div>
-        )}
-      </section>
-
-      <section
-        ref={formRef}
-        className="card space-y-4"
-        onFocus={() => setFormFocused(true)}
-        onBlur={(e) => {
-          if (!e.currentTarget.contains(e.relatedTarget)) setFormFocused(false)
-        }}
-      >
+      <section className="card space-y-4">
         <h2 className="text-section">{formTitle}</h2>
-        {savedNote && <SaveNote>{savedNote}</SaveNote>}
-        {predatesCheckNotes.map((note, i) => (
-          <WarningNote key={i}>{note}</WarningNote>
-        ))}
-        <form
-          className="space-y-4"
-          onSubmit={submit}
-          // The next entry has started: last save's notes have done their job.
-          onChange={() => {
-            if (savedNote) setSavedNote(null)
-            if (predatesCheckNotes.length) setPredatesCheckNotes([])
-          }}
-        >
+        <form className="space-y-4" onSubmit={submit}>
           <label className="block space-y-1">
             <span className="field-label">Date</span>
             <input
@@ -957,14 +983,7 @@ export default function Transactions({ pickerDate }) {
             </button>
             {editingId && (
               <>
-                <button
-                  type="button"
-                  className="btn btn-secondary"
-                  onClick={() => {
-                    resetForm()
-                    setPredatesCheckNotes([])
-                  }}
-                >
+                <button type="button" className="btn btn-secondary" onClick={closeForm}>
                   Cancel
                 </button>
                 <button
