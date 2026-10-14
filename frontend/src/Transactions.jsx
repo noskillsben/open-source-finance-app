@@ -143,6 +143,27 @@ export default function Transactions({ pickerDate }) {
       .catch((e) => setFormError(e.message))
   }, [recordBill])
 
+  // Quick add's "More details" lands here with everything typed (DESIGN.md § Quick add): the date,
+  // payee, signed amount, account, category and any bill the person said yes to. A payee whose last
+  // payment was a shared bill is picked the ordinary way, so the form fills the split itself.
+  const quickAdd = location.state?.quickAdd
+  useEffect(() => {
+    if (!quickAdd) return
+    setDate(quickAdd.date)
+    setAccountLines([{ account_id: quickAdd.account_id != null ? String(quickAdd.account_id) : '', cents: quickAdd.amount_text }])
+    setCategoryLines(
+      quickAdd.category_id != null ? [{ ...emptyCategoryLine, category_id: String(quickAdd.category_id), cents: quickAdd.amount_text }] : []
+    )
+    setCategoryFollows(quickAdd.category_id != null)
+    if (quickAdd.goal) setBillLink(quickAdd.goal)
+    if (quickAdd.payee_id != null) {
+      setPayeeId(quickAdd.payee_id)
+      pickedPayee.current = quickAdd.payee_id
+      if (quickAdd.refill) pickPayee(quickAdd.payee_id)
+    }
+    navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
+  }, [quickAdd])
+
   // "Settle up" on the Split expenses page lands here with their account and the signed cents to put on it
   // (DESIGN.md § Splits): a plain transfer, no category, my account left for the user to pick. The
   // amount is editable and the user still saves it.

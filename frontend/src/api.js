@@ -84,6 +84,7 @@ export const api = {
   payees: {
     list: (asOf, includeArchived = false) => request(listPath('/api/payees', asOf, includeArchived)),
     create: (payee) => request('/api/payees', { method: 'POST', body: payee }),
+    recent: (asOf, limit = 6) => request(`/api/payees/recent?as_of=${asOf}&limit=${limit}`),
     fill: (id, asOf) => request(`/api/payees/${id}/fill?as_of=${asOf}`),
     archive: (id, archivedOn) => request(`/api/payees/${id}/archive`, { method: 'POST', body: { archived_on: archivedOn } }),
     unarchive: (id) => request(`/api/payees/${id}/unarchive`, { method: 'POST' }),

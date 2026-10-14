@@ -14,7 +14,7 @@ vi.mock('./api.js', () => {
       goals: { list },
       readyToAssign: () => Promise.resolve({ ready_to_assign_cents: 0, overspent_cents: 0, categories: [] }),
       domains: { list },
-      payees: { list },
+      payees: { list, recent: list },
       splits: { list },
       incomeStreams: { list },
       transactions: { list },
@@ -37,6 +37,7 @@ describe('nav menu', () => {
 
     expect(within(nav).getByRole('link', { name: 'Income' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Transactions' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Quick add' })).toHaveAttribute('href', '/quick-add')
     expect(within(nav).getByRole('link', { name: 'Categories' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Accounts' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Payees' })).toBeInTheDocument()
@@ -127,6 +128,13 @@ describe('Show as of date', () => {
 })
 
 describe("the phone's bottom bar", () => {
+  it('opens Quick add from the +', async () => {
+    renderAt('/transactions')
+    const bar = screen.getByRole('navigation', { name: 'Bottom bar' })
+    fireEvent.click(within(bar).getByRole('button', { name: 'Quick add' }))
+    expect(await screen.findByRole('heading', { level: 2, name: 'Quick add' })).toBeInTheDocument()
+  })
+
   it('has a live Due dates tab, marked current on that page', () => {
     renderAt('/due-dates')
     const bar = screen.getByRole('navigation', { name: 'Bottom bar' })

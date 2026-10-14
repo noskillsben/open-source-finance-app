@@ -1165,3 +1165,20 @@ describe("the phone's bottom bar (#252)", () => {
     expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
   })
 })
+
+describe("Ledger form: 'More details' from Quick add", () => {
+  it('opens with the date, account, category, amount and bill link already typed', async () => {
+    renderLedger({
+      quickAdd: {
+        date: '2026-10-05', payee_id: null, account_id: 1, category_id: 11, amount_text: '-12.50',
+        goal: { goal_id: 7, goal_due_on: '2026-10-01' }, refill: false,
+      },
+    })
+    expect(await screen.findByText(/Marked as paying/)).toHaveTextContent('Rent')
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-10-05'))
+    await waitFor(() => expect(screen.getByLabelText('Account')).toHaveValue('Chequing'))
+    expect(screen.getByLabelText('Category')).toHaveValue('Rent')
+    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-12.50', '-12.50'])
+    expect(calls.create).not.toHaveBeenCalled()
+  })
+})
