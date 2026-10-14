@@ -14,6 +14,11 @@ export function centsToFieldText(cents) {
   return ((cents ?? 0) / 100).toFixed(2)
 }
 
+/** Like centsToFieldText, but null (unknown) stays an empty field rather than "0.00". */
+export function optionalCentsToFieldText(cents) {
+  return cents == null ? '' : centsToFieldText(cents)
+}
+
 /** ISO date "2026-09-12" → "Sep 12, 2026". Parsed at noon UTC so no timezone shifts the day. */
 export function formatDate(iso) {
   if (!iso) return ''

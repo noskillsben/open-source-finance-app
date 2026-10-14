@@ -12,11 +12,10 @@ import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
-import { formatDate, parseCents } from './utils/format.js'
+import { formatDate, optionalCentsToFieldText, parseCents } from './utils/format.js'
 
 const cadenceText = (stream) => (stream.cadence === 'weeks' ? `every ${stream.cadence_weeks} weeks` : (CADENCES.find((c) => c.value === stream.cadence)?.label ?? stream.cadence).toLowerCase())
 
-const centsText = (cents) => (cents == null ? '' : (cents / 100).toFixed(2))
 
 const EMPTY_FORM = {
   name: '', payee: {}, cadence: '', weeks: '', anchorPayday: '',
@@ -31,9 +30,9 @@ function streamToForm(stream, categories, accounts, payees) {
     cadence: stream.cadence,
     weeks: stream.cadence_weeks ?? '',
     anchorPayday: stream.anchor_payday,
-    gross: centsText(stream.expected_gross_cents),
-    netLow: centsText(stream.expected_net_low_cents),
-    netHigh: centsText(stream.expected_net_high_cents),
+    gross: optionalCentsToFieldText(stream.expected_gross_cents),
+    netLow: optionalCentsToFieldText(stream.expected_net_low_cents),
+    netHigh: optionalCentsToFieldText(stream.expected_net_high_cents),
     incomeCategory: {
       id: stream.income_category_id,
       text: categories.find((c) => c.id === stream.income_category_id)?.name ?? '',
@@ -44,7 +43,7 @@ function streamToForm(stream, categories, accounts, payees) {
     },
     deductions: stream.deductions.map((d) => ({
       category: { id: d.category_id, text: categories.find((c) => c.id === d.category_id)?.name ?? '' },
-      amount: centsText(d.amount_cents),
+      amount: optionalCentsToFieldText(d.amount_cents),
     })),
   }
 }

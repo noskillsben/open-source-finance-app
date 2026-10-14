@@ -147,7 +147,7 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
         />
       )}
       {shown.map((a) => (
-        <label key={a.id} className="flex items-center gap-2">
+        <label key={a.id} className="flex min-h-11 items-center gap-2">
           <input type="checkbox" checked={linkIds.includes(a.id)} onChange={() => toggle(a.id)} />
           {a.name}
         </label>
@@ -524,7 +524,7 @@ export default function Categories({ pickerDate }) {
           initialId={form.pool.id}
           onChange={(id, text) => setForm({ ...form, pool: { id, text } })}
         />
-        <label className="flex items-start gap-2">
+        <label className="flex min-h-11 items-start gap-2">
           <input
             type="checkbox"
             className="mt-1"

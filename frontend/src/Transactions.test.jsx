@@ -247,7 +247,7 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
 
     expect(await screen.findByText(/Marked as paying/)).toHaveTextContent('Marked as paying Rent, due Oct 1, 2026.')
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
-    expect(screen.getByLabelText('Category')).toHaveValue('Rent')
+    await waitFor(() => expect(screen.getByLabelText('Category')).toHaveValue('Rent'))
     expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200.00', '-1200.00'])
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
     expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
@@ -850,7 +850,7 @@ describe("Ledger form: 'Settle up' from the Split expenses page", () => {
     renderLedger({ settleUp: { account_id: 3, cents: -3000 } })
 
     await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-30', '30']))
-    expect(screen.getAllByLabelText('Account')[0]).toHaveValue('Roommate')
+    await waitFor(() => expect(screen.getAllByLabelText('Account')[0]).toHaveValue('Roommate'))
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
     expect(screen.queryByLabelText('Category')).not.toBeInTheDocument() // no category line
     expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves

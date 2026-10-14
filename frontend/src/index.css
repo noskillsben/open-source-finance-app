@@ -20,6 +20,13 @@
   .tabular {
     font-variant-numeric: tabular-nums;
   }
+  /* Checkboxes are drawn at 20 px in the accent, so they are findable; their label row is 44 px. */
+  input[type='checkbox'] {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    accent-color: theme('colors.accent');
+  }
   /* Rows are 44 px on a desktop and 56 px on a phone. */
   td,
   th {
