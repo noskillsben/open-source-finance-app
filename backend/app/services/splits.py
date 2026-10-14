@@ -311,10 +311,17 @@ def shown_members(split: Split, as_of: date | None) -> list[SplitMember]:
 
 
 def account_touched(session: Session, account_id: int) -> bool:
-    """Whether any account line, on any date, has ever touched the account: tells a never-owed
-    member ("Nothing owed") from a settled one ("Settled up"). An indexed existence query.
+    """Whether any real account line, on any date, has ever touched the account: tells a
+    never-owed member ("Nothing owed") from a settled one ("Settled up"). The opening-balance
+    line every account is born with (its transaction carries a valuation_id) does not count.
+    An indexed existence query.
     """
-    return session.scalar(select(exists().where(AccountLine.account_id == account_id))) or False
+    stmt = select(exists().where(
+        AccountLine.account_id == account_id,
+        AccountLine.transaction_id == Transaction.id,
+        Transaction.valuation_id.is_(None),
+    ))
+    return session.scalar(stmt) or False
 
 
 def balance_since_zero(session: Session, account_id: int, as_of: date | None) -> tuple[int, list[Transaction]]:
