@@ -133,13 +133,14 @@ def test_an_unknown_account_is_a_404(db_session):
         app.dependency_overrides.clear()
 
 
-def test_touched_is_false_until_a_line_lands_and_stays_true_after_a_settle_up(db_session):
+def test_touched_stays_true_at_a_zero_balance_after_a_settle_up(db_session):
     client, chequing, owed = _setup(db_session)
     try:
         def touched():
             return client.get(f"/api/splits/accounts/{owed.id}/balance").json()["touched"]
 
-        assert touched() is False
+        # every account is born with an opening-balance line, so the 'any line' rule is true from the start
+        assert touched() is True
         _move(client, chequing, owed, "2026-04-01", 5000, "Heat")
         assert touched() is True
         _move(client, chequing, owed, "2026-04-02", -5000, "Paid back")
