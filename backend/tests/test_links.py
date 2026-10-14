@@ -166,8 +166,8 @@ def test_balance_check_preview_suggests_the_pro_rata_split(client, db_session, w
     assert response.json() == {
         "diff_cents": 300_00,
         "category_lines": [
-            {"category_id": ebike.id, "cents": 100_00, "need_level": None},
-            {"category_id": vacation.id, "cents": 200_00, "need_level": None},
+            {"category_id": ebike.id, "cents": 100_00},
+            {"category_id": vacation.id, "cents": 200_00},
         ],
     }
 

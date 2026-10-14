@@ -18,7 +18,7 @@ def re_save_transaction(session: Session, transaction: Transaction) -> Transacti
     """
     account_lines = [{"account_id": l.account_id, "cents": l.cents} for l in transaction.account_lines]
     category_lines = [
-        {"category_id": l.category_id, "cents": l.cents, "need_level": l.need_level}
+        {"category_id": l.category_id, "cents": l.cents}
         for l in transaction.category_lines
     ]
     return write_transaction(

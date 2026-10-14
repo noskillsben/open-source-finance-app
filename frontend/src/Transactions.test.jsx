@@ -216,7 +216,7 @@ describe('Ledger form: which bill and due date a payment paid', () => {
       id: 5, date: '2026-10-03', memo: 'October rent', payee_id: null, valuation_id: null,
       income_stream_id: null, goal_id: 7, goal_due_on: '2026-10-01',
       account_lines: [{ id: 1, account_id: 1, cents: -120000, budget_cents: -120000 }],
-      category_lines: [{ id: 1, category_id: 11, cents: -120000, need_level: null }],
+      category_lines: [{ id: 1, category_id: 11, cents: -120000 }],
       deposits: [],
     }]
     renderLedger()
@@ -234,7 +234,7 @@ describe('Ledger form: which bill and due date a payment paid', () => {
       id: 5, date: '2026-10-03', memo: 'October rent', payee_id: null, valuation_id: null,
       income_stream_id: null, goal_id: 7, goal_due_on: '2026-10-01',
       account_lines: [{ id: 1, account_id: 1, cents: -120000, budget_cents: -120000 }],
-      category_lines: [{ id: 1, category_id: 11, cents: -120000, need_level: null }],
+      category_lines: [{ id: 1, category_id: 11, cents: -120000 }],
       deposits: [],
     }]
     renderLedger()
@@ -394,7 +394,7 @@ describe('Ledger form: deleting a transaction', () => {
     id: 5, date: '2026-10-03', memo: 'October rent', payee_id: null, valuation_id: null,
     income_stream_id: null, goal_id: null, goal_due_on: null,
     account_lines: [{ id: 1, account_id: 1, cents: -120000, budget_cents: -120000 }],
-    category_lines: [{ id: 1, category_id: 11, cents: -120000, need_level: null }],
+    category_lines: [{ id: 1, category_id: 11, cents: -120000 }],
     deposits: [],
   }
 
@@ -495,7 +495,7 @@ describe('Ledger form: the date follows the Show as of picker', () => {
       id: 5, date: '2026-09-01', memo: 'September rent', payee_id: null, valuation_id: null,
       income_stream_id: null, goal_id: null, goal_due_on: null,
       account_lines: [{ id: 1, account_id: 1, cents: -120000, budget_cents: -120000 }],
-      category_lines: [{ id: 1, category_id: 11, cents: -120000, need_level: null }],
+      category_lines: [{ id: 1, category_id: 11, cents: -120000 }],
       deposits: [],
     }]
     const { setPickerDate } = renderLedger()
@@ -631,7 +631,7 @@ describe('Ledger form: a shared bill on a split', () => {
       { id: 1, account_id: 1, cents: -10000, budget_cents: -10000 },
       { id: 2, account_id: 3, cents: 4000, budget_cents: 4000 }, // a one-off 60/40
     ],
-    category_lines: [{ id: 1, category_id: 10, cents: -6000, need_level: null }],
+    category_lines: [{ id: 1, category_id: 10, cents: -6000 }],
   }
   const pickSplit = async () => {
     const select = await screen.findByLabelText('Split')
@@ -710,7 +710,7 @@ describe('Ledger form: a shared bill on a split', () => {
     paid_by_payee_id: 20,
     shared_total_cents: 9000,
     account_lines: [{ id: 1, account_id: 3, cents: -3000, budget_cents: -3000 }],
-    category_lines: [{ id: 1, category_id: 10, cents: -3000, need_level: null }],
+    category_lines: [{ id: 1, category_id: 10, cents: -3000 }],
   }
 
   it('a bill someone else paid reads its stored total back and rescales my share by it', async () => {
@@ -760,7 +760,7 @@ describe('Ledger form: a shared bill on a split', () => {
         { id: 2, account_id: 3, cents: 4000, budget_cents: 4000 },
         { id: 3, account_id: 4, cents: 2000, budget_cents: 2000 },
       ],
-      category_lines: [{ id: 1, category_id: 10, cents: -4000, need_level: null }],
+      category_lines: [{ id: 1, category_id: 10, cents: -4000 }],
     }]
     renderLedger()
     fireEvent.click(await screen.findByText('Hydro'))
@@ -839,8 +839,8 @@ describe('Ledger form: a shared bill on a split', () => {
         { id: 2, account_id: 3, cents: 7500, budget_cents: 7500 },
       ],
       category_lines: [
-        { id: 1, category_id: 10, cents: -5000, need_level: null },
-        { id: 2, category_id: 11, cents: -2500, need_level: null },
+        { id: 1, category_id: 10, cents: -5000 },
+        { id: 2, category_id: 11, cents: -2500 },
       ],
     }
 
@@ -1152,7 +1152,7 @@ describe('Ledger form: picking a payee fills in the category, account and split'
           { id: 1, account_id: 1, cents: -10000, budget_cents: -10000 },
           { id: 2, account_id: 3, cents: 5000, budget_cents: 5000 },
         ],
-        category_lines: [{ id: 1, category_id: 10, cents: -5000, need_level: null }],
+        category_lines: [{ id: 1, category_id: 10, cents: -5000 }],
       }]
       renderLedger()
       fireEvent.click(await screen.findByText('Hydro bill'))
@@ -1172,7 +1172,7 @@ describe('Ledger form: picking a payee fills in the category, account and split'
           { id: 2, account_id: 3, cents: 4000, budget_cents: 4000 },
           { id: 3, account_id: 4, cents: 2000, budget_cents: 2000 },
         ],
-        category_lines: [{ id: 1, category_id: 10, cents: -4000, need_level: null }],
+        category_lines: [{ id: 1, category_id: 10, cents: -4000 }],
       }]
       renderLedger()
       fireEvent.click(await screen.findByText('Hydro bill'))

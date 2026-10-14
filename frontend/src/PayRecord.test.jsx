@@ -226,7 +226,7 @@ describe('PayRecord period from the backend', () => {
     existingTransactions = [{
       id: 42, date: '2026-09-25', memo: '', payee_id: null, income_stream_id: 3, deposits: [],
       account_lines: [{ id: 1, account_id: 1, cents: 300000 }],
-      category_lines: [{ id: 1, category_id: 1, cents: 300000, need_level: null }],
+      category_lines: [{ id: 1, category_id: 1, cents: 300000 }],
     }]
     fireEvent.click(screen.getByRole('button', { name: 'Record' }))
     expect(await screen.findByText('batch refused')).toBeInTheDocument()
@@ -289,8 +289,8 @@ describe('PayRecord re-opens a recorded pay', () => {
     id: 42, date: '2026-09-25', memo: 'Sept cheque', payee_id: 9, income_stream_id: 3, deposits: [],
     account_lines: [{ id: 1, account_id: 1, cents: 300000 }],
     category_lines: [
-      { id: 1, category_id: 1, cents: 400000, need_level: null },
-      { id: 2, category_id: 2, cents: -100000, need_level: null },
+      { id: 1, category_id: 1, cents: 400000 },
+      { id: 2, category_id: 2, cents: -100000 },
     ],
   }
 
@@ -482,8 +482,8 @@ describe('PayRecord lists goal categories under Everything else', () => {
       id: 42, date: '2026-09-25', memo: '', payee_id: null, income_stream_id: 3, deposits: [],
       account_lines: [{ id: 1, account_id: 1, cents: 300000 }],
       category_lines: [
-        { id: 1, category_id: 1, cents: 400000, need_level: null },
-        { id: 2, category_id: 2, cents: -100000, need_level: null },
+        { id: 1, category_id: 1, cents: 400000 },
+        { id: 2, category_id: 2, cents: -100000 },
       ],
     }]
     recordedBatch = [

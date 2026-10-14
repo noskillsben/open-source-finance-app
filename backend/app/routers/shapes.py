@@ -19,7 +19,7 @@ def _transaction_shape(t: Transaction, notes: list[str], deposits: list[dict] | 
             for l in t.account_lines
         ],
         category_lines=[
-            CategoryLineOut(id=l.id, category_id=l.category_id, cents=l.cents, need_level=l.need_level)
+            CategoryLineOut(id=l.id, category_id=l.category_id, cents=l.cents)
             for l in t.category_lines
         ],
         notes=notes,
