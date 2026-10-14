@@ -528,7 +528,7 @@ export default function Accounts({ pickerDate }) {
         </select>
       </label>
 
-      <label className="flex items-start gap-2">
+      <label className="flex min-h-11 items-start gap-2">
         <input
           type="checkbox"
           className="mt-1"

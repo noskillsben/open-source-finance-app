@@ -1,7 +1,7 @@
 import { CADENCES } from './cadences.js'
 import MoneyInput from './components/MoneyInput.jsx'
 import NamePicker from './NamePicker.jsx'
-import { parseCents } from './utils/format.js'
+import { optionalCentsToFieldText, parseCents } from './utils/format.js'
 
 // The one goal form (DESIGN.md § Goals), shared by the category's settings panel on Categories and
 // the Due dates page: the fields, the form state, and the request body.
@@ -29,7 +29,6 @@ const monthEnd = (month) => {
   return new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10)
 }
 
-const centsText = (cents) => (cents == null ? '' : (cents / 100).toFixed(2))
 
 export function goalToForm(goal) {
   if (!goal) return EMPTY_GOAL
@@ -38,8 +37,8 @@ export function goalToForm(goal) {
     name: goal.name,
     flavour: goal.level_cents != null ? 'refill' : 'add',
     addFlavour: goal.percent_of_net != null ? 'percent' : 'fixed',
-    amount: centsText(goal.amount_cents),
-    level: centsText(goal.level_cents),
+    amount: optionalCentsToFieldText(goal.amount_cents),
+    level: optionalCentsToFieldText(goal.level_cents),
     percent: goal.percent_of_net ?? '',
     cadence: goal.cadence ?? '',
     weeks: goal.cadence_weeks ?? '',

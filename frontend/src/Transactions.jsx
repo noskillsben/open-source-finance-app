@@ -973,7 +973,7 @@ export default function Transactions({ pickerDate }) {
             <div className="space-y-2 rounded-lg bg-raised p-3">
               <p>Delete this transaction? This cannot be undone.</p>
               {deleteConfirm.hasBatchLines && (
-                <label className="flex items-center gap-2">
+                <label className="flex min-h-11 items-center gap-2">
                   <input
                     type="checkbox"
                     checked={deleteConfirm.removeBatch}

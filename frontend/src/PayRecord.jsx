@@ -6,11 +6,10 @@ import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, WarningNote } from './components/Notes.jsx'
 import NamePicker from './NamePicker.jsx'
-import { formatCents, formatDate, parseCents } from './utils/format.js'
+import { centsToFieldText, optionalCentsToFieldText, formatCents, formatDate, parseCents } from './utils/format.js'
 
 const emptyRow = () => ({ category: {}, amount: '' })
 
-const centsText = (cents) => (cents / 100).toFixed(2)
 
 // A pay split across accounts in the Ledger keeps its split: every line after the first stays as
 // recorded, and the first takes the whole change in net.
@@ -216,29 +215,29 @@ export default function PayRecord({ pickerDate }) {
     // A recorded pay shows what was recorded, never what the named pay would suggest now.
     if (!stream || seeded || reopening || categories.length === 0 || !goalsLoaded) return
     setSeeded(true)
-    setGross(stream.expected_gross_cents == null ? '' : (stream.expected_gross_cents / 100).toFixed(2))
+    setGross(optionalCentsToFieldText(stream.expected_gross_cents))
     setDeductionsOn(stream.deductions.length > 0 || stream.expected_gross_cents != null)
     setDeductions(
       stream.deductions.map((d) => ({
         category: { id: d.category_id, text: categories.find((c) => c.id === d.category_id)?.name ?? '' },
-        amount: (d.amount_cents / 100).toFixed(2),
+        amount: centsToFieldText(d.amount_cents),
       }))
     )
     setBillAmounts(
       Object.fromEntries(
-        billGoals.map((g) => [g.goal.id, g.due_by_next_payday_cents != null ? (g.due_by_next_payday_cents / 100).toFixed(2) : ''])
+        billGoals.map((g) => [g.goal.id, optionalCentsToFieldText(g.due_by_next_payday_cents)])
       )
     )
     setTargetAmounts(
       Object.fromEntries(
-        targetGoals.map((g) => [g.goal.id, g.due_by_next_payday_cents != null ? (g.due_by_next_payday_cents / 100).toFixed(2) : ''])
+        targetGoals.map((g) => [g.goal.id, optionalCentsToFieldText(g.due_by_next_payday_cents)])
       )
     )
     setFundingAmounts(
       Object.fromEntries(
         fundingGoals.map((g) => [
           g.goal.id,
-          ((g.due_by_next_payday_cents ?? g.goal.amount_cents ?? g.owed_cents ?? 0) / 100).toFixed(2),
+          centsToFieldText(g.due_by_next_payday_cents ?? g.goal.amount_cents ?? g.owed_cents ?? 0),
         ])
       )
     )
@@ -286,12 +285,12 @@ export default function PayRecord({ pickerDate }) {
     const recordedNet = existingTransaction.account_lines.reduce((sum, l) => sum + l.cents, 0)
 
     setDeductionsOn(recordedDeductions.length > 0)
-    setGross(centsText(lines.filter((l) => l.category_id === incomeId).reduce((sum, l) => sum + l.cents, 0)))
-    setNetOnly(centsText(recordedNet))
+    setGross(centsToFieldText(lines.filter((l) => l.category_id === incomeId).reduce((sum, l) => sum + l.cents, 0)))
+    setNetOnly(centsToFieldText(recordedNet))
     setDeductions(
       recordedDeductions.map((l) => ({
         category: { id: l.category_id, text: categoriesAll.find((c) => c.id === l.category_id)?.name ?? '' },
-        amount: centsText(-l.cents),
+        amount: centsToFieldText(-l.cents),
       }))
     )
 
@@ -326,15 +325,15 @@ export default function PayRecord({ pickerDate }) {
         continue
       }
       if (cents < 0) {
-        covers[categoryId] = centsText(-cents)
+        covers[categoryId] = centsToFieldText(-cents)
         continue
       }
       const goal = streamGoals.find((g) => g.goal.category_id === categoryId)?.goal
-      if (goal?.kind === 'commitment' && goal.percent_of_net != null) retain[goal.id] = centsText(cents)
-      else if (goal?.kind === 'recurring_bill') bills[goal.id] = centsText(cents)
-      else if (goal?.kind === 'commitment') funding[goal.id] = centsText(cents)
-      else if (goal?.kind === 'target') targets[goal.id] = centsText(cents)
-      else elsewhere[categoryId] = centsText(cents)
+      if (goal?.kind === 'commitment' && goal.percent_of_net != null) retain[goal.id] = centsToFieldText(cents)
+      else if (goal?.kind === 'recurring_bill') bills[goal.id] = centsToFieldText(cents)
+      else if (goal?.kind === 'commitment') funding[goal.id] = centsToFieldText(cents)
+      else if (goal?.kind === 'target') targets[goal.id] = centsToFieldText(cents)
+      else elsewhere[categoryId] = centsToFieldText(cents)
     }
     setRetainAmounts(retain)
     setBillAmounts(bills)
@@ -504,7 +503,7 @@ export default function PayRecord({ pickerDate }) {
     setFormError(null)
     const cents = Math.min(-leftover, row.availableCents)
     const already = parseCents(shortCovers[row.categoryId]) ?? 0
-    setShortCovers({ ...shortCovers, [row.categoryId]: centsText(already + cents) })
+    setShortCovers({ ...shortCovers, [row.categoryId]: centsToFieldText(already + cents) })
   }
 
   if (error) return <WarningNote>Could not reach the backend: {error}</WarningNote>
@@ -762,7 +761,7 @@ export default function PayRecord({ pickerDate }) {
             leftover
           ).map((r) => (
             <div key={r.goalId} className="flex items-end justify-between gap-2">
-              <label className="flex items-start gap-2 text-sm">
+              <label className="flex min-h-11 items-start gap-2 text-sm">
                 <input
                   type="checkbox"
                   className="mt-1"
@@ -832,7 +831,7 @@ export default function PayRecord({ pickerDate }) {
                 </span>
               )}
             </div>
-            <MoneyInput className="w-28" placeholder={lastPeriodActuals[c.id] > 0 ? (lastPeriodActuals[c.id] / 100).toFixed(2) : ''} value={everythingElse[c.id] ?? ''} onChange={(text) => setEverythingElse({ ...everythingElse, [c.id]: text })} />
+            <MoneyInput className="w-28" placeholder={lastPeriodActuals[c.id] > 0 ? centsToFieldText(lastPeriodActuals[c.id]) : ''} value={everythingElse[c.id] ?? ''} onChange={(text) => setEverythingElse({ ...everythingElse, [c.id]: text })} />
           </div>
         ))}
         {archivedRows.map((r) => (
