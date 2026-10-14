@@ -10,7 +10,7 @@ from app.routers.shapes import _transaction_shape
 from app.schemas import ArchiveIn, ArchiveOut, MemberBalanceOut, SplitCreate, SplitMemberOut, SplitOut, SplitUpdate
 from app.services.archiving import ArchiveError, _visible
 from app.services.splits import (
-    SplitError, archive_split, balance_since_zero, create_split, my_share_percent, shown_members, unarchive_split_checked, update_split,
+    SplitError, account_touched, archive_split, balance_since_zero, create_split, my_share_percent, shown_members, unarchive_split_checked, update_split,
 )
 
 router = APIRouter()
@@ -55,7 +55,7 @@ def member_balance(account_id: int, as_of: date | None = None, session: Session 
         raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
     balance, transactions = balance_since_zero(session, account_id, as_of)
     return MemberBalanceOut(
-        account_id=account_id, balance_cents=balance,
+        account_id=account_id, balance_cents=balance, touched=account_touched(session, account_id),
         transactions=[_transaction_shape(t, []) for t in transactions],
     )
 
