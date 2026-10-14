@@ -48,24 +48,27 @@ export default function Picker({
           onKeyDown?.(e)
         }}
         onFocus={() => setOpen(true)}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        onBlur={() => setOpen(false)}
       />
       {open && (
-        <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg bg-raised text-base shadow-lg">
+        <div
+          // Tapping a row must not blur the input: the list would close (or the parent unmount) before the click lands.
+          onMouseDown={(e) => e.preventDefault()}
+          className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded-lg bg-raised text-base shadow-lg">
           {trimmed === '' && onClear && (
-            <button type="button" className={`${row} text-text-2`} onMouseDown={() => { onClear(); setOpen(false) }}>
+            <button type="button" className={`${row} text-text-2`} onClick={() => { onClear(); setOpen(false) }}>
               {clearLabel}
             </button>
           )}
           {items.map((i) => (
-            <button key={i.id} type="button" className={row} onMouseDown={() => { onPick(i); setOpen(false) }}>
+            <button key={i.id} type="button" className={row} onClick={() => { onPick(i); setOpen(false) }}>
               <span>{i.name}</span>
               {i.detail && <span className="text-sm text-text-3">{i.detail}</span>}
             </button>
           ))}
           {items.length === 0 && trimmed === '' && emptyText && <p className="px-3 py-2 text-text-3">{emptyText}</p>}
           {onAdd && trimmed !== '' && !exact && (
-            <button type="button" className={`${row} text-accent`} onMouseDown={() => { onAdd(); setOpen(false) }}>
+            <button type="button" className={`${row} text-accent`} onClick={() => { onAdd(); setOpen(false) }}>
               Add “{trimmed}” as a new {addNoun}
             </button>
           )}

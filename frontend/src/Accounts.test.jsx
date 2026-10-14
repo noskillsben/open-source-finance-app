@@ -199,7 +199,7 @@ describe('payee-locked accounts', () => {
     await openAdd()
     fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Starbucks card' } })
     fireEvent.focus(screen.getByPlaceholderText('Search payees…'))
-    fireEvent.mouseDown(await screen.findByText('Starbucks'))
+    fireEvent.click(await screen.findByText('Starbucks'))
     fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
 
     await waitFor(() => expect(createAccount).toHaveBeenCalled())

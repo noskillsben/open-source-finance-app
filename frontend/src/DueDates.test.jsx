@@ -142,7 +142,7 @@ describe('the Due dates page', () => {
     expect(screen.getByLabelText('Amount per bill')).toBeInTheDocument()
 
     fireEvent.change(within(screen.getByRole('complementary')).getByLabelText('Category'), { target: { value: 'Insurance' } })
-    fireEvent.mouseDown(await screen.findByRole('button', { name: /Add “Insurance” as a new category/ }))
+    fireEvent.click(await screen.findByRole('button', { name: /Add “Insurance” as a new category/ }))
     expect(createCategory).toHaveBeenCalledWith(expect.objectContaining({ name: 'Insurance', created_on: '2026-10-03' }))
     await act(async () => {})
 

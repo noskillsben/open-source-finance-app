@@ -249,7 +249,7 @@ describe('ChoicePicker', () => {
     expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['None', 'Apple', 'Banana', 'Cherry', 'Date', 'Fig', 'Mango', 'Zoo'])
     fireEvent.change(box, { target: { value: 'an' } })
     expect(screen.getAllByRole('button').map((b) => b.textContent)).toEqual(['Banana', 'Mango'])
-    fireEvent.mouseDown(screen.getByRole('button', { name: 'Mango' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Mango' }))
     expect(box).toHaveValue('Mango')
     expect(screen.getByRole('status')).toHaveTextContent('3')
   })

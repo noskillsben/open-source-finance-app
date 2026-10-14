@@ -482,7 +482,7 @@ describe('Ledger form: an outflow from a payee-locked account', () => {
     renderLedger()
     const box = await payeeBox()
     fireEvent.focus(box)
-    fireEvent.mouseDown(await screen.findByText('Walmart'))
+    fireEvent.click(await screen.findByText('Walmart'))
     fillLockedLine('-5')
 
     expect(box).toHaveValue('Walmart')
@@ -877,7 +877,7 @@ describe('Ledger form: picking a payee fills in the category, account and split'
   async function pickHydro() {
     const box = await screen.findByPlaceholderText('Search payees…')
     fireEvent.change(box, { target: { value: 'Hyd' } })
-    fireEvent.mouseDown(await screen.findByRole('button', { name: 'Hydro' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Hydro' }))
   }
 
   it('fills the empty account and category on pick, and asks as of the picker date', async () => {
