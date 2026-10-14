@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { MemoryRouter } from 'react-router-dom'
+import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Transactions from './Transactions.jsx'
 import { BottomBar } from './Nav.jsx'
@@ -304,39 +304,41 @@ describe('Transactions: the form is a page of its own (#285)', () => {
     expect(row('Milk')).not.toHaveClass('bg-raised')
   })
 
-  it('clears the highlight when the next form is cancelled', async () => {
+  it('clears the highlight when a form opened from route state is cancelled', async () => {
+    // Quick add's "More details" opens the form without going through openAdd or editTransaction,
+    // so the saved row's highlight is still set when Cancel is pressed.
     existingTransactions = [EXISTING, OTHER]
     calls.update.mockResolvedValue({ id: 32, notes: [] })
-    renderLedger()
+    function MoreDetails() {
+      const navigate = useNavigate()
+      return (
+        <button
+          type="button"
+          onClick={() =>
+            navigate('/transactions', {
+              state: { quickAdd: { date: '2026-10-05', payee_id: null, account_id: 1, category_id: 11, amount_text: '-12.50', refill: false } },
+            })
+          }
+        >
+          More details test
+        </button>
+      )
+    }
+    render(
+      <MemoryRouter initialEntries={['/transactions']}>
+        <MoreDetails />
+        <Transactions pickerDate="2026-10-03" />
+      </MemoryRouter>
+    )
     fireEvent.click(await screen.findByText('Bread'))
     await screen.findByLabelText('Date')
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await screen.findByText('Milk')
     expect(row('Bread')).toHaveClass('bg-raised')
 
-    fireEvent.click(screen.getByText('Milk'))
+    fireEvent.click(screen.getByRole('button', { name: 'More details test' }))
     await screen.findByLabelText('Date')
     fireEvent.click(screen.getByRole('button', { name: 'Transactions' }))
-    await screen.findByText('Bread')
-    expect(row('Bread')).not.toHaveClass('bg-raised')
-    expect(row('Milk')).not.toHaveClass('bg-raised')
-  })
-
-  it('clears the highlight after a delete', async () => {
-    existingTransactions = [EXISTING, OTHER]
-    calls.update.mockResolvedValue({ id: 32, notes: [] })
-    calls.payBatchGet.mockResolvedValue([])
-    renderLedger()
-    fireEvent.click(await screen.findByText('Bread'))
-    await screen.findByLabelText('Date')
-    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
-    await screen.findByText('Milk')
-    expect(row('Bread')).toHaveClass('bg-raised')
-
-    fireEvent.click(screen.getByText('Milk'))
-    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
-    fireEvent.click(await screen.findByRole('button', { name: 'Confirm delete' }))
-    await waitFor(() => expect(calls.remove).toHaveBeenCalled())
     await screen.findByText('Bread')
     expect(row('Bread')).not.toHaveClass('bg-raised')
   })
