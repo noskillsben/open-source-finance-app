@@ -122,6 +122,7 @@ export default function Transactions({ pickerDate }) {
   }, [formOpen])
 
   function openAdd() {
+    setHighlightId(null)
     resetForm()
     setSavedNote(null)
     setPredatesCheckNotes([])
@@ -476,6 +477,7 @@ export default function Transactions({ pickerDate }) {
   }
 
   function editTransaction(t) {
+    setHighlightId(null)
     setPayeeFill(null)
     pickedPayee.current = null
     setCategoryFollows(false)
@@ -547,6 +549,7 @@ export default function Transactions({ pickerDate }) {
         await api.payBatch.replace(editingId, [])
       }
       await api.transactions.remove(editingId)
+      setHighlightId(null)
       resetForm()
       setFormOpen(false)
       refresh()
@@ -557,6 +560,7 @@ export default function Transactions({ pickerDate }) {
 
   // The back link and Cancel leave without saving.
   function closeForm() {
+    setHighlightId(null)
     resetForm()
     setPredatesCheckNotes([])
     setFormOpen(false)

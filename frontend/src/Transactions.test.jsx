@@ -304,6 +304,43 @@ describe('Transactions: the form is a page of its own (#285)', () => {
     expect(row('Milk')).not.toHaveClass('bg-raised')
   })
 
+  it('clears the highlight when the next form is cancelled', async () => {
+    existingTransactions = [EXISTING, OTHER]
+    calls.update.mockResolvedValue({ id: 32, notes: [] })
+    renderLedger()
+    fireEvent.click(await screen.findByText('Bread'))
+    await screen.findByLabelText('Date')
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Milk')
+    expect(row('Bread')).toHaveClass('bg-raised')
+
+    fireEvent.click(screen.getByText('Milk'))
+    await screen.findByLabelText('Date')
+    fireEvent.click(screen.getByRole('button', { name: 'Transactions' }))
+    await screen.findByText('Bread')
+    expect(row('Bread')).not.toHaveClass('bg-raised')
+    expect(row('Milk')).not.toHaveClass('bg-raised')
+  })
+
+  it('clears the highlight after a delete', async () => {
+    existingTransactions = [EXISTING, OTHER]
+    calls.update.mockResolvedValue({ id: 32, notes: [] })
+    calls.payBatchGet.mockResolvedValue([])
+    renderLedger()
+    fireEvent.click(await screen.findByText('Bread'))
+    await screen.findByLabelText('Date')
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await screen.findByText('Milk')
+    expect(row('Bread')).toHaveClass('bg-raised')
+
+    fireEvent.click(screen.getByText('Milk'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Confirm delete' }))
+    await waitFor(() => expect(calls.remove).toHaveBeenCalled())
+    await screen.findByText('Bread')
+    expect(row('Bread')).not.toHaveClass('bg-raised')
+  })
+
   it('returns to the list with the new row highlighted after an add', async () => {
     existingTransactions = [EXISTING]
     calls.create.mockResolvedValue({ id: 31, notes: [] })
