@@ -45,7 +45,7 @@ There are no ADR files. A decision is an edit to the section it changes plus one
 - **Open the log line with the plain sentence** — what the user will see, or stop seeing — then the mechanism.
 - **Say what it deletes.** A decision that only adds is usually incomplete: name the mechanism, field or concept it supersedes, and file its removal.
 - **State the schema consequence** (nothing / additive / migration) and the **user-guide consequence** (which `docs/user/README.md` bullet changes).
-- **Then file the issues,** or the decision will not get built: plain-sentence title, `**What changes:**` opener, kind and area labels, added as sub-issues of the right EPIC in the right position. A new EPIC gets one plain paragraph saying what it is for.
+- **Then file the issues,** or the decision will not get built: plain-sentence title, `**What changes:**` opener, kind and area labels, added as sub-issues of the right EPIC in the right position. Never file a loose issue (`CLAUDE.md` § Repo hygiene, *Every issue has an EPIC*): if no open EPIC fits, create one with one plain paragraph saying what it is for, place it in the EPIC order where its work belongs, then add the issue under it.
 - **Comment on any issue the decision supersedes**, saying which section now answers it, and label it `superseded-candidate`. **Do not close it; that is Ben's call.**
 - **Update `CLAUDE.md`** only where a convention changed. It records conventions, never build state.
 

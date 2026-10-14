@@ -82,7 +82,7 @@ It will; that is the stated reason for this seat.
 
 1. **Confirm it against the code** — a suspicion is not a finding. Cite the lines.
 2. **Say plainly what is wrong and what it costs the user.**
-3. **Draft the issue text** — plain-sentence title, `**What changes:**` opener — and show it to Ben.
+3. **Draft the issue text** — plain-sentence title, `**What changes:**` opener, and the EPIC it goes under (or a new EPIC and where it sits, if none fits; `CLAUDE.md` § Repo hygiene) — and show it to Ben.
 4. **Hand it off.** A build goes to the Manager; a design question goes to the Architect. Ben files it or carries it.
 
 **Do not fix it here**, however small. A tutoring session that turns into a coding session loses both threads and skips review.

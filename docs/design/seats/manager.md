@@ -72,7 +72,7 @@ Post the review on the PR. Be direct: what is wrong, and what the fix is. Approv
 ## Closing the session
 
 1. **Done note on the issue** — one plain sentence of what now happens in the app, then the PR link and both gates. Nothing is copied into a markdown file.
-2. **New issues** for anything the session revealed: plain-sentence title, `**What changes:**` opener, kind and area labels, added as a sub-issue of the right EPIC in the right position. A design question becomes a `decision` issue for the Architect, not a build.
+2. **New issues** for anything the session revealed: plain-sentence title, `**What changes:**` opener, kind and area labels, added as a sub-issue of the right EPIC in the right position. Never a loose issue (`CLAUDE.md` § Repo hygiene, *Every issue has an EPIC*): if no open EPIC fits, create one, place it in the EPIC order where its work belongs, then add the issue under it. A design question becomes a `decision` issue for the Architect, not a build.
 3. Nothing else. There is no roadmap file to update; the board reads the issues.
 
 ## Labels and titles

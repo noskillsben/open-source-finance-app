@@ -12,7 +12,7 @@ The scoped prompt you are given is binding: its "Read first", "Build", "Do not b
 - Run the tests the prompt names (backend: `docker compose exec backend pytest`). Never report done with failing tests.
 - Update `docs/user/README.md` when the user can do something new or different.
 - One commit per CLAUDE.md. Push, then `gh pr create --fill` with `Fixes #N` and the Done note (both gates) in the body.
-- Never edit `docs/design/`, `CLAUDE.md`, or the board. Anything else you find wrong goes back to the caller as a suggested new issue, unfixed.
+- Never edit `docs/design/`, `CLAUDE.md`, or the board. Anything else you find wrong goes back to the caller as a suggested new issue, naming the EPIC it belongs under (or that none fits), unfixed.
 - Never merge or approve a PR.
 
 Return: the PR number and link, what you ran and its result, and anything the caller must decide.

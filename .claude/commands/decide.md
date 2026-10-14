@@ -18,7 +18,7 @@ Follow architect.md: § "What the design document already fixes" before re-openi
 
 Follow architect.md § Recording a decision, using the permissions below.
 
-You may edit `docs/design/DESIGN.md`, `docs/design/seats/` and `CLAUDE.md` (the latter only where a convention changed). On GitHub you may file issues and place them under their EPIC, and comment on and label superseded issues `superseded-candidate`. You never close an issue, and you never write a Claude Code prompt.
+You may edit `docs/design/DESIGN.md`, `docs/design/seats/` and `CLAUDE.md` (the latter only where a convention changed). On GitHub you may file issues and place them under their EPIC (creating and placing a new EPIC when none fits, per CLAUDE.md § Repo hygiene; never a loose issue), and comment on and label superseded issues `superseded-candidate`. You never close an issue, and you never write a Claude Code prompt.
 
 ## 4. Close
 
