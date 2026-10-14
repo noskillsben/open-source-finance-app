@@ -50,11 +50,8 @@ export default function Splits({ pickerDate }) {
     if (!splits) return
     const ids = [...new Set(splits.filter((s) => !s.archived_on).flatMap((s) => s.members.map((m) => m.account_id)))]
     // A zero balance reads "Nothing owed" until a line has touched the account, "Settled up" after.
-    Promise.all([Promise.all(ids.map((id) => api.splits.balance(id, pickerDate))), api.transactions.list()])
-      .then(([all, ledger]) => {
-        const touched = new Set(ledger.flatMap((t) => t.account_lines.map((l) => l.account_id)))
-        setBalances(Object.fromEntries(all.map((b) => [b.account_id, { ...b, touched: touched.has(b.account_id) }])))
-      })
+    Promise.all(ids.map((id) => api.splits.balance(id, pickerDate)))
+      .then((all) => setBalances(Object.fromEntries(all.map((b) => [b.account_id, b]))))
       .catch((e) => setError(e.message))
   }, [splits, pickerDate])
 

@@ -4,8 +4,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Splits from './Splits.jsx'
 import { formatPercent, parsePercent } from './utils/format.js'
 
-const { createSplit, updateSplit, archiveSplit, balances } = vi.hoisted(() => ({
-  createSplit: vi.fn(), updateSplit: vi.fn(), archiveSplit: vi.fn(), balances: {},
+const { createSplit, updateSplit, archiveSplit, transactionsList, balances } = vi.hoisted(() => ({
+  createSplit: vi.fn(), updateSplit: vi.fn(), archiveSplit: vi.fn(), transactionsList: vi.fn(), balances: {},
 }))
 
 vi.mock('./api.js', () => ({
@@ -15,9 +15,9 @@ vi.mock('./api.js', () => ({
       create: createSplit,
       update: updateSplit,
       archive: archiveSplit,
-      balance: (id) => Promise.resolve(balances[id] ?? { account_id: id, balance_cents: 0, transactions: [] }),
+      balance: (id) => Promise.resolve(balances[id] ?? { account_id: id, balance_cents: 0, touched: false, transactions: [] }),
     },
-    transactions: { list: () => Promise.resolve(balances.ledger ?? []) },
+    transactions: { list: transactionsList },
     categories: { list: () => Promise.resolve([{ id: 1, name: 'Groceries' }]) },
     goals: { list: () => Promise.resolve([]) },
     payees: { list: () => Promise.resolve([{ id: 7, name: 'Sam' }, { id: 8, name: 'Kit' }]), create: vi.fn() },
@@ -84,6 +84,7 @@ describe('the Split expenses page', () => {
     createSplit.mockReset()
     updateSplit.mockReset()
     archiveSplit.mockReset()
+    transactionsList.mockReset()
     for (const key of Object.keys(balances)) delete balances[key]
   })
 
@@ -93,6 +94,7 @@ describe('the Split expenses page', () => {
     renderSplits()
 
     expect(await screen.findAllByText('Sam owes you $50.00')).toHaveLength(2)
+    expect(transactionsList).not.toHaveBeenCalled()
     expect(screen.getAllByText('Heating')).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Settle up' })).toHaveLength(2)
     // read-only: no row is clickable
@@ -106,8 +108,7 @@ describe('the Split expenses page', () => {
     expect(await screen.findByText('You owe Sam $20.50')).toBeInTheDocument()
 
     // something was settled: a line touched the account, and it is back at zero
-    balances[3] = { account_id: 3, balance_cents: 0, transactions: [] }
-    balances.ledger = [HEAT]
+    balances[3] = { account_id: 3, balance_cents: 0, touched: true, transactions: [] }
     cleanup()
     renderSplits()
     expect(await screen.findByText('Settled up')).toBeInTheDocument()

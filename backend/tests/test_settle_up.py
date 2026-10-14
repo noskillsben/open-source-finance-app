@@ -131,3 +131,20 @@ def test_an_unknown_account_is_a_404(db_session):
         assert client.get("/api/splits/accounts/999999/balance").status_code == 404
     finally:
         app.dependency_overrides.clear()
+
+
+def test_touched_is_false_until_a_real_line_and_stays_true_after_a_settle_up(db_session):
+    client, chequing, owed = _setup(db_session)
+    try:
+        def touched():
+            return client.get(f"/api/splits/accounts/{owed.id}/balance").json()["touched"]
+
+        # the opening-balance line every account is born with does not count
+        assert touched() is False
+        _move(client, chequing, owed, "2026-04-01", 5000, "Heat")
+        assert touched() is True
+        _move(client, chequing, owed, "2026-04-02", -5000, "Paid back")
+        body = client.get(f"/api/splits/accounts/{owed.id}/balance").json()
+        assert body["balance_cents"] == 0 and body["touched"] is True
+    finally:
+        app.dependency_overrides.clear()

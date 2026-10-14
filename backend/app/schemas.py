@@ -685,6 +685,7 @@ class MemberBalanceOut(BaseModel):
 
     account_id: int
     balance_cents: int
+    touched: bool  # any real line, any date, has hit the account (not its opening-balance line)
     transactions: list[TransactionOut]
 
 
