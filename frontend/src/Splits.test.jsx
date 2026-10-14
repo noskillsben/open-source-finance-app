@@ -17,6 +17,7 @@ vi.mock('./api.js', () => ({
       archive: archiveSplit,
       balance: (id) => Promise.resolve(balances[id] ?? { account_id: id, balance_cents: 0, transactions: [] }),
     },
+    transactions: { list: () => Promise.resolve(balances.ledger ?? []) },
     categories: { list: () => Promise.resolve([{ id: 1, name: 'Groceries' }]) },
     goals: { list: () => Promise.resolve([]) },
     payees: { list: () => Promise.resolve([{ id: 7, name: 'Sam' }, { id: 8, name: 'Kit' }]), create: vi.fn() },
@@ -104,11 +105,20 @@ describe('the Split expenses page', () => {
     renderSplits()
     expect(await screen.findByText('You owe Sam $20.50')).toBeInTheDocument()
 
+    // something was settled: a line touched the account, and it is back at zero
     balances[3] = { account_id: 3, balance_cents: 0, transactions: [] }
+    balances.ledger = [HEAT]
     cleanup()
     renderSplits()
     expect(await screen.findByText('Settled up')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Settle up' })).not.toBeInTheDocument()
+  })
+
+  it('says "Nothing owed" for a member who has never owed anything (#220)', async () => {
+    balances.splits = household().slice(0, 1)
+    renderSplits()
+    expect(await screen.findByText('Nothing owed')).toBeInTheDocument()
+    expect(screen.queryByText('Settled up')).not.toBeInTheDocument()
   })
 
   it('Settle up opens the Ledger with their account taking the opposite of what they owe', async () => {

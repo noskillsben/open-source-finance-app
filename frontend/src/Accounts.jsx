@@ -589,6 +589,7 @@ export default function Accounts({ pickerDate }) {
           payeeId={form.locked_payee_id}
           onSelect={(id) => updateField('locked_payee_id', id)}
           onError={setFormError}
+          inline
         />
       </label>
 

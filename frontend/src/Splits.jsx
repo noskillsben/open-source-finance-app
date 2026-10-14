@@ -49,8 +49,12 @@ export default function Splits({ pickerDate }) {
   useEffect(() => {
     if (!splits) return
     const ids = [...new Set(splits.filter((s) => !s.archived_on).flatMap((s) => s.members.map((m) => m.account_id)))]
-    Promise.all(ids.map((id) => api.splits.balance(id, pickerDate)))
-      .then((all) => setBalances(Object.fromEntries(all.map((b) => [b.account_id, b]))))
+    // A zero balance reads "Nothing owed" until a line has touched the account, "Settled up" after.
+    Promise.all([Promise.all(ids.map((id) => api.splits.balance(id, pickerDate))), api.transactions.list()])
+      .then(([all, ledger]) => {
+        const touched = new Set(ledger.flatMap((t) => t.account_lines.map((l) => l.account_id)))
+        setBalances(Object.fromEntries(all.map((b) => [b.account_id, { ...b, touched: touched.has(b.account_id) }])))
+      })
       .catch((e) => setError(e.message))
   }, [splits, pickerDate])
 
@@ -310,7 +314,7 @@ function MemberBalance({ member, balance, names, onSettle }) {
   const text =
     cents > 0 ? `${member.payee_name} owes you ${formatCents(cents)}`
     : cents < 0 ? `You owe ${member.payee_name} ${formatCents(-cents)}`
-    : 'Settled up'
+    : balance.touched ? 'Settled up' : 'Nothing owed'
   return (
     <div className="mt-1 space-y-2 text-text">
       <div className="flex items-center gap-3">

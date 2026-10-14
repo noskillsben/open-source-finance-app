@@ -6,7 +6,7 @@ import Picker from './components/Picker.jsx'
  * picker that could hold more than five items is searchable, per CLAUDE.md). Without `onAdd`
  * it only picks: the account form's payee lock never creates a payee on the side.
  */
-export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError }) {
+export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError, inline }) {
   const [query, setQuery] = useState('')
   // A ref, not state: state isn't updated until the next render, so a second press in the same
   // instant would still see "not adding".
@@ -73,6 +73,7 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError 
       addNoun="payee"
       emptyText="No payees yet."
       onKeyDown={onKeyDown}
+      inline={inline}
     />
   )
 }
