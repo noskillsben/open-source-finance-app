@@ -81,7 +81,12 @@ vi.mock('./api.js', () => ({
   },
 }))
 
+// The form is a page of its own, so a test opens it the way the shell's + Add transaction does. A test
+// with saved transactions starts on the list instead (its rows are what it taps); one that wants the
+// list passes `null`.
 function renderLedger(state, pickerDate = '2026-10-03') {
+  if (state === undefined) state = existingTransactions.length ? undefined : { addTransaction: true }
+  if (state === null) state = undefined
   const page = (date) => (
     <MemoryRouter initialEntries={[{ pathname: '/transactions', state }]}>
       <Transactions pickerDate={date} />
@@ -248,9 +253,100 @@ describe('Ledger form: save notes', () => {
     expect(await screen.findByText('Recorded.')).toBeInTheDocument()
     expect(screen.getByText('This predates the last balance check.')).toBeInTheDocument()
 
-    fireEvent.change(screen.getByLabelText('Memo'), { target: { value: 'next' } })
+    // Starting the next entry clears them.
+    fireEvent.click(screen.getByRole('button', { name: 'Record a transaction' }))
+    await screen.findByLabelText('Memo')
     expect(screen.queryByText('Recorded.')).not.toBeInTheDocument()
     expect(screen.queryByText('This predates the last balance check.')).not.toBeInTheDocument()
+  })
+})
+
+describe('Transactions: the form is a page of its own (#285)', () => {
+  const EXISTING = {
+    id: 31, date: '2026-10-01', memo: 'Milk', payee_id: null, goal_id: null, split_id: null,
+    account_lines: [{ account_id: 1, cents: -500 }], category_lines: [{ category_id: 10, cents: -500 }], deposits: [],
+  }
+  const OTHER = { ...EXISTING, id: 32, memo: 'Bread' }
+  const row = (text) => screen.getByText(text).closest('tr')
+
+  it('shows the list, not the form, until one is opened', async () => {
+    existingTransactions = [EXISTING]
+    renderLedger()
+    expect(await screen.findByText('Milk')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Date')).not.toBeInTheDocument()
+  })
+
+  it('opens an edit as the form view, and the back link returns without saving', async () => {
+    existingTransactions = [EXISTING]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Milk'))
+    expect(await screen.findByLabelText('Date')).toHaveValue('2026-10-01')
+    expect(screen.queryByRole('table')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Transactions' }))
+    expect(await screen.findByText('Milk')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Date')).not.toBeInTheDocument()
+    expect(calls.update).not.toHaveBeenCalled()
+    expect(calls.create).not.toHaveBeenCalled()
+  })
+
+  it('returns to the list with the saved row highlighted after an edit', async () => {
+    existingTransactions = [EXISTING, OTHER]
+    calls.update.mockResolvedValue({ id: 32, notes: [] })
+    renderLedger()
+    fireEvent.click(await screen.findByText('Bread'))
+    await screen.findByLabelText('Date')
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+
+    await screen.findByText('Milk')
+    expect(screen.queryByLabelText('Date')).not.toBeInTheDocument()
+    expect(row('Bread')).toHaveClass('bg-raised')
+    expect(row('Milk')).not.toHaveClass('bg-raised')
+  })
+
+  it('returns to the list with the new row highlighted after an add', async () => {
+    existingTransactions = [EXISTING]
+    calls.create.mockResolvedValue({ id: 31, notes: [] })
+    renderLedger({ addTransaction: true })
+    await screen.findByLabelText('Date')
+    fillAccountLine('-5')
+    fireEvent.click(screen.getByRole('button', { name: 'Record transaction' }))
+
+    expect(await screen.findByText('Recorded.')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Date')).not.toBeInTheDocument()
+    expect(row('Milk')).toHaveClass('bg-raised')
+  })
+
+  it("opens blank from the top bar's + Add transaction, with the date field ready", async () => {
+    renderLedger({ addTransaction: true })
+    const date = await screen.findByLabelText('Date')
+    expect(date).toHaveValue('2026-10-03')
+    await waitFor(() => expect(date).toHaveFocus())
+    expect(screen.getByRole('button', { name: 'Transactions' })).toBeInTheDocument()
+  })
+
+  it("opens from a bill's Record link pre-filled", async () => {
+    renderLedger({ recordBill: { goal_id: 7, goal_due_on: '2026-10-01', category_id: 11, amount_cents: 120000 } })
+    expect(await screen.findByText(/Marked as paying/)).toBeInTheDocument()
+    expect(screen.getByLabelText('Date')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getByLabelText('Category')).toHaveValue('Rent'))
+  })
+
+  it("opens from Split expenses' Settle up pre-filled", async () => {
+    renderLedger({ settleUp: { account_id: 3, cents: -3000 } })
+    expect(await screen.findByLabelText('Date')).toBeInTheDocument()
+    await waitFor(() => expect(screen.getAllByLabelText('Account')[0]).toHaveValue('Roommate'))
+  })
+
+  it("opens from Quick add's More details pre-filled", async () => {
+    renderLedger({ quickAdd: { date: '2026-10-05', payee_id: null, account_id: 1, category_id: 11, amount_text: '-12.50', refill: false } })
+    await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-10-05'))
+  })
+
+  it('offers an add from the empty list', async () => {
+    renderLedger(null)
+    fireEvent.click(await screen.findByRole('button', { name: 'Record a transaction' }))
+    expect(await screen.findByLabelText('Date')).toBeInTheDocument()
   })
 })
 
@@ -471,6 +567,8 @@ describe('Ledger form: choosing a payee with the keyboard', () => {
     fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
 
     await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    // Saving returns to the list; the next add starts from a clean form.
+    fireEvent.click(await screen.findByRole('button', { name: 'Record a transaction' }))
     await waitFor(() => expect(screen.getByPlaceholderText('Search payees…')).toHaveValue(''))
     expect(screen.getByLabelText('Memo')).toHaveValue('')
   })
@@ -1165,7 +1263,7 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
 })
 
 describe("the phone's bottom bar (#252)", () => {
-  it('is absent while the Transactions form has focus, and back when it does not', async () => {
+  it('is absent for as long as the form view is shown, and back on the list', async () => {
     render(
       <MemoryRouter initialEntries={['/transactions']}>
         <FormOpenProvider>
@@ -1174,12 +1272,11 @@ describe("the phone's bottom bar (#252)", () => {
         </FormOpenProvider>
       </MemoryRouter>,
     )
-    const date = await screen.findByLabelText('Date')
-    expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
-    fireEvent.focus(date)
+    fireEvent.click(await screen.findByRole('button', { name: 'Record a transaction' }))
+    await screen.findByLabelText('Date')
     expect(screen.queryByRole('navigation', { name: 'Bottom bar' })).not.toBeInTheDocument()
-    fireEvent.blur(date)
-    expect(screen.getByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Transactions' }))
+    expect(await screen.findByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
   })
 })
 
