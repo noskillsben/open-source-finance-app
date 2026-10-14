@@ -343,14 +343,12 @@ class AccountLineOut(BaseModel):
 class CategoryLineIn(BaseModel):
     category_id: int
     cents: int
-    need_level: str | None = None
 
 
 class CategoryLineOut(BaseModel):
     id: int
     category_id: int
     cents: int
-    need_level: str | None
 
     model_config = {"from_attributes": True}
 

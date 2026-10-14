@@ -506,7 +506,7 @@ export default function Categories({ pickerDate }) {
           onChange={(id, text) => setForm({ ...form, domain: { id, text } })}
         />
         <label className="block space-y-1">
-          <span className="field-label">Default need level</span>
+          <span className="field-label">Need level</span>
           <select
             className="field w-full"
             value={form.needLevel}

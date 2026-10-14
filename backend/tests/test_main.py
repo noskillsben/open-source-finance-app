@@ -538,7 +538,7 @@ def test_balance_check_mismatch_with_category_creates_adjustment(db_session):
     body = resp.json()
     assert body["diff_cents"] == -20_00
     assert body["transaction"]["category_lines"] == [
-        {"id": body["transaction"]["category_lines"][0]["id"], "category_id": missed.id, "cents": -20_00, "need_level": None}
+        {"id": body["transaction"]["category_lines"][0]["id"], "category_id": missed.id, "cents": -20_00}
     ]
     assert body["transaction"]["valuation_id"] == body["valuation_id"]
 

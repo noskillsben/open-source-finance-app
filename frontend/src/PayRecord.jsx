@@ -552,10 +552,7 @@ export default function PayRecord({ pickerDate }) {
             payee_id: existingTransaction.payee_id ?? null,
             income_stream_id: existingTransaction.income_stream_id,
             account_lines: correctedAccountLines(existingTransaction, net),
-            category_lines: categoryLines.map((l) => {
-              const needLevel = existingTransaction.category_lines.find((o) => o.category_id === l.category_id)?.need_level
-              return needLevel ? { ...l, need_level: needLevel } : l
-            }),
+            category_lines: categoryLines,
             deposits: existingTransaction.deposits ?? [],
           })
         : await api.transactions.create({

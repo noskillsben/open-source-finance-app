@@ -418,7 +418,7 @@ def write_transaction(
         backdate_created_on(payee, txn_date)
 
     new_category_lines = [
-        CategoryLine(category_id=line["category_id"], cents=line["cents"], need_level=line.get("need_level"))
+        CategoryLine(category_id=line["category_id"], cents=line["cents"])
         for line in category_lines
     ]
 

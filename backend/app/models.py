@@ -391,7 +391,6 @@ class CategoryLine(Base, Owned):
     transaction_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("transaction.id"), nullable=False, index=True)
     category_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("category.id"), nullable=False, index=True)
     cents: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    need_level: Mapped[str | None] = mapped_column(String, nullable=True)
 
     transaction: Mapped["Transaction"] = relationship(back_populates="category_lines")
     category: Mapped["Category"] = relationship()

@@ -378,6 +378,15 @@ def _assert_f2b7d4c91e85(session):
     assert [l.cents for l in session.query(AccountLine).order_by(AccountLine.id)] == [-10000, 5000]
 
 
+def _assert_a6c3e9d27f51(session):
+    from sqlalchemy import inspect
+
+    from app.models import CategoryLine
+
+    assert [(l.category_id, l.cents) for l in session.query(CategoryLine).order_by(CategoryLine.id)] == [(1, -6000), (2, -3000)]
+    assert "need_level" not in {c["name"] for c in inspect(session.get_bind()).get_columns("category_line")}
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -407,6 +416,7 @@ ASSERTIONS = {
     "d4e8b2a71f63": _assert_d4e8b2a71f63,
     "e5f9c3b82a74": _assert_e5f9c3b82a74,
     "f2b7d4c91e85": _assert_f2b7d4c91e85,
+    "a6c3e9d27f51": _assert_a6c3e9d27f51,
 }
 
 
