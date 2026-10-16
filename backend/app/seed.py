@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.db import NonLedger
-from app.models import Category, Domain, Payee
+from app.models import Category, Payee
 from app.services.archiving import ArchiveError
 
 # Every default is valid on every picker date, including transactions backdated before the
@@ -67,43 +67,13 @@ def _default(
     return exists, insert
 
 
-def _domain_id(key: str) -> Callable[[Session], int | None]:
-    return lambda session: session.scalar(select(Domain.id).where(Domain.seeded_key == key))
-
-
-# Domains and categories from DESIGN.md § Categories / § Domains. Domains come first so a
-# category's domain exists when it is inserted. A new default is one line here.
-DEFAULT_DOMAINS = [
-    ("food", "Food", "Groceries and eating out"),
-    ("housing", "Housing", "Where you live and what keeps it running"),
-    ("transportation", "Transportation", "Getting around"),
-    ("health", "Health", "Care for your body"),
-    ("lifestyle", "Lifestyle", "Clothes, fun and everything discretionary"),
-    ("financial", "Financial", "Debt and money set aside"),
-]
-
-# (key, name, domain key, default need level)
-DEFAULT_CATEGORIES = [
-    ("groceries", "Groceries", "food", "need"),
-    ("dining-out", "Dining out", "food", "want"),
-    ("rent", "Rent", "housing", "need"),
-    ("utilities", "Utilities", "housing", "need"),
-    ("transit", "Transit", "transportation", "need"),
-    ("health-care", "Health care", "health", "need"),
-    ("clothing", "Clothing", "lifestyle", "should"),
-    ("entertainment", "Entertainment", "lifestyle", "want"),
-    # Key is stored as "category:debt-payments"; frontend/src/account_types.js (BOUNDARY_DEFAULT_SEEDED_KEY)
-    # reads it, so change both together.
-    ("debt-payments", "Debt payments", "financial", "need"),
-]
-
+# A fresh install opens with the payee Me and the Debt payments category, and nothing else
+# (DESIGN.md § Categories: no protected categories and no starter set). A new default is one
+# line here. Key "category:debt-payments" is read by frontend/src/account_types.js
+# (BOUNDARY_DEFAULT_SEEDED_KEY); change both together.
 SEED_DEFAULTS: list[tuple[Callable[[Session], bool], Callable[[Session], None]]] = [
     _default(Payee, ME_KEY, name="Me"),
-    *(_default(Domain, f"domain:{key}", name=name, description=description)
-      for key, name, description in DEFAULT_DOMAINS),
-    *(_default(Category, f"category:{key}", name=name,
-               domain_id=_domain_id(f"domain:{domain}"), need_level=need_level)
-      for key, name, domain, need_level in DEFAULT_CATEGORIES),
+    _default(Category, "category:debt-payments", name="Debt payments", need_level="need"),
 ]
 
 
