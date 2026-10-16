@@ -11,4 +11,8 @@ fi
 alembic upgrade head
 python -m app.seed
 python -m app.data_steps
+# Dev reloads on source changes; production (APP_ENV=production, set by docker-compose.prod.yml) does not.
+if [ "$APP_ENV" = "production" ]; then
+  exec uvicorn app.main:app --host 0.0.0.0 --port 8000
+fi
 exec uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
