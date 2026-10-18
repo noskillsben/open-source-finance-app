@@ -19,6 +19,16 @@ export function optionalCentsToFieldText(cents) {
   return cents == null ? '' : centsToFieldText(cents)
 }
 
+const dateTime = new Intl.DateTimeFormat('en-CA', {
+  year: 'numeric', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit',
+})
+
+/** An ISO instant "2026-10-19T03:00:00Z" -> "Oct 19, 2026, 3:00 a.m." in the viewer's own time zone. */
+export function formatDateTime(iso) {
+  if (!iso) return ''
+  return dateTime.format(new Date(iso))
+}
+
 /** ISO date "2026-09-12" → "Sep 12, 2026". Parsed at noon UTC so no timezone shifts the day. */
 export function formatDate(iso) {
   if (!iso) return ''

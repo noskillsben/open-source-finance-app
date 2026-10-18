@@ -5,6 +5,7 @@ import Categories from './Categories.jsx'
 import Domains from './Domains.jsx'
 import DueDates from './DueDates.jsx'
 import IntegrityCheck from './IntegrityCheck.jsx'
+import Settings from './Settings.jsx'
 import { BottomBar, Sidebar, titleFor } from './Nav.jsx'
 import Pay from './Pay.jsx'
 import PayRecord from './PayRecord.jsx'
@@ -112,6 +113,7 @@ export default function App() {
             <Route path="/payees" element={<Payees pickerDate={pickerDate} />} />
             <Route path="/split-expenses" element={<Splits pickerDate={pickerDate} />} />
             <Route path="/domains" element={<Domains pickerDate={pickerDate} />} />
+            <Route path="/settings" element={<Settings />} />
             <Route path="/settings/data-check" element={<IntegrityCheck />} />
           </Routes>
         </Shell>

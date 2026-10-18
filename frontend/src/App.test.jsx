@@ -19,6 +19,7 @@ vi.mock('./api.js', () => {
       incomeStreams: { list },
       transactions: { list },
       integrityCheck: { list },
+      backups: { latest: () => Promise.resolve({ name: null, taken_at: null }) },
     },
   }
 })
@@ -64,6 +65,11 @@ describe('routing', () => {
   ])('mounts the right page at %s', async (path, level, expectedHeading) => {
     renderAt(path)
     expect(await screen.findByRole('heading', { level, name: expectedHeading })).toBeInTheDocument()
+  })
+
+  it('mounts Settings at /settings (its name is also the menu section header)', async () => {
+    renderAt('/settings')
+    expect(await screen.findAllByRole('heading', { level: 2, name: 'Settings' })).toHaveLength(2)
   })
 
   it('redirects the root path to Transactions', async () => {

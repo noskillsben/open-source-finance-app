@@ -1,5 +1,5 @@
 """Pydantic models — the API shape. Never persisted."""
-from datetime import date
+from datetime import date, datetime
 from decimal import ROUND_HALF_EVEN, Decimal
 
 from pydantic import BaseModel, Field, field_serializer, field_validator, model_validator
@@ -702,3 +702,12 @@ class SplitOut(BaseModel):
     @field_serializer("my_share_percent")
     def _my_share(self, value: Decimal) -> str:
         return _percent_as_string(value)
+
+
+class LatestBackupOut(BaseModel):
+    """The newest nightly backup, for the Settings download button. Both fields are null when
+    none has been taken yet. `taken_at` is UTC, read from the stamp in the file name.
+    """
+
+    name: str | None
+    taken_at: datetime | None
