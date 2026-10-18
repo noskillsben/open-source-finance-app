@@ -1,6 +1,6 @@
 // Every fetch in the app goes through request(). It surfaces the backend's `detail` on any non-OK response,
 // so a carefully worded 4xx message actually reaches the screen.
-export async function request(path, options = {}) {
+export async function request(path, { as, ...options } = {}) {
   const res = await fetch(path, {
     headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
     ...options,
@@ -14,6 +14,7 @@ export async function request(path, options = {}) {
     } catch { /* not JSON */ }
     throw new Error(detail)
   }
+  if (as === 'blob') return res.blob() // a file to save, e.g. the latest backup
   return res.status === 204 ? null : res.json()
 }
 
@@ -121,5 +122,9 @@ export const api = {
   },
   integrityCheck: {
     list: () => request('/api/integrity-check'),
+  },
+  backups: {
+    latest: () => request('/api/backups/latest'),
+    downloadLatest: () => request('/api/backups/latest/download', { as: 'blob' }),
   },
 }

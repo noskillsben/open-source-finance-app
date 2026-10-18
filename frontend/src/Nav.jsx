@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  Banknote, CalendarClock, Ellipsis, Landmark, Plus, Zap, Receipt, ShieldCheck, Split, Tag, Users, Wallet,
+  Banknote, CalendarClock, Ellipsis, Landmark, Plus, Zap, Receipt, Settings as SettingsIcon, ShieldCheck, Split, Tag, Users, Wallet,
 } from 'lucide-react'
 import { useFormOpen } from './components/SidePanel.jsx'
 
@@ -35,7 +35,13 @@ const GROUPS = [
   { name: 'Review', items: [] },
 ]
 
-const SETTINGS = { name: 'Settings', items: [{ label: 'Data check', to: '/settings/data-check', Icon: ShieldCheck }] }
+const SETTINGS = {
+  name: 'Settings',
+  items: [
+    { label: 'Settings', to: '/settings', Icon: SettingsIcon, end: true },
+    { label: 'Data check', to: '/settings/data-check', Icon: ShieldCheck },
+  ],
+}
 
 /** The page title for the phone's top bar: the nav label of the longest matching route. */
 export function titleFor(pathname) {
@@ -59,7 +65,7 @@ function NavGroup({ group, onNavigate }) {
       <ul>
         {group.items.map((item) => (
           <li key={item.to}>
-            <NavLink to={item.to} className={linkClass} onClick={onNavigate}>
+            <NavLink to={item.to} end={item.end} className={linkClass} onClick={onNavigate}>
               <item.Icon aria-hidden="true" size={20} className="shrink-0" />
               {item.label}
             </NavLink>
