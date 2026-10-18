@@ -80,4 +80,38 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 - Open the integrity check page any time to see any transaction whose category lines don't add up, or whose on-budget amount would come out differently if it were saved again under an account's current on-budget/tracking side. Nothing runs in the background and nothing is dev-only — it's a page like any other. Fix one row at a time with its "Re-save" button, which writes the transaction again through the normal save path; there's no "fix everything" button on purpose.
 
+## Backups
+
+These steps are for the Raspberry Pi running the production stack. In every command below, `dc` means `docker compose -f docker-compose.prod.yml`, run from the app folder (the one holding `docker-compose.prod.yml` and `.env`). If you like, type `alias dc='docker compose -f docker-compose.prod.yml'` first.
+
+- A backup is one plain file holding a full copy of your data. The `backup` service in the production stack takes one every night at 03:00 UTC and saves it in the `backups` folder inside the app folder, named `nightly-<date and time>.sql` (for example `nightly-20261019T030000Z.sql`). It keeps the newest 14 and deletes older `nightly-` files. If a night's backup fails, it says so in `dc logs backup` and leaves the earlier files alone. The `pre-migrate-` files the app saves before an update are separate and are never deleted for you.
+- Copy backups off the Pi yourself from time to time (for example to your computer or a USB stick); a backup that only lives on the Pi is lost if the Pi is.
+- To tell a backup finished: run `grep "PostgreSQL database dump complete" backups/<file>`. A finished file contains the line `-- PostgreSQL database dump complete`, and its last line starts with `\unrestrict`. A file without them was cut short; don't rely on it. The nightly job checks for this line and throws away a dump that lacks it.
+- Take a backup by hand any time (for instance right before a risky change):
+
+```bash
+dc exec backend sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h db -U "$POSTGRES_USER" "$POSTGRES_DB" > /backups/manual-before-change.sql'
+```
+
+- Restore a backup onto a Pi that was wiped and rebuilt (or any fresh stack). This replaces everything in the app with what the file holds. You need the app folder with its `.env` file, and Docker installed.
+  1. Put the backup file in the `backups` folder inside the app folder (create the folder if it is missing). Below it is called `nightly-20261019T030000Z.sql`; use your file's real name in step 6.
+  2. Start only the database and wait a few seconds: `dc up -d db`
+  3. Build the app image so the restore has the tools it needs: `dc build backend`
+  4. Make sure the app is not running: `dc stop backend` (on a fresh stack it may say there is nothing to stop; that is fine).
+  5. Empty the database and create it again:
+
+```bash
+dc exec db sh -c 'dropdb --force --if-exists -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+```
+
+  6. Load the file (change the file name to yours). The `grep -v` part drops one line, `SET transaction_timeout`, that appears in backups made before this fix and that the database refuses; it does nothing to newer files, so keep it either way. The load stops at the first error instead of carrying on half-done:
+
+```bash
+dc run --rm --no-deps --entrypoint sh backend -c 'grep -v "^SET transaction_timeout" /backups/nightly-20261019T030000Z.sql | PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -q -h db -U "$POSTGRES_USER" "$POSTGRES_DB"'
+```
+
+  7. Start the whole app: `dc up -d`
+  8. Check it came back. Open the app, set "Show as of" to a date you know, and compare account balances and category available amounts with what you expect (a past screenshot or the old app). Then open Settings, Data check: it should report nothing wrong. If a balance or the data check is off, don't record anything; repeat the restore with an earlier backup.
+- There is no restore button and no upload in the app, on purpose: a restore overwrites everything and is needed exactly when the app may not be running.
+
 ## Reports
