@@ -36,6 +36,23 @@ services:
     expose:
       - "8000"
 
+  # Nightly pg_dump at 03:00 UTC into ./backups, newest 14 kept (backend/backup-nightly.sh).
+  backup:
+    build: ./backend
+    restart: unless-stopped
+    entrypoint: ["/app/backup-nightly.sh"]
+    environment:
+      POSTGRES_HOST: db
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in .env}
+      BACKUP_DIR: /backups
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./backups:/backups
+
   web:
     build:
       context: ./frontend
