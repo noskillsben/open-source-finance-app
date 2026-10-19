@@ -36,10 +36,10 @@ Migrations run at container start, after an automatic database dump.
 ## Running in production
 
 ```sh
-cp .env.example .env        # then set POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB to real values
+cp .env.example .env        # then uncomment and set POSTGRES_USER, POSTGRES_PASSWORD (generated), POSTGRES_DB
 docker compose -f docker-compose.prod.yml up -d --build
 docker compose -f docker-compose.prod.yml logs -f backend
-docker compose -f docker-compose.prod.yml down      # stop; data stays in the pgdata volume and ./backups
+docker compose -f docker-compose.prod.yml down      # stop; data stays in the finance-prod-pgdata volume and ./backups
 ```
 
 The app is served on port 80 (`WEB_PORT` to change); `/api/health` answers through it. The database and backend are not published.
