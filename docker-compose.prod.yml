@@ -63,5 +63,7 @@ services:
     ports:
       - "${WEB_PORT:-80}:80"
 
+# Explicit name so this can never be the dev checkout's <folder>_pgdata volume.
 volumes:
   pgdata:
+    name: finance-prod-pgdata
