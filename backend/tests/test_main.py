@@ -281,28 +281,42 @@ def test_edit_first_of_two_backfills_leaves_the_second_intact(db_session):
     assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
 
 
-def test_plain_line_between_the_current_opening_and_the_stated_date_never_touches_it(db_session):
-    """A line dated after a backfill's boundary but before the originally stated date is
-    ordinary activity (DESIGN.md: a transaction on or after `created_on` never moves the
-    opening) — written, edited and deleted, the opening line stays where the backfill left it.
+def test_backfills_in_any_order_never_change_todays_balance(db_session):
+    """#331: a line dated before the stated date is netted whatever order it arrives in, so
+    the balance stated on D holds and today's balance is stated plus rows on or after D.
+    (Replaces the old order-dependent "between the current opening and the stated date is
+    ordinary activity" case.)
     """
     opened = datetime.date(2026, 9, 10)
-    boundary = datetime.date(2026, 8, 15)
-    between = datetime.date(2026, 8, 20)
     account, groceries = _account_and_groceries(db_session, opened)
-    _grocery_write(db_session, account, groceries, boundary, -80_00)
-    rent = _grocery_write(db_session, account, groceries, between, -20_00)
+    early = opened - datetime.timedelta(days=10)
+    later = opened - datetime.timedelta(days=5)
+    _grocery_write(db_session, account, groceries, early, -80_00)
+    second = _grocery_write(db_session, account, groceries, early, -20_00)
+    between = _grocery_write(db_session, account, groceries, later, -30_00)
+    _grocery_write(db_session, account, groceries, opened, -7_00)  # exactly D: not netted
 
-    assert _opening_line_cents(db_session, account) == 1_080_00
-    assert account_balance_cents(db_session, account.id, as_of=datetime.date(2026, 8, 18)) == 1_000_00
-    assert account_balance_cents(db_session, account.id, as_of=opened) == 980_00
+    assert _opening_line_cents(db_session, account) == 1_130_00
+    assert all(line.netted_into_opening for line in between.account_lines)
+    assert account_balance_cents(db_session, account.id, as_of=opened - datetime.timedelta(days=1)) == 1_000_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 993_00
+    assert account_balance_cents(db_session, account.id, as_of=datetime.date(2026, 12, 1)) == 993_00
 
-    assert _put(db_session, rent.id, between, account, groceries, -35_00).status_code == 200
+    assert _put(db_session, between.id, later, account, groceries, -35_00).status_code == 200
+    assert _opening_line_cents(db_session, account) == 1_135_00
+    assert _delete(db_session, second.id).status_code == 204
+    assert _delete(db_session, between.id).status_code == 204
     assert _opening_line_cents(db_session, account) == 1_080_00
+    assert account_balance_cents(db_session, account.id, as_of=opened) == 993_00
 
-    assert _delete(db_session, rent.id).status_code == 204
-    assert _opening_line_cents(db_session, account) == 1_080_00
-    assert account_balance_cents(db_session, account.id, as_of=opened) == 1_000_00
+
+def test_line_dated_exactly_on_the_stated_date_is_not_netted(db_session):
+    opened = datetime.date(2026, 9, 10)
+    account, groceries = _account_and_groceries(db_session, opened)
+    txn = _grocery_write(db_session, account, groceries, opened, -50_00)
+
+    assert not any(line.netted_into_opening for line in txn.account_lines)
+    assert _opening_line_cents(db_session, account) == 1_000_00
 
 
 def test_put_account_updates_settings_and_leaves_existing_lines_alone(db_session):

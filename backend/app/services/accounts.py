@@ -166,12 +166,11 @@ def backfill_opening_balance(
 
     Whether a line is *netted* into the opening is decided once, when it is written, and
     stored on the line (`AccountLine.netted_into_opening`); this returns that answer for the
-    new line so the caller can store it. A fresh or plain line nets iff it is dated before the
-    opening's current date. A line that was already netted (`old_line_netted`, read back from
-    its stored flag) stays netted while it is dated before `account.opening_stated_on` — the
-    date the balance was first stated, which never moves — and is given back once it moves
-    out past it. A plain line dated between the current opening and the stated date is
-    ordinary activity and never touches the opening.
+    new line so the caller can store it. A line nets iff it is dated before
+    `account.opening_stated_on` — the date the balance was first stated, which never moves —
+    whether it is fresh or was already netted, so backfilled transactions can be entered in any
+    order and today's balance never changes. A line dated on or after that date is ordinary
+    activity and never touches the opening.
 
     `old_line_cents`/`old_line_netted` are this account's previous lines' cents and stored
     flag, for the edit and delete paths — the caller must capture them before clearing the
@@ -183,10 +182,7 @@ def backfill_opening_balance(
     if opening_transaction is None or opening_transaction.id == exclude_transaction_id:
         return False
 
-    if old_line_netted:
-        new_netted = txn_date < account.opening_stated_on
-    else:
-        new_netted = txn_date < opening_transaction.date
+    new_netted = txn_date < account.opening_stated_on
     delta = (new_line_cents if new_netted else 0) - (old_line_cents if old_line_netted else 0)
 
     if new_netted and txn_date < opening_transaction.date:
