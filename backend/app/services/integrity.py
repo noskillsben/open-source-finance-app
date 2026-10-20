@@ -8,6 +8,7 @@ from datetime import date
 from sqlalchemy.orm import Session, selectinload
 
 from app.models import AccountLine, Transaction
+from app.services.accounts import _opening_adjustment_transaction
 from app.services.transactions import line_budget_cents
 
 
@@ -16,13 +17,13 @@ class IntegrityFinding:
     transaction_id: int
     date: date
     payee_id: int | None
-    kind: str  # "invariant" or "settings_drift"
+    kind: str  # "invariant", "settings_drift" or "not_netted"
     expected_cents: int
     stored_cents: int
 
 
 def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
-    """Two independent findings per transaction (DESIGN.md § Transactions → Invariant):
+    """Three independent findings per transaction (DESIGN.md § Transactions → Invariant):
 
     - "invariant": the category lines, as stored, don't sum to the budget movement, as
       stored. Enforced on every write — only reachable here through a row that bypassed it.
@@ -32,6 +33,12 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
       § Settings never rewrite history). A floor change alone never produces this finding,
       since `budget_cents` no longer reads the floor at all. Re-saving applies today's
       settings; nothing here does that itself.
+    - "not_netted": an account line dated before its account's `opening_stated_on` whose
+      `netted_into_opening` is false — a row saved before backfills netted in any order
+      (DESIGN.md § Opening balance and backfilling history), so today's balance carries it.
+      The account's opening adjustment is excluded. `expected_cents` is the line's cents, the
+      amount a Re-save would absorb into the opening; `stored_cents` is 0, what is netted now.
+      Re-save fixes it through the normal write path.
     """
     transactions = (
         session.query(Transaction)
@@ -44,6 +51,7 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
     )
 
     findings: list[IntegrityFinding] = []
+    opening_ids: dict[int, int | None] = {}
     for txn in transactions:
         stored_movement = sum(line.budget_cents for line in txn.account_lines)
 
@@ -56,6 +64,21 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
                         kind="invariant", expected_cents=stored_movement, stored_cents=category_total,
                     )
                 )
+
+        for line in txn.account_lines:
+            if line.netted_into_opening or txn.date >= line.account.opening_stated_on:
+                continue
+            if line.account_id not in opening_ids:
+                opening = _opening_adjustment_transaction(session, line.account)
+                opening_ids[line.account_id] = opening.id if opening else None
+            if txn.id == opening_ids[line.account_id]:
+                continue
+            findings.append(
+                IntegrityFinding(
+                    transaction_id=txn.id, date=txn.date, payee_id=txn.payee_id,
+                    kind="not_netted", expected_cents=line.cents, stored_cents=0,
+                )
+            )
 
         recomputed_movement = sum(line_budget_cents(line.account, line.cents) for line in txn.account_lines)
         if recomputed_movement != stored_movement:

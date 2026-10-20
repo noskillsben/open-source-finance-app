@@ -5,11 +5,12 @@ two kinds of drift it can find, and that an ordinary transaction is left alone.
 import datetime
 
 from fastapi.testclient import TestClient
+from sqlalchemy import select
 
 from app.db import get_session
 from app.main import app
-from app.models import AccountLine, Category, CategoryLine, Transaction
-from app.services.accounts import create_account_with_opening_valuation
+from app.models import AccountLine, Category, CategoryLine, Transaction, Valuation
+from app.services.accounts import account_balance_cents, create_account_with_opening_valuation
 from app.services.integrity import find_integrity_issues
 from app.services.transactions import write_transaction
 
@@ -169,3 +170,35 @@ def test_re_save_missing_transaction_is_404(db_session):
         app.dependency_overrides.clear()
 
     assert resp.status_code == 404
+
+
+def test_un_netted_line_before_the_stated_date_is_flagged_and_re_save_nets_it_once(db_session):
+    """#331: a row saved before backfills netted in any order sits before opening_stated_on
+    with netted_into_opening false. Re-save absorbs it into the opening exactly once."""
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    groceries = make_category(db_session, "Groceries")
+    before = TODAY - datetime.timedelta(days=5)
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": chequing.id, "cents": -80_00}],
+        category_lines=[{"category_id": groceries.id, "cents": -80_00}],
+    )
+    db_session.flush()
+    txn.date = before  # hand-built legacy row: dated before D, never netted
+    db_session.flush()
+
+    findings = [f for f in find_integrity_issues(db_session) if f.kind == "not_netted"]
+    assert [(f.transaction_id, f.expected_cents, f.stored_cents) for f in findings] == [(txn.id, -80_00, 0)]
+
+    client = _client(db_session)
+    try:
+        for _ in range(2):
+            assert client.post(f"/api/transactions/{txn.id}/re-save").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [f for f in find_integrity_issues(db_session) if f.kind == "not_netted"] == []
+    opening = db_session.scalar(select(Valuation).where(Valuation.account_id == chequing.id))
+    opening_txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == opening.id))
+    assert opening_txn.account_lines[0].cents == 1_080_00  # netted once, not twice
+    assert account_balance_cents(db_session, chequing.id, as_of=TODAY) == 1_000_00
