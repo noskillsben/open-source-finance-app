@@ -38,9 +38,11 @@ export function formatDate(iso) {
 /** "$1,234.56" or "-12.3" → integer cents. Money inputs are text, never type="number"
  * (phone keypads have no minus key), so every money field parses through this. */
 export function parseCents(text) {
-  const cleaned = (text ?? '').replace(/−/g, '-').replace(/[^0-9.-]/g, '')
-  if (cleaned === '' || cleaned === '-') return null
-  const dollars = Number(cleaned)
+  const raw = (text ?? '').replace(/−/g, '-').replace(/[^0-9.+-]/g, '')
+  // Signs anywhere ("20-", "--20", "-+20") collapse to one leading minus when any minus is present.
+  const digits = raw.replace(/[-+]/g, '')
+  if (digits === '') return null
+  const dollars = Number(raw.includes('-') ? `-${digits}` : digits)
   if (Number.isNaN(dollars)) return null
   return Math.round(dollars * 100)
 }

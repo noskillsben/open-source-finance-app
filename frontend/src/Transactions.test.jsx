@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { readAmount, typeAmount } from './testAmounts.js'
 import { MemoryRouter, useNavigate } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Transactions from './Transactions.jsx'
@@ -151,7 +152,7 @@ describe('Ledger form: which bill and due date a payment paid', () => {
     await addCategoryLine('Rent')
     await screen.findByText(/This pays/)
     fillAccountLine('-1200')
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '-1200' } })
+    typeAmount(screen.getAllByPlaceholderText('0.00')[1], '-1200')
     fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
 
     await waitFor(() => expect(calls.create).toHaveBeenCalled())
@@ -164,7 +165,7 @@ describe('Ledger form: which bill and due date a payment paid', () => {
     await waitFor(() => expect(screen.getByRole('button', { name: 'Confirm' })).toBeEnabled())
     fireEvent.click(screen.getByRole('button', { name: 'Confirm' }))
     fillAccountLine('-1200')
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '-1200' } })
+    typeAmount(screen.getAllByPlaceholderText('0.00')[1], '-1200')
     fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
 
     await waitFor(() => expect(calls.create).toHaveBeenCalled())
@@ -194,7 +195,7 @@ describe('Ledger form: which bill and due date a payment paid', () => {
 
     // Another edit to the lines (a second line, an amount) doesn't re-offer the declined bill.
     fireEvent.click(screen.getByText('+ add category line'))
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '-5' } })
+    typeAmount(screen.getAllByPlaceholderText('0.00')[1], '-5')
     expect(screen.queryByText(/This pays/)).not.toBeInTheDocument()
     expect(screen.queryByText(/Marked as paying/)).not.toBeInTheDocument()
   })
@@ -248,7 +249,7 @@ describe('Ledger form: save notes', () => {
     renderLedger()
     await addCategoryLine('Rent')
     fillAccountLine('-1200')
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '-1200' } })
+    typeAmount(screen.getAllByPlaceholderText('0.00')[1], '-1200')
     fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
     expect(await screen.findByText('Recorded.')).toBeInTheDocument()
     expect(screen.getByText('This predates the last balance check.')).toBeInTheDocument()
@@ -400,7 +401,7 @@ describe("Ledger form: 'Record' from a bill's row on Categories", () => {
     expect(await screen.findByText(/Marked as paying/)).toHaveTextContent('Marked as paying Rent, due Oct 1, 2026.')
     expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Category')).toHaveValue('Rent'))
-    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-1200.00', '-1200.00'])
+    expect(screen.getAllByPlaceholderText('0.00').map(readAmount)).toEqual(['-1200.00', '-1200.00'])
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
     expect(calls.create).not.toHaveBeenCalled() // the user saves it themselves
   })
@@ -549,7 +550,7 @@ describe('Ledger form: the date follows the Show as of picker', () => {
 
 function fillAccountLine(cents) {
   fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Chequing' } })
-  fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: cents } })
+  typeAmount(screen.getAllByPlaceholderText('0.00')[0], cents)
 }
 
 describe('Ledger form: choosing a payee with the keyboard', () => {
@@ -617,7 +618,7 @@ describe('Ledger form: an outflow from a payee-locked account', () => {
   const payeeBox = () => screen.findByPlaceholderText('Search payees…')
   function fillLockedLine(cents) {
     fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Starbucks card' } })
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: cents } })
+    typeAmount(screen.getAllByPlaceholderText('0.00')[0], cents)
   }
 
   beforeEach(() => {
@@ -677,7 +678,7 @@ describe('Ledger form: a shared bill on a split', () => {
     await screen.findByRole('option', { name: 'Household' })
     fireEvent.change(select, { target: { value: '5' } })
   }
-  const amounts = () => screen.getAllByPlaceholderText('0.00').map((i) => i.value)
+  const amounts = () => screen.getAllByPlaceholderText('0.00').map(readAmount)
   const save = () => fireEvent.click(screen.getByRole('button', { name: /save|record/i }))
 
   beforeEach(() => {
@@ -713,7 +714,7 @@ describe('Ledger form: a shared bill on a split', () => {
     renderLedger()
     await addCategoryLine('Groceries')
     fillAccountLine('-10')
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '-10' } })
+    typeAmount(screen.getAllByPlaceholderText('0.00')[1], '-10')
     save()
 
     await waitFor(() => expect(calls.create).toHaveBeenCalled())
@@ -862,14 +863,14 @@ describe('Ledger form: a shared bill on a split', () => {
       typeKeys('Receipt amount', '50', 1)
 
       expect(screen.getByLabelText('Bill total')).toHaveValue('150')
-      expect(screen.getAllByLabelText('Your share').map((i) => i.value)).toEqual(['-33.34', '-16.66'])
+      expect(screen.getAllByLabelText('Your share').map(readAmount)).toEqual(['-33.34', '-16.66'])
       expect(amounts().slice(1, 4)).toEqual(['-150', '50', '50'])
     })
   })
 
   describe('one bill across several categories', () => {
-    const share = () => screen.getAllByLabelText('Your share').map((i) => i.value)
-    const receipt = () => screen.getAllByLabelText('Receipt amount').map((i) => i.value)
+    const share = () => screen.getAllByLabelText('Your share').map(readAmount)
+    const receipt = () => screen.getAllByLabelText('Receipt amount').map(readAmount)
     const accountAmounts = () => amounts().slice(1, amounts().length - share().length) // [0] is Bill total
     const TWO = {
       ...SAVED,
@@ -1003,7 +1004,7 @@ describe("Ledger form: 'Settle up' from the Split expenses page", () => {
   it('pre-fills a plain transfer for the full balance when they owe me: their account down, mine up', async () => {
     renderLedger({ settleUp: { account_id: 3, cents: -3000 } })
 
-    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-30', '30']))
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map(readAmount)).toEqual(['-30', '30']))
     await waitFor(() => expect(screen.getAllByLabelText('Account')[0]).toHaveValue('Roommate'))
     expect(screen.getByLabelText('Date')).toHaveValue('2026-10-03')
     expect(screen.queryByLabelText('Category')).not.toBeInTheDocument() // no category line
@@ -1013,7 +1014,7 @@ describe("Ledger form: 'Settle up' from the Split expenses page", () => {
   it('reverses the signs when I owe them, and leaves my account for the user to pick', async () => {
     renderLedger({ settleUp: { account_id: 3, cents: 2050 } })
 
-    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map(readAmount)).toEqual(['20.5', '-20.5']))
     expect(screen.getAllByLabelText('Account')[1]).toHaveValue('')
   })
 })
@@ -1047,7 +1048,7 @@ describe('Ledger form: picking a payee fills in the category, account and split'
   it('does not put an account already on another line onto the empty one (settle up)', async () => {
     calls.payeeFill.mockResolvedValue({ category_id: null, account_id: 3, split_id: null })
     renderLedger({ settleUp: { account_id: 3, cents: 2050 } })
-    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map(readAmount)).toEqual(['20.5', '-20.5']))
     await pickHydro()
 
     await waitFor(() => expect(calls.payeeFill).toHaveBeenCalled())
@@ -1060,7 +1061,7 @@ describe('Ledger form: picking a payee fills in the category, account and split'
   it('still fills an account that is not on the form', async () => {
     calls.payeeFill.mockResolvedValue({ category_id: null, account_id: 1, split_id: null })
     renderLedger({ settleUp: { account_id: 3, cents: 2050 } })
-    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['20.5', '-20.5']))
+    await waitFor(() => expect(screen.getAllByPlaceholderText('0.00').map(readAmount)).toEqual(['20.5', '-20.5']))
     await pickHydro()
 
     const selects = screen.getAllByLabelText('Account')
@@ -1108,18 +1109,18 @@ describe('Ledger form: picking a payee fills in the category, account and split'
     await waitFor(() => expect(categorySelect()).toHaveValue('Groceries'))
 
     const amounts = () => screen.getAllByPlaceholderText('0.00')
-    fireEvent.change(amounts()[0], { target: { value: '-80' } })
-    expect(amounts()[1]).toHaveValue('-80')
+    typeAmount(amounts()[0], '-80')
+    expect(readAmount(amounts()[1])).toBe('-80')
 
-    fireEvent.change(amounts()[1], { target: { value: '-60' } })
-    fireEvent.change(amounts()[0], { target: { value: '-90' } })
-    expect(amounts()[1]).toHaveValue('-60')
+    typeAmount(amounts()[1], '-60')
+    typeAmount(amounts()[0], '-90')
+    expect(readAmount(amounts()[1])).toBe('-60')
   })
 
   it('chooses the split, works the shares out from the typed amount, and leaves Paid by on Me', async () => {
     calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: 5 })
     renderLedger()
-    fireEvent.change(await screen.findAllByPlaceholderText('0.00').then((l) => l[0]), { target: { value: '-100' } })
+    typeAmount(await screen.findAllByPlaceholderText('0.00').then((l) => l[0]), '-100')
     await pickHydro()
 
     await waitFor(() => expect(screen.getByLabelText('Split')).toHaveValue('5'))
@@ -1137,8 +1138,8 @@ describe('Ledger form: picking a payee fills in the category, account and split'
 
   describe('a total typed on my own account line after the split is chosen', () => {
     const inputs = () => screen.getAllByPlaceholderText('0.00')
-    const amounts = () => inputs().map((i) => i.value)
-    const type = (index, text) => fireEvent.change(screen.getAllByPlaceholderText('0.00')[index], { target: { value: text } })
+    const amounts = () => inputs().map(readAmount)
+    const type = (index, text) => typeAmount(screen.getAllByPlaceholderText('0.00')[index], text)
 
     async function hydroChosen() {
       calls.payeeFill.mockResolvedValue({ category_id: 10, account_id: 1, split_id: 5 })
@@ -1150,7 +1151,6 @@ describe('Ledger form: picking a payee fills in the category, account and split'
     it('becomes the Bill total and fills the member and category lines', async () => {
       await hydroChosen()
       type(1, '-120')
-
       await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('120'))
       expect(amounts().slice(1, 4)).toEqual(['-120', '60', '-60'])
     })
@@ -1162,7 +1162,7 @@ describe('Ledger form: picking a payee fills in the category, account and split'
       await waitFor(() => expect(screen.getByLabelText('Bill total')).toHaveValue('120'))
       expect(amounts().slice(1, 4)).toEqual(['-120', '60', '-60'])
       type(1, '-12.')
-      expect(inputs()[1]).toHaveValue('-12.')
+      expect(readAmount(inputs()[1])).toBe('-12.')
       expect(amounts().slice(2, 4)).toEqual(['6', '-6'])
     })
 
@@ -1225,13 +1225,14 @@ describe('Ledger form: picking a payee fills in the category, account and split'
 })
 
 describe('Ledger form: money leaving the budget into a tracking account with a boundary category', () => {
+  const withAmount = (text) => screen.getAllByPlaceholderText('0.00').filter((i) => readAmount(i) === text)
   function pick(accountName, cents, index) {
     // The account lines' amount boxes come first, then any category line's.
     const amount = screen.getAllByPlaceholderText('0.00')[index]
     let row = amount.parentElement
     while (!row.querySelector('input[aria-label="Account"]')) row = row.parentElement
     fireEvent.change(row.querySelector('input[aria-label="Account"]'), { target: { value: accountName } })
-    fireEvent.change(amount, { target: { value: cents } })
+    typeAmount(amount, cents)
   }
 
   it('pre-fills the principal and a blank remainder line (car loan)', async () => {
@@ -1241,8 +1242,8 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     pick('Car loan', '380', 1)
 
     await waitFor(() => expect(screen.getByDisplayValue('Debt payments')).toBeTruthy())
-    expect(screen.getAllByDisplayValue('-380').length).toBe(1)
-    expect(screen.getAllByDisplayValue('-70').length).toBe(1)
+    expect(withAmount('-380').length).toBe(1)
+    expect(withAmount('-70').length).toBe(1)
     expect(screen.getAllByDisplayValue('Debt payments').length).toBe(1) // the remainder has no category
   })
 
@@ -1253,7 +1254,7 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     pick('Car loan', '450', 1)
 
     await waitFor(() => expect(screen.getByDisplayValue('Debt payments')).toBeTruthy())
-    expect(screen.getAllByDisplayValue('-450').length).toBe(2) // Chequing's line and the principal
+    expect(withAmount('-450').length).toBe(2) // Chequing's line and the principal
   })
 
   it('re-follows the account lines while the category lines are untouched', async () => {
@@ -1261,11 +1262,11 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     fireEvent.click(await screen.findByText('+ add account line'))
     pick('Chequing', '-450', 0)
     pick('Car loan', '380', 1)
-    await waitFor(() => expect(screen.getAllByDisplayValue('-70').length).toBe(1))
+    await waitFor(() => expect(withAmount('-70').length).toBe(1))
 
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '400' } })
-    await waitFor(() => expect(screen.getAllByDisplayValue('-50').length).toBe(1))
-    expect(screen.getAllByDisplayValue('-400').length).toBe(1)
+    typeAmount(screen.getAllByPlaceholderText('0.00')[1], '400')
+    await waitFor(() => expect(withAmount('-50').length).toBe(1))
+    expect(withAmount('-400').length).toBe(1)
   })
 
   it('leaves a touched category line alone', async () => {
@@ -1273,13 +1274,13 @@ describe('Ledger form: money leaving the budget into a tracking account with a b
     fireEvent.click(await screen.findByText('+ add account line'))
     pick('Chequing', '-450', 0)
     pick('Car loan', '380', 1)
-    await waitFor(() => expect(screen.getAllByDisplayValue('-70').length).toBe(1))
+    await waitFor(() => expect(withAmount('-70').length).toBe(1))
 
-    fireEvent.change(screen.getAllByDisplayValue('-70')[0], { target: { value: '-60' } })
-    fireEvent.change(screen.getAllByPlaceholderText('0.00')[1], { target: { value: '400' } })
-    expect(screen.getAllByDisplayValue('-60').length).toBe(1)
-    expect(screen.getAllByDisplayValue('-380').length).toBe(1)
-    expect(screen.queryByDisplayValue('-50')).toBeNull()
+    typeAmount(withAmount('-70')[0], '-60')
+    typeAmount(screen.getAllByPlaceholderText('0.00')[1], '400')
+    expect(withAmount('-60').length).toBe(1)
+    expect(withAmount('-380').length).toBe(1)
+    expect(withAmount('-50')[0] ?? null).toBeNull()
   })
 
   it('pre-fills nothing when money comes into the budget (a line of credit draw)', async () => {
@@ -1331,7 +1332,7 @@ describe("Ledger form: 'More details' from Quick add", () => {
     await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-10-05'))
     await waitFor(() => expect(screen.getByLabelText('Account')).toHaveValue('Chequing'))
     expect(screen.getByLabelText('Category')).toHaveValue('Rent')
-    expect(screen.getAllByPlaceholderText('0.00').map((i) => i.value)).toEqual(['-12.50', '-12.50'])
+    expect(screen.getAllByPlaceholderText('0.00').map(readAmount)).toEqual(['-12.50', '-12.50'])
     expect(calls.create).not.toHaveBeenCalled()
   })
 })
