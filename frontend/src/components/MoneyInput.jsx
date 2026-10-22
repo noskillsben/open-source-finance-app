@@ -1,13 +1,15 @@
 import { useId } from 'react'
 
 // The money input (DESIGN.md § Visual design → Components): a text field with the decimal keypad,
-// never type="number" (phone keypads have no minus key). With `signed`, a − Spent / + Received
+// never type="number" (phone keypads have no minus key). With `signed`, a − Spent / + {posWord}
 // toggle sets the direction: the value stays one signed string ("-12.50"), and the toggle adds or
 // removes its leading minus, so the parent keeps parsing it with parseCents.
 const SIGNS = /[-−+]/g
 
-export default function MoneyInput({ label, value, onChange, signed = false, placeholder = '0.00', className = '', inputClassName = '', ...rest }) {
+export default function MoneyInput({ label, value, onChange, signed = false, balance = false, placeholder = '0.00', className = '', inputClassName = '', ...rest }) {
   const id = useId()
+  // Same toggle, second wording: a balance you state is Owed / Held, an amount that moves is Spent / Received.
+  const [negWord, posWord] = balance ? ['Owed', 'Held'] : ['Spent', 'Received']
   const spent = value.trim().startsWith('-')
   const bare = value.replace(SIGNS, '').trim()
   const received = value.trim() !== '' && !spent
@@ -32,10 +34,10 @@ export default function MoneyInput({ label, value, onChange, signed = false, pla
         {signed && (
           <div role="group" aria-label="Direction" className="flex gap-1">
             <button type="button" aria-pressed={spent} className={toggleClass(spent)} onClick={() => setSpent(true)}>
-              − Spent
+              − {negWord}
             </button>
             <button type="button" aria-pressed={received} className={toggleClass(received)} onClick={() => setSpent(false)}>
-              + Received
+              + {posWord}
             </button>
           </div>
         )}

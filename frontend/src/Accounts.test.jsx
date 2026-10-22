@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Accounts from './Accounts.jsx'
 
@@ -14,6 +14,7 @@ const account = (overrides) => ({
 })
 
 let accounts = []
+let previewLines = []
 let payees = [{ id: 7, name: 'Starbucks' }, { id: 8, name: 'Walmart' }]
 const archivedPayee = { id: 9, name: 'Old Shop' }
 
@@ -24,7 +25,7 @@ vi.mock('./api.js', () => ({
       checkBalance,
       create: createAccount,
       update: updateAccount,
-      checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: [] }),
+      checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: previewLines }),
     },
     categories: {
       list: () => Promise.resolve([
@@ -394,5 +395,95 @@ describe('the on-budget floor and the credit limit', () => {
     const limit = screen.getByLabelText(/Credit limit/)
     expect(limit).toHaveValue('')
     expect(limit).toHaveAttribute('placeholder', 'unknown')
+  })
+})
+
+// A balance you owe is entered by tapping the toggle, never by typing a minus (#316).
+const tap = (field, name) => fireEvent.click(within(field.closest('div')).getByRole('button', { name }))
+
+describe('Owed / Held toggle on balance fields', () => {
+  beforeEach(() => {
+    createAccount.mockReset()
+    createAccount.mockResolvedValue({})
+    checkBalance.mockReset()
+    previewLines = []
+    accounts = []
+  })
+
+  async function startAdd(type) {
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Visa' } })
+    if (type) fireEvent.change(screen.getByLabelText('Type'), { target: { value: type } })
+  }
+
+  it('saves a credit card opening balance of 500 with Owed chosen as -50000', async () => {
+    await startAdd('Credit card')
+    const opening = screen.getByLabelText('Opening balance')
+    fireEvent.change(opening, { target: { value: '500' } })
+    tap(opening, '− Owed')
+    expect(opening).toHaveValue('500')
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+    await waitFor(() => expect(createAccount).toHaveBeenCalledTimes(1))
+    expect(createAccount.mock.calls[0][0].opening_balance_cents).toBe(-50000)
+  })
+
+  it('does not pick a side from the account type', async () => {
+    await startAdd('Credit card')
+    const opening = screen.getByLabelText('Opening balance')
+    expect(within(opening.closest('div')).getByRole('button', { name: '− Owed' })).toHaveAttribute('aria-pressed', 'false')
+    expect(within(opening.closest('div')).getByRole('button', { name: '+ Held' })).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('saves Owed with nothing typed as 0, not a parse failure', async () => {
+    await startAdd()
+    tap(screen.getByLabelText('Opening balance'), '− Owed')
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+    await waitFor(() => expect(createAccount).toHaveBeenCalledTimes(1))
+    expect(createAccount.mock.calls[0][0].opening_balance_cents).toBe(0)
+  })
+
+  it('reaches a negative on-budget floor with the toggle', async () => {
+    await startAdd()
+    const floor = screen.getByLabelText('On-budget floor')
+    fireEvent.change(floor, { target: { value: '200' } })
+    tap(floor, '− Owed')
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+    await waitFor(() => expect(createAccount).toHaveBeenCalledTimes(1))
+    expect(createAccount.mock.calls[0][0].on_budget_floor_cents).toBe(-20000)
+  })
+
+  it('reaches a negative stated balance with the toggle', async () => {
+    accounts = [account({ id: 1, name: 'Visa', type: 'Credit card' })]
+    checkBalance.mockResolvedValue({ diff_cents: 0, transaction: { category_lines: [] } })
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Check balance' }))
+    const stated = await screen.findByLabelText('Stated balance')
+    fireEvent.change(stated, { target: { value: '120' } })
+    tap(stated, '− Owed')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(checkBalance).toHaveBeenCalledTimes(1))
+    expect(checkBalance.mock.calls[0][1].stated_balance_cents).toBe(-12000)
+  })
+
+  it('lets the split-of-the-difference lines flip with Spent / Received', async () => {
+    accounts = [account({ id: 1, name: 'Chequing', linked_category_ids: [11] })]
+    previewLines = [{ category_id: 11, cents: 3000 }]
+    checkBalance.mockResolvedValue({ diff_cents: 3000, transaction: { category_lines: [] } })
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Check balance' }))
+    fireEvent.change(await screen.findByLabelText('Stated balance'), { target: { value: '130' } })
+    const line = await screen.findByLabelText('Amount')
+    expect(line).toHaveValue('30')
+    tap(line, '− Spent')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(checkBalance).toHaveBeenCalledTimes(1))
+    expect(checkBalance.mock.calls[0][1].category_lines).toEqual([{ category_id: 11, cents: -3000 }])
+  })
+
+  it('shows a card owing money as negative in the list', async () => {
+    accounts = [account({ id: 1, name: 'Visa', type: 'Credit card', balance_cents: -50000 })]
+    render(<Accounts pickerDate="2026-10-03" />)
+    expect(await screen.findByText(/-\$500\.00|−\$500\.00/)).toBeTruthy()
   })
 })
