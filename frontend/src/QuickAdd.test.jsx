@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { readAmount, typeAmount } from './testAmounts.js'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import QuickAdd from './QuickAdd.jsx'
@@ -98,7 +99,7 @@ describe('Quick add', () => {
     renderPage()
     fireEvent.click(await chip('Loblaws'))
     await screen.findByText('Groceries')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-12.50' } })
+    typeAmount(screen.getByLabelText('Amount'), '-12.50')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText(/Recorded Loblaws, −\$12\.50\./)).toBeInTheDocument()
     expect(mocks.create).toHaveBeenCalledTimes(1)
@@ -111,14 +112,15 @@ describe('Quick add', () => {
     })
     fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
     expect(screen.getByRole('button', { name: 'Save' })).toBeInTheDocument()
-    expect(screen.getByLabelText('Amount')).toHaveValue('-')
+    expect(screen.getByLabelText('Amount')).toHaveValue('')
+    expect(screen.getByRole('button', { name: '− Spent' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('5: Done goes back to the previous page', async () => {
     renderPage()
     fireEvent.click(await chip('Loblaws'))
     await screen.findByText('Groceries')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-5' } })
+    typeAmount(screen.getByLabelText('Amount'), '-5')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     fireEvent.click(await screen.findByRole('button', { name: 'Done' }))
     expect(await screen.findByText('Transactions page')).toBeInTheDocument()
@@ -129,7 +131,7 @@ describe('Quick add', () => {
     renderPage()
     fireEvent.click(await chip('Loblaws'))
     await screen.findByText('Groceries')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-12.50' } })
+    typeAmount(screen.getByLabelText('Amount'), '-12.50')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText(/Groceries is now overspent by \$7\.00/)).toBeInTheDocument()
     expect(screen.getByText(/Recorded Loblaws/)).toBeInTheDocument()
@@ -147,7 +149,7 @@ describe('Quick add', () => {
     renderPage()
     fireEvent.click(await chip('Hydro'))
     await screen.findByText('Utilities')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-80' } })
+    typeAmount(screen.getByLabelText('Amount'), '-80')
     expect(await screen.findByText(/This pays/)).toHaveTextContent('This pays Hydro, due Oct 1?')
 
     // unanswered is not linked
@@ -159,7 +161,7 @@ describe('Quick add', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
     fireEvent.click(await chip('Hydro'))
     await screen.findByText('Utilities')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-80' } })
+    typeAmount(screen.getByLabelText('Amount'), '-80')
     fireEvent.click(await screen.findByRole('button', { name: 'Yes' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     await waitFor(() => expect(mocks.create).toHaveBeenCalledTimes(2))
@@ -193,7 +195,7 @@ describe('Quick add', () => {
     )
     fireEvent.click(await chip('Loblaws'))
     await screen.findByText('Groceries')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-12.50' } })
+    typeAmount(screen.getByLabelText('Amount'), '-12.50')
     fireEvent.click(screen.getByRole('button', { name: 'More details' }))
     await screen.findByText('Transactions page')
     expect(seen.quickAdd).toMatchObject({
@@ -206,10 +208,11 @@ describe('Quick add', () => {
     renderPage()
     fireEvent.click(await chip('Loblaws'))
     await screen.findByText('Groceries')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-12.50' } })
+    typeAmount(screen.getByLabelText('Amount'), '-12.50')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
     expect(await screen.findByText('Lines do not add up.')).toBeInTheDocument()
-    expect(screen.getByLabelText('Amount')).toHaveValue('-12.50')
+    expect(screen.getByLabelText('Amount')).toHaveValue('12.50')
+    expect(screen.getByRole('button', { name: '− Spent' })).toHaveAttribute('aria-pressed', 'true')
   })
 
   it('second click: the save succeeded but the follow-up check failed, so it never saves twice', async () => {
@@ -217,7 +220,7 @@ describe('Quick add', () => {
     renderPage()
     fireEvent.click(await chip('Loblaws'))
     await screen.findByText('Groceries')
-    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '-12.50' } })
+    typeAmount(screen.getByLabelText('Amount'), '-12.50')
     const save = screen.getByRole('button', { name: 'Save' })
     fireEvent.click(save)
     fireEvent.click(save)

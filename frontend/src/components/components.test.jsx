@@ -1,4 +1,5 @@
 import { fireEvent, render, screen } from '@testing-library/react'
+import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it, vi } from 'vitest'
 import { BottomBar } from '../Nav.jsx'
@@ -28,6 +29,51 @@ describe('MoneyInput', () => {
     expect(screen.getByRole('button', { name: '− Spent' })).toHaveAttribute('aria-pressed', 'true')
     fireEvent.click(screen.getByRole('button', { name: '+ Received' }))
     expect(onChange).toHaveBeenCalledWith('12.50')
+  })
+})
+
+describe('MoneyInput digits-only box', () => {
+  function Harness({ start }) {
+    const [v, setV] = useState(start)
+    return <><MoneyInput signed label="Amount" value={v} onChange={setV} /><output data-testid="out">{v}</output></>
+  }
+
+  it('never shows a sign with Spent selected', () => {
+    render(<Harness start="-12.50" />)
+    expect(screen.getByLabelText('Amount')).toHaveValue('12.50')
+    expect(screen.getByRole('button', { name: '− Spent' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('shows an empty box for Spent with nothing typed yet', () => {
+    render(<Harness start="-" />)
+    expect(screen.getByLabelText('Amount')).toHaveValue('')
+  })
+
+  it('strips typed or pasted signs and leaves the toggle alone', () => {
+    render(<Harness start="-5" />)
+    const box = screen.getByLabelText('Amount')
+    fireEvent.change(box, { target: { value: '-5-' } })
+    expect(box).toHaveValue('5')
+    fireEvent.change(box, { target: { value: '20-' } })
+    expect(box).toHaveValue('20')
+    expect(screen.getByTestId('out')).toHaveTextContent('-20')
+    expect(screen.getByRole('button', { name: '− Spent' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('a minus typed while Received stays Received', () => {
+    render(<Harness start="5" />)
+    fireEvent.change(screen.getByLabelText('Amount'), { target: { value: '−50' } })
+    expect(screen.getByTestId('out').textContent).toBe('50')
+    expect(screen.getByRole('button', { name: '+ Received' })).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('toggling keeps the digits', () => {
+    render(<Harness start="12.50" />)
+    fireEvent.click(screen.getByRole('button', { name: '− Spent' }))
+    expect(screen.getByLabelText('Amount')).toHaveValue('12.50')
+    expect(screen.getByTestId('out').textContent).toBe('-12.50')
+    fireEvent.click(screen.getByRole('button', { name: '+ Received' }))
+    expect(screen.getByTestId('out').textContent).toBe('12.50')
   })
 })
 
@@ -80,5 +126,13 @@ describe('money formatting', () => {
   it('prints a true minus and parses it back', () => {
     expect(formatCents(-52500)).toBe('−$525.00')
     expect(parseCents('−$525.00')).toBe(-52500)
+  })
+
+  it('collapses stray signs to one leading minus', () => {
+    for (const t of ['20-', '--20', '-+20', '−20']) expect(parseCents(t)).toBe(-2000)
+    expect(parseCents('+20')).toBe(2000)
+    expect(parseCents('abc')).toBeNull()
+    expect(parseCents('-')).toBeNull()
+    expect(parseCents('1.2.3')).toBeNull()
   })
 })
