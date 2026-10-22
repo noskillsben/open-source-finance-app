@@ -197,6 +197,14 @@ export default function Accounts({ pickerDate }) {
     setFormError(null)
   }
 
+  // A new store name typed into the lock box: create the payee (dated at the account's opening date,
+  // as Transactions uses its form date) and hand it back for the picker to choose.
+  async function addPayee(name) {
+    const payee = await api.payees.create({ name, created_on: form.created_on })
+    setPayees((current) => [...(current ?? []), payee].sort((a, b) => a.name.localeCompare(b.name)))
+    return payee
+  }
+
   function resetForm() {
     setEditingId(null)
     setForm(emptyForm(pickerDate))
@@ -590,6 +598,7 @@ export default function Accounts({ pickerDate }) {
           payees={pickerPayees}
           payeeId={form.locked_payee_id}
           onSelect={(id) => updateField('locked_payee_id', id)}
+          onAdd={addPayee}
           onError={setFormError}
           inline
         />
