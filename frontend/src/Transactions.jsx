@@ -16,7 +16,58 @@ import { basisFromSplit, basisFromTransaction, linesFromBasis, receiptsForTotal,
 
 const emptyLine = { account_id: '', cents: '' }
 const emptyCategoryLine = { category_id: '', cents: '', receipt: '' }
+// A new form starts on Spent, as Quick add does: the Amount holds just the sign until digits arrive.
+// A bare sign is a blank Amount wherever it is read.
+const NEW_AMOUNT = '-'
+const readable = (text) => (parseCents(text) === null ? '' : text)
 const emptyDeposit = { category_id: '', cents: '', other_category_id: '' }
+
+// One Amount is typed once (DESIGN.md § Transactions): what the transaction cost or brought in, or on
+// a plain transfer what moved. A side with one line takes it; a transfer (two account lines, no
+// category) takes it and its opposite; anything else shows a box per line.
+const negate = (text) => {
+  const t = (text ?? '').trim()
+  if (t === '') return ''
+  return /^[-−]/.test(t) ? t.replace(/^[-−]\s*/, '') : `-${t}`
+}
+const isTransfer = (accountCount, categoryCount) => accountCount === 2 && categoryCount === 0
+const accountSideDerived = (accountCount, categoryCount) => accountCount === 1 || isTransfer(accountCount, categoryCount)
+
+// The lines a typed Amount fills in, on the sides that derive from it. A chosen split is worked out
+// by the split's own arithmetic instead, so its lines are left alone.
+function deriveLines(typed, aLines, cLines) {
+  const amount = readable(typed)
+  const a = accountSideDerived(aLines.length, cLines.length)
+    ? aLines.map((l, i) => ({ ...l, cents: i === 0 ? amount : negate(amount) }))
+    : aLines
+  const c = cLines.length === 1 ? cLines.map((l) => ({ ...l, cents: amount })) : cLines
+  return { a, c }
+}
+
+// One function picks the shape from lines already worked out (a saved transaction, Settle up, Record,
+// Quick add's More details): Amount is the category lines' sum, else the first account line; a side
+// whose lines are not what the Amount would derive keeps its boxes.
+function readShape(aLines, cLines) {
+  let amount = ''
+  if (cLines.length === 1) amount = cLines[0].cents
+  else if (cLines.length > 1) {
+    const cents = cLines.map((l) => parseCents(l.cents))
+    amount = cents.some((c) => c === null) ? '' : String(cents.reduce((x, y) => x + y, 0) / 100)
+  } else if (aLines.length) amount = aLines[0].cents
+  const want = parseCents(amount)
+  const held = (l) => parseCents(l.cents)
+  const forceA =
+    accountSideDerived(aLines.length, cLines.length) &&
+    aLines.some((l, i) => held(l) !== (i === 0 || want === null ? want : -want))
+  const forceC = cLines.length === 1 && held(cLines[0]) !== want
+  return { amount, forceA, forceC }
+}
+
+// +1 for a bill paid (Spent), -1 for a refund (Received); a blank or unsigned-zero Amount reads as paid.
+const splitSign = (text) => {
+  const cents = parseCents(text)
+  return cents === null || cents === 0 ? 1 : cents < 0 ? 1 : -1
+}
 
 export default function Transactions({ pickerDate }) {
   const location = useLocation()
@@ -51,7 +102,11 @@ export default function Transactions({ pickerDate }) {
   // unsigned breakdown the lines were last worked out from (null until there is a total).
   const [splitId, setSplitId] = useState('')
   const [paidById, setPaidById] = useState(null)
-  const [billTotal, setBillTotal] = useState('')
+  // The one Amount, signed text as the box holds it. With a split chosen it is the Bill total.
+  const [amount, setAmount] = useState(NEW_AMOUNT)
+  // Boxes kept open on a side whose lines are not what the Amount derives (see readShape).
+  const [forceAccountBoxes, setForceAccountBoxes] = useState(false)
+  const [forceCategoryBoxes, setForceCategoryBoxes] = useState(false)
   const [shareBasis, setShareBasis] = useState(null)
   // The breakdown a saved bill was opened with: every new total is scaled from it, never from the
   // last result, so typing a total digit by digit lands where entering it whole would. Null for a
@@ -64,13 +119,6 @@ export default function Transactions({ pickerDate }) {
   // answer waits here and is applied by an effect, so it sees the form as it is now.
   const [payeeFill, setPayeeFill] = useState(null)
   const pickedPayee = useRef(null)
-  // True while the filled-in category line follows the amount typed on the account line (a
-  // plain transaction); a hand edit of the category's own amount ends it.
-  const [categoryFollows, setCategoryFollows] = useState(false)
-  // True once a split is chosen and an amount typed on my own account line became the Bill total:
-  // each further keystroke there re-derives the total, because filling the lines rewrites them.
-  // A hand edit of Bill total, a member line or a category amount, or a new split, ends it.
-  const [totalFollows, setTotalFollows] = useState(false)
   // My paying account and the category, kept across Paid by changes.
   const ownPicks = useRef({ account_id: '', category_id: '' })
   const [newCategoryName, setNewCategoryName] = useState('')
@@ -88,6 +136,17 @@ export default function Transactions({ pickerDate }) {
   // Delete confirmation, opened in place of window.confirm (DESIGN.md § Earmarks): null when
   // closed, otherwise { hasBatchLines, removeBatch } for the transaction being deleted.
   const [deleteConfirm, setDeleteConfirm] = useState(null)
+
+  // Lines worked out elsewhere (a saved transaction, a bill's Record link, Settle up, Quick add) go in
+  // as they are; the Amount and which sides show boxes are read back from them.
+  function showLines(aLines, cLines) {
+    const shape = readShape(aLines, cLines)
+    setAccountLines(aLines)
+    setCategoryLines(cLines)
+    setAmount(readable(shape.amount) || NEW_AMOUNT) // no amount to read back: start on Spent like a new form
+    setForceAccountBoxes(shape.forceA)
+    setForceCategoryBoxes(shape.forceC)
+  }
 
   function refresh() {
     api.accounts.list().then(setAccounts).catch((e) => setError(e.message))
@@ -146,8 +205,7 @@ export default function Transactions({ pickerDate }) {
     setFormOpen(true)
     const cents = recordBill.amount_cents == null ? '' : centsToFieldText(-recordBill.amount_cents)
     setDate(pickerDate)
-    setCategoryLines([{ category_id: String(recordBill.category_id), cents }])
-    setAccountLines([{ account_id: '', cents }])
+    showLines([{ account_id: '', cents }], [{ ...emptyCategoryLine, category_id: String(recordBill.category_id), cents }])
     setBillLink({ goal_id: recordBill.goal_id, goal_due_on: recordBill.goal_due_on })
     navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
     Promise.all([api.goals.lastPayment(recordBill.goal_id), api.accounts.list()])
@@ -168,11 +226,10 @@ export default function Transactions({ pickerDate }) {
     if (!quickAdd) return
     setFormOpen(true)
     setDate(quickAdd.date)
-    setAccountLines([{ account_id: quickAdd.account_id != null ? String(quickAdd.account_id) : '', cents: quickAdd.amount_text }])
-    setCategoryLines(
+    showLines(
+      [{ account_id: quickAdd.account_id != null ? String(quickAdd.account_id) : '', cents: quickAdd.amount_text }],
       quickAdd.category_id != null ? [{ ...emptyCategoryLine, category_id: String(quickAdd.category_id), cents: quickAdd.amount_text }] : []
     )
-    setCategoryFollows(quickAdd.category_id != null)
     if (quickAdd.goal) setBillLink(quickAdd.goal)
     if (quickAdd.payee_id != null) {
       setPayeeId(quickAdd.payee_id)
@@ -192,8 +249,7 @@ export default function Transactions({ pickerDate }) {
     const theirs = String(settleUp.cents / 100)
     const mine = String(-settleUp.cents / 100)
     setDate(pickerDate)
-    setAccountLines([{ account_id: String(settleUp.account_id), cents: theirs }, { account_id: '', cents: mine }])
-    setCategoryLines([])
+    showLines([{ account_id: String(settleUp.account_id), cents: theirs }, { account_id: '', cents: mine }], [])
     navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
   }, [settleUp])
 
@@ -244,37 +300,67 @@ export default function Transactions({ pickerDate }) {
     if (untouched && same(last, fill)) return
     boundaryFill.current = { filled: true, lines: fill }
     setCategoryLines(fill.map((f) => ({ ...emptyCategoryLine, ...f })))
-    setCategoryFollows(false)
   }, [accountLines, accounts, categories])
 
+  // A box on an account line, shown only where the Amount does not derive the line (or its account).
   function updateAccountLine(i, field, value) {
     prefillLockedPayee({ ...accountLines[i], [field]: value })
-    if (field === 'cents' && chosenSplit && editingId == null && !totalLocked) {
-      const isMember = chosenSplit.members.some((m) => String(m.account_id) === accountLines[i].account_id)
-      if (isMember) {
-        setTotalFollows(false)
-      } else if (paidById === mePayeeId && (totalFollows || billTotal.trim() === '')) {
-        const cents = parseCents(value)
-        if (cents !== null && cents !== 0) {
-          setTotalFollows(true)
-          setBillTotal(String(Math.abs(cents) / 100))
-          // The typed text stays on my line as typed ("-12." must not become "-12").
-          fillShared(chosenSplit, basisFromSplit(Math.abs(cents), chosenSplit), cents < 0 ? 1 : -1, mePayeeId, value)
-          return
-        }
-      }
-    }
     setAccountLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
-    if (i === 0 && field === 'cents' && categoryFollows) {
-      setCategoryLines((lines) => lines.map((l, idx) => (idx === 0 ? { ...l, cents: value } : l)))
-    }
   }
   function updateCategoryLine(i, field, value) {
-    if (field === 'cents') {
-      setCategoryFollows(false)
-      setTotalFollows(false)
-    }
     setCategoryLines((lines) => lines.map((l, idx) => (idx === i ? { ...l, [field]: value } : l)))
+  }
+
+  // Lines added or removed: the sides that derive from the Amount are worked out again, so going back
+  // to one line hides that side's box. Boxes the user has are never rewritten.
+  function reshape(aLines, cLines, { removed = false } = {}) {
+    if (removed) {
+      setForceAccountBoxes(false)
+      setForceCategoryBoxes(false)
+    }
+    if (chosenSplit) {
+      setAccountLines(aLines)
+      setCategoryLines(cLines)
+      return
+    }
+    const keepA = !removed && forceAccountBoxes
+    const keepC = !removed && forceCategoryBoxes
+    const d = deriveLines(amount, aLines, cLines)
+    setAccountLines(keepA ? aLines : d.a)
+    setCategoryLines(keepC ? cLines : d.c)
+  }
+  function addAccountLine() {
+    reshape([...accountLines, { ...emptyLine }], categoryLines)
+  }
+  function addCategoryLine() {
+    reshape(accountLines, [...categoryLines, { ...emptyCategoryLine }])
+  }
+  function removeAccountLine(i) {
+    reshape(accountLines.filter((_, idx) => idx !== i), categoryLines, { removed: true })
+  }
+  function removeCategoryLine(i) {
+    reshape(accountLines, categoryLines.filter((_, idx) => idx !== i), { removed: true })
+  }
+
+  // The Amount box. With a split it is the Bill total and the split's arithmetic works the lines out;
+  // otherwise it fills whichever sides derive from it.
+  function changeAmount(text) {
+    if (totalLocked) return
+    setAmount(text)
+    if (chosenSplit) {
+      const cents = parseCents(text)
+      if (cents === null || cents === 0) return
+      const total = Math.abs(cents)
+      const basis = (shareStart && scaleBasis(shareStart, total)) || basisFromSplit(total, chosenSplit)
+      fillShared(chosenSplit, basis, splitSign(text), paidById)
+      return
+    }
+    const d = deriveLines(text, accountLines, categoryLines)
+    const a = forceAccountBoxes ? accountLines : d.a
+    const c = forceCategoryBoxes ? categoryLines : d.c
+    setAccountLines(a)
+    setCategoryLines(c)
+    a.forEach(prefillLockedPayee)
   }
 
   // Only the person picking a payee fills the form — never Record now, the locked-payee
@@ -315,14 +401,13 @@ export default function Transactions({ pickerDate }) {
     const hasCategory = categoryLines.some((l) => l.category_id)
     if (categoryId && !hasCategory) {
       const plain = !split && splitId === ''
-      const typed = plain ? accountLines[0]?.cents ?? '' : ''
+      const typed = plain ? readable(amount) : ''
       const emptyCategory = categoryLines.findIndex((l) => !l.category_id)
       setCategoryLines(
         emptyCategory === -1
           ? [{ category_id: categoryId, cents: typed }]
           : categoryLines.map((l, i) => (i === emptyCategory ? { ...l, category_id: categoryId, cents: l.cents || typed } : l))
       )
-      if (plain && (emptyCategory === -1 || !categoryLines[emptyCategory].cents)) setCategoryFollows(true)
     }
     if (split) {
       // The split's own arithmetic takes my account and the category from the picks.
@@ -342,7 +427,7 @@ export default function Transactions({ pickerDate }) {
   // Work the lines out from a breakdown (DESIGN.md § Splits). Every amount stays editable. Each
   // category row carries the receipt amount typed for it; my share is spread across the rows by
   // them, and a total that no longer matches them rescales them all by the same ratio.
-  function fillShared(split, basis, sign, payerId, ownText, rows = categoryLines) {
+  function fillShared(split, basis, sign, payerId, rows = categoryLines) {
     const memberAccountIds = new Set(split.members.map((m) => m.account_id))
     const ownLine = accountLines.find((l) => l.account_id && !memberAccountIds.has(Number(l.account_id)))
     if (ownLine) ownPicks.current.account_id = ownLine.account_id
@@ -369,7 +454,7 @@ export default function Transactions({ pickerDate }) {
     setAccountLines(
       lines.map((l, i) => ({
         account_id: String(l.account_id ?? ''),
-        cents: i === 0 && ownText !== undefined && payerId === mePayeeId ? ownText : String(l.cents / 100),
+        cents: String(l.cents / 100),
       }))
     )
     setCategoryLines(
@@ -390,73 +475,58 @@ export default function Transactions({ pickerDate }) {
 
   function chooseSplit(id) {
     setSplitId(id)
-    setCategoryFollows(false)
-    setTotalFollows(false)
     setTotalLocked(false)
     setShareBasis(null)
     setShareStart(null)
     if (!id) {
+      // The lines stay as the split left them, now as boxes of their own.
       setPaidById(null)
-      setBillTotal('')
+      setForceAccountBoxes(true)
+      setForceCategoryBoxes(true)
       return
     }
     setPaidById(mePayeeId)
-    // A total already typed on an account line becomes the bill total.
-    const typed = accountLines.map((l) => parseCents(l.cents)).find((c) => c !== null && c !== 0)
-    setBillTotal(typed == null ? '' : String(Math.abs(typed) / 100))
-    if (typed == null) return
+    // The Amount already typed becomes the Bill total.
+    const typed = parseCents(amount)
+    if (typed == null || typed === 0) return
     const split = splitsAll.find((s) => String(s.id) === id)
-    fillShared(split, basisFromSplit(Math.abs(typed), split), typed < 0 ? 1 : -1, mePayeeId)
-  }
-
-  function changeBillTotal(text) {
-    if (totalLocked) return
-    setTotalFollows(false)
-    setBillTotal(text)
-    const cents = parseCents(text)
-    if (totalLocked || !chosenSplit || cents === null || cents === 0) return
-    const total = Math.abs(cents)
-    const basis = (shareStart && scaleBasis(shareStart, total)) || basisFromSplit(total, chosenSplit)
-    fillShared(chosenSplit, basis, cents < 0 ? -1 : 1, paidById)
+    fillShared(split, basisFromSplit(Math.abs(typed), split), splitSign(amount), mePayeeId)
   }
 
   // A receipt amount typed on a category row: the Bill total becomes the sum of them and every
   // share is spread again. Sign follows the Bill total, as when it is typed by hand.
   function changeReceipt(i, text) {
-    setTotalFollows(false)
-    setCategoryFollows(false)
     const rows = categoryLines.map((l, idx) => (idx === i ? { ...l, receipt: text } : l))
     const total = rows.reduce((sum, l) => sum + Math.abs(parseCents(l.receipt) ?? 0), 0)
     if (!chosenSplit || totalLocked || total === 0) return setCategoryLines(rows)
-    const sign = (parseCents(billTotal) ?? 0) < 0 ? -1 : 1
-    setBillTotal(String((sign * total) / 100))
+    const sign = splitSign(amount)
+    setAmount(String((-sign * total) / 100))
     const basis = (shareStart && scaleBasis(shareStart, total)) || basisFromSplit(total, chosenSplit)
-    fillShared(chosenSplit, basis, sign, paidById, undefined, rows)
+    fillShared(chosenSplit, basis, sign, paidById, rows)
   }
 
   // The whole bill, sent only when someone other than Me paid — otherwise it is my account line.
   function sharedTotalCents() {
     if (!splitId || paidById == null || paidById === mePayeeId) return null
-    const cents = parseCents(billTotal)
+    const cents = parseCents(amount)
     return cents === null ? null : Math.abs(cents)
   }
 
   function changePaidBy(payeeId) {
     setPaidById(payeeId)
-    setTotalFollows(false)
     if (!chosenSplit || !shareBasis) return
-    fillShared(chosenSplit, shareBasis, (parseCents(billTotal) ?? 0) < 0 ? -1 : 1, payeeId)
+    fillShared(chosenSplit, shareBasis, splitSign(amount), payeeId)
   }
 
   function resetForm() {
     setPayeeFill(null)
     pickedPayee.current = null
-    setCategoryFollows(false)
-    setTotalFollows(false)
+    setAmount(NEW_AMOUNT)
+    setForceAccountBoxes(false)
+    setForceCategoryBoxes(false)
     setSplitId('')
     setTotalLocked(false)
     setPaidById(null)
-    setBillTotal('')
     setShareBasis(null)
     setShareStart(null)
     ownPicks.current = { account_id: '', category_id: '' }
@@ -480,8 +550,6 @@ export default function Transactions({ pickerDate }) {
     setHighlightId(null)
     setPayeeFill(null)
     pickedPayee.current = null
-    setCategoryFollows(false)
-    setTotalFollows(false)
     setPredatesCheckNotes([])
     setSavedNote(null)
     setDeleteConfirm(null)
@@ -492,10 +560,8 @@ export default function Transactions({ pickerDate }) {
     setPayeeId(t.payee_id)
     prefilledFor.current = new Set(t.account_lines.map((l) => l.account_id)) // an edit never re-fills
     setFormKey((k) => k + 1)
-    setAccountLines(
-      t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) }))
-    )
-    setCategoryLines(
+    showLines(
+      t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) })),
       t.category_lines.map((l) => ({ category_id: String(l.category_id), cents: String(l.cents / 100), receipt: '' }))
     )
     setDeposits(
@@ -516,7 +582,12 @@ export default function Transactions({ pickerDate }) {
     setShareBasis(saved?.basis ?? null)
     setShareStart(saved?.basis ?? null)
     setTotalLocked(t.split_id != null && !saved)
-    setBillTotal(saved ? String((saved.sign * saved.basis.total) / 100) : '')
+    if (split) {
+      // On a split the Amount is the Bill total: negative for a bill paid, positive for a refund on one.
+      setAmount(saved ? String((-saved.sign * saved.basis.total) / 100) : '')
+      setForceAccountBoxes(false)
+      setForceCategoryBoxes(false)
+    }
     if (saved) {
       // Each category's receipt amount is its line × (total ÷ my share): my lines' proportions of the total.
       const receipts = spreadCents(saved.basis.total, t.category_lines.map((l) => Math.abs(l.cents)))
@@ -612,6 +683,11 @@ export default function Transactions({ pickerDate }) {
   const offeredDue = billLink?.goal_due_on ?? dueOptions.find((d) => d.earliest_unpaid)?.due_on ?? ''
   const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
   const depositTotal = deposits.reduce((sum, d) => sum + (parseCents(d.cents) ?? 0), 0)
+
+  // A side shows a box per line when the Amount cannot give every line its value: a split, a side with
+  // several lines, a transfer that has gained a category, or lines opened that way (see readShape).
+  const accountBoxes = !!chosenSplit || forceAccountBoxes || !accountSideDerived(accountLines.length, categoryLines.length)
+  const categoryBoxes = !!chosenSplit || forceCategoryBoxes || categoryLines.length > 1
 
   async function submit(e) {
     e.preventDefault()
@@ -764,6 +840,14 @@ export default function Transactions({ pickerDate }) {
             />
           </label>
 
+          <MoneyInput
+            signed
+            label="Amount"
+            value={amount}
+            readOnly={totalLocked}
+            onChange={changeAmount}
+          />
+
           <div className="space-y-2">
             <label className="block space-y-1">
               <span className="field-label">Split (a shared bill — optional)</span>
@@ -784,12 +868,6 @@ export default function Transactions({ pickerDate }) {
             </label>
             {chosenSplit && (
               <div className="flex flex-wrap gap-2">
-                <MoneyInput
-                  label="Bill total"
-                  value={billTotal}
-                  readOnly={totalLocked}
-                  onChange={(text) => changeBillTotal(text)}
-                />
                 <label className="space-y-1">
                   <span className="field-label">Paid by</span>
                   <select
@@ -829,14 +907,17 @@ export default function Transactions({ pickerDate }) {
                     ariaLabel="Account"
                   />
                 </div>
-                <MoneyInput signed value={line.cents} onChange={(text) => updateAccountLine(i, 'cents', text)} />
+                {accountBoxes && (
+                  <MoneyInput signed aria-label="Account amount" value={line.cents} onChange={(text) => updateAccountLine(i, 'cents', text)} />
+                )}
+                {accountLines.length > 1 && (
+                  <button type="button" className="btn btn-quiet" aria-label="Remove account line" onClick={() => removeAccountLine(i)}>
+                    remove
+                  </button>
+                )}
               </div>
             ))}
-            <button
-              type="button"
-              className="btn btn-quiet"
-              onClick={() => setAccountLines((lines) => [...lines, { ...emptyLine }])}
-            >
+            <button type="button" className="btn btn-quiet" onClick={addAccountLine}>
               + add account line
             </button>
           </div>
@@ -862,19 +943,20 @@ export default function Transactions({ pickerDate }) {
                     onChange={(text) => changeReceipt(i, text)}
                   />
                 )}
-                <MoneyInput
-                  signed
-                  aria-label={chosenSplit && !totalLocked ? 'Your share' : undefined}
-                  value={line.cents}
-                  onChange={(text) => updateCategoryLine(i, 'cents', text)}
-                />
+                {categoryBoxes && (
+                  <MoneyInput
+                    signed
+                    aria-label={chosenSplit && !totalLocked ? 'Your share' : 'Category amount'}
+                    value={line.cents}
+                    onChange={(text) => updateCategoryLine(i, 'cents', text)}
+                  />
+                )}
+                <button type="button" className="btn btn-quiet" aria-label="Remove category line" onClick={() => removeCategoryLine(i)}>
+                  remove
+                </button>
               </div>
             ))}
-            <button
-              type="button"
-              className="btn btn-quiet"
-              onClick={() => setCategoryLines((lines) => [...lines, { ...emptyCategoryLine }])}
-            >
+            <button type="button" className="btn btn-quiet" onClick={addCategoryLine}>
               + add category line
             </button>
           </div>
