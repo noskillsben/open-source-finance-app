@@ -113,6 +113,7 @@ dc run --rm --no-deps --entrypoint sh backend -c 'grep -v "^SET transaction_time
 
   7. Start the whole app: `dc up -d`
   8. Check it came back. Open the app, set "Show as of" to a date you know, and compare account balances and category available amounts with what you expect (a past screenshot or the old app). Then open Settings, Data check: it should report nothing wrong. If a balance or the data check is off, don't record anything; repeat the restore with an earlier backup.
+- If the app won't start and `dc logs backend` says "the database holds no transactions, but a backup exists", it is protecting you: the database is empty (for instance a wiped Pi) while nightly backups of your data sit in the `backups` folder, and starting would have quietly begun a blank app. Restore the newest backup with the steps above. To start over on purpose, move the `nightly-` files out of the `backups` folder first.
 - There is no restore button and no upload in the app, on purpose: a restore overwrites everything and is needed exactly when the app may not be running.
 
 ## Reports
