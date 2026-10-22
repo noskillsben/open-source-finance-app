@@ -4,7 +4,8 @@ import Picker from './components/Picker.jsx'
 /** Searchable, alphabetical payee picker with an inline "add new" option (DESIGN.md §
  * Payees — picked the same way categories are added by name today, but searchable: every
  * picker that could hold more than five items is searchable, per CLAUDE.md). Without `onAdd`
- * it only picks: the account form's payee lock never creates a payee on the side.
+ * it only picks; the account form's payee lock passes `onAdd` too, so a gift-card account and
+ * its payee are made in one go.
  */
 export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError, inline }) {
   const [query, setQuery] = useState('')

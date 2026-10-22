@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Accounts from './Accounts.jsx'
 
-const { checkBalance, createAccount, updateAccount } = vi.hoisted(() => ({
-  checkBalance: vi.fn(), createAccount: vi.fn(), updateAccount: vi.fn(),
+const { checkBalance, createAccount, updateAccount, createPayee } = vi.hoisted(() => ({
+  checkBalance: vi.fn(), createAccount: vi.fn(), updateAccount: vi.fn(), createPayee: vi.fn(),
 }))
 
 const account = (overrides) => ({
@@ -33,7 +33,7 @@ vi.mock('./api.js', () => ({
         { id: 12, name: 'Debt payments', seeded_key: 'category:debt-payments' },
       ]),
     },
-    payees: { list: (asOf, all) => Promise.resolve(all ? [...payees, archivedPayee] : payees) },
+    payees: { list: (asOf, all) => Promise.resolve(all ? [...payees, archivedPayee] : payees), create: createPayee },
   },
 }))
 
@@ -205,6 +205,45 @@ describe('payee-locked accounts', () => {
 
     await waitFor(() => expect(createAccount).toHaveBeenCalled())
     expect(createAccount.mock.calls[0][0].locked_payee_id).toBe(7)
+  })
+
+  it('adds a new payee from the lock box and saves the account locked to it', async () => {
+    accounts = []
+    createAccount.mockResolvedValue({})
+    createPayee.mockReset()
+    createPayee.mockResolvedValue({ id: 20, name: 'Corner Store', archived_on: null })
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    await openAdd()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Corner card' } })
+    const lock = screen.getByPlaceholderText('Search payees…')
+    fireEvent.focus(lock)
+    fireEvent.change(lock, { target: { value: 'Corner Store' } })
+    fireEvent.click(await screen.findByText(/as a new payee/i))
+    await waitFor(() => expect(createPayee).toHaveBeenCalledWith({ name: 'Corner Store', created_on: '2026-10-03' }))
+    await waitFor(() => expect(screen.getByPlaceholderText('Search payees…')).toHaveValue('Corner Store'))
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].locked_payee_id).toBe(20)
+  })
+
+  it('shows a failed payee add on the form and leaves the lock empty', async () => {
+    accounts = []
+    createPayee.mockReset()
+    createPayee.mockRejectedValue(new Error('Payee name is taken'))
+    render(<Accounts pickerDate="2026-10-03" />)
+
+    await openAdd()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Corner card' } })
+    const box = screen.getByPlaceholderText('Search payees…')
+    fireEvent.change(box, { target: { value: 'Corner Store' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+
+    expect(await screen.findByText('Payee name is taken')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls.at(-1)[0].locked_payee_id).toBeNull()
   })
 })
 
