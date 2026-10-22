@@ -32,6 +32,24 @@ describe('MoneyInput', () => {
   })
 })
 
+describe('MoneyInput balance wording', () => {
+  it('renders Owed / Held and reaches a negative value with the toggle', () => {
+    const onChange = vi.fn()
+    render(<MoneyInput signed balance value="500" onChange={onChange} />)
+    expect(screen.queryByRole('button', { name: '− Spent' })).toBeNull()
+    expect(screen.getByRole('button', { name: '+ Held' })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(screen.getByRole('button', { name: '− Owed' }))
+    expect(onChange).toHaveBeenCalledWith('-500')
+  })
+
+  it('Owed with nothing typed is a bare minus, which the box shows empty', () => {
+    const onChange = vi.fn()
+    render(<MoneyInput signed balance value="" onChange={onChange} />)
+    fireEvent.click(screen.getByRole('button', { name: '− Owed' }))
+    expect(onChange).toHaveBeenCalledWith('-')
+  })
+})
+
 describe('MoneyInput digits-only box', () => {
   function Harness({ start }) {
     const [v, setV] = useState(start)

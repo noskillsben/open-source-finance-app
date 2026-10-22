@@ -369,8 +369,8 @@ export default function Accounts({ pickerDate }) {
           terms: { ...accounts.find((a) => a.id === editingId).terms, ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       } else {
-        // Blank matches the field's 0.00 placeholder; typed text that isn't a number is still refused.
-        const openingBalanceCents = form.opening_balance_cents.trim() === '' ? 0 : parseCents(form.opening_balance_cents)
+        // Blank, or Owed chosen with nothing typed, matches the field's 0.00 placeholder; typed text that isn't a number is still refused.
+        const openingBalanceCents = form.opening_balance_cents.replace(/[-−+\s]/g, '') === '' ? 0 : parseCents(form.opening_balance_cents)
         if (!form.created_on) return setFormError('Opening balance date is required.')
         if (openingBalanceCents === null) return setFormError('Opening balance must be a number.')
         setSaving(true)
@@ -541,6 +541,8 @@ export default function Accounts({ pickerDate }) {
       {onBudget && (
         <MoneyInput
           label="On-budget floor"
+          signed
+          balance
           value={form.on_budget_floor_cents}
           onChange={(text) => updateField('on_budget_floor_cents', text)}
         />
@@ -607,6 +609,8 @@ export default function Accounts({ pickerDate }) {
         <>
           <MoneyInput
             label="Opening balance"
+            signed
+            balance
             value={form.opening_balance_cents}
             onChange={(text) => updateField('opening_balance_cents', text)}
           />
@@ -652,6 +656,8 @@ export default function Accounts({ pickerDate }) {
 
       <MoneyInput
         label="Stated balance"
+        signed
+        balance
         value={checkForm.stated_balance_cents}
         onChange={(text) => updateCheckField('stated_balance_cents', text)}
       />
@@ -666,7 +672,7 @@ export default function Accounts({ pickerDate }) {
               <span className="flex-1 px-2 py-1">
                 {categories?.find((c) => c.id === line.category_id)?.name ?? `#${line.category_id}`}
               </span>
-              <MoneyInput aria-label="Amount" value={line.cents} onChange={(text) => updateSplitLine(i, text)} />
+              <MoneyInput signed aria-label="Amount" value={line.cents} onChange={(text) => updateSplitLine(i, text)} />
             </div>
           ))}
           <p className="text-sm text-text-2">
