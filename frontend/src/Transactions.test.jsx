@@ -1478,6 +1478,20 @@ describe('Ledger form: the amount is typed once (#330)', () => {
     })
   })
 
+  it('a prefill with no amount starts on Spent: plain digits save as money out', async () => {
+    renderLedger({ recordBill: { goal_id: 7, goal_due_on: '2026-10-01', category_id: 11, amount_cents: null } })
+    await screen.findByText(/Marked as paying/)
+    await waitFor(() => expect(screen.getByLabelText('Category')).toHaveValue('Rent'))
+    expect(screen.getByRole('button', { name: /Spent/ })).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Chequing' } })
+    fireEvent.change(amountBox(), { target: { value: '1200' } })
+    save()
+    expect(await lastBody()).toMatchObject({
+      account_lines: [{ account_id: 1, cents: -120000 }],
+      category_lines: [{ category_id: 11, cents: -120000 }],
+    })
+  })
+
   it('a split: the Amount is the Bill total, and a refund on it is Received', async () => {
     existingPayees = [{ id: 1, name: 'Me', is_me: true }, { id: 20, name: 'Roommate', is_me: false }]
     renderLedger()

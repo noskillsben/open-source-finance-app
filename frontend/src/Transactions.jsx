@@ -143,7 +143,7 @@ export default function Transactions({ pickerDate }) {
     const shape = readShape(aLines, cLines)
     setAccountLines(aLines)
     setCategoryLines(cLines)
-    setAmount(shape.amount)
+    setAmount(readable(shape.amount) || NEW_AMOUNT) // no amount to read back: start on Spent like a new form
     setForceAccountBoxes(shape.forceA)
     setForceCategoryBoxes(shape.forceC)
   }
