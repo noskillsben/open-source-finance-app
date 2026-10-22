@@ -16,6 +16,10 @@ import { basisFromSplit, basisFromTransaction, linesFromBasis, receiptsForTotal,
 
 const emptyLine = { account_id: '', cents: '' }
 const emptyCategoryLine = { category_id: '', cents: '', receipt: '' }
+// A new form starts on Spent, as Quick add does: the Amount holds just the sign until digits arrive.
+// A bare sign is a blank Amount wherever it is read.
+const NEW_AMOUNT = '-'
+const readable = (text) => (parseCents(text) === null ? '' : text)
 const emptyDeposit = { category_id: '', cents: '', other_category_id: '' }
 
 // One Amount is typed once (DESIGN.md § Transactions): what the transaction cost or brought in, or on
@@ -31,7 +35,8 @@ const accountSideDerived = (accountCount, categoryCount) => accountCount === 1 |
 
 // The lines a typed Amount fills in, on the sides that derive from it. A chosen split is worked out
 // by the split's own arithmetic instead, so its lines are left alone.
-function deriveLines(amount, aLines, cLines) {
+function deriveLines(typed, aLines, cLines) {
+  const amount = readable(typed)
   const a = accountSideDerived(aLines.length, cLines.length)
     ? aLines.map((l, i) => ({ ...l, cents: i === 0 ? amount : negate(amount) }))
     : aLines
@@ -98,7 +103,7 @@ export default function Transactions({ pickerDate }) {
   const [splitId, setSplitId] = useState('')
   const [paidById, setPaidById] = useState(null)
   // The one Amount, signed text as the box holds it. With a split chosen it is the Bill total.
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState(NEW_AMOUNT)
   // Boxes kept open on a side whose lines are not what the Amount derives (see readShape).
   const [forceAccountBoxes, setForceAccountBoxes] = useState(false)
   const [forceCategoryBoxes, setForceCategoryBoxes] = useState(false)
@@ -396,7 +401,7 @@ export default function Transactions({ pickerDate }) {
     const hasCategory = categoryLines.some((l) => l.category_id)
     if (categoryId && !hasCategory) {
       const plain = !split && splitId === ''
-      const typed = plain ? amount : ''
+      const typed = plain ? readable(amount) : ''
       const emptyCategory = categoryLines.findIndex((l) => !l.category_id)
       setCategoryLines(
         emptyCategory === -1
@@ -516,7 +521,7 @@ export default function Transactions({ pickerDate }) {
   function resetForm() {
     setPayeeFill(null)
     pickedPayee.current = null
-    setAmount('')
+    setAmount(NEW_AMOUNT)
     setForceAccountBoxes(false)
     setForceCategoryBoxes(false)
     setSplitId('')

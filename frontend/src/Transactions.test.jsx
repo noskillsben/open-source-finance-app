@@ -1442,6 +1442,42 @@ describe('Ledger form: the amount is typed once (#330)', () => {
     await waitFor(() => expect(boxes()).toEqual(['-40', '-50']))
   })
 
+  it('a fresh form starts on Spent: plain digits make a purchase, and a bare sign is a blank Amount', async () => {
+    renderLedger()
+    await addCategoryLine('Groceries')
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Chequing' } })
+    expect(screen.getByRole('button', { name: /Spent/ })).toHaveAttribute('aria-pressed', 'true')
+    save() // nothing typed yet: the sign alone is not an amount
+    expect(await screen.findByText('Every account line needs an amount.')).toBeInTheDocument()
+    expect(calls.create).not.toHaveBeenCalled()
+
+    fireEvent.change(amountBox(), { target: { value: '25' } })
+    save()
+    expect(await lastBody()).toMatchObject({
+      account_lines: [{ account_id: 1, cents: -2500 }],
+      category_lines: [{ category_id: 10, cents: -2500 }],
+    })
+  })
+
+  it('a split with plain digits in a fresh Amount is a bill paid, not a refund', async () => {
+    existingPayees = [{ id: 1, name: 'Me', is_me: true }, { id: 20, name: 'Roommate', is_me: false }]
+    renderLedger()
+    const select = await screen.findByLabelText('Split')
+    await screen.findByRole('option', { name: 'Household' })
+    fireEvent.change(select, { target: { value: '5' } })
+    expect(boxes()).toEqual(['-', '']) // no bill total, so no line filled, from a bare sign
+    await addCategoryLine('Groceries')
+    fireEvent.change(screen.getByLabelText('Account'), { target: { value: 'Chequing' } })
+    fireEvent.change(amountBox(), { target: { value: '100' } })
+
+    save()
+    expect(await lastBody()).toMatchObject({
+      split_id: 5,
+      account_lines: [{ account_id: 1, cents: -10000 }, { account_id: 3, cents: 5000 }],
+      category_lines: [{ category_id: 10, cents: -5000 }],
+    })
+  })
+
   it('a split: the Amount is the Bill total, and a refund on it is Received', async () => {
     existingPayees = [{ id: 1, name: 'Me', is_me: true }, { id: 20, name: 'Roommate', is_me: false }]
     renderLedger()
