@@ -16,7 +16,6 @@ import { comparator, useSort } from './utils/useSort.js'
 
 // The Due dates page (DESIGN.md § Goals → The Due dates page): a view of goals, never a second store.
 // It lists the recurring bills and the fixed Commitments with a due month, soonest next due first.
-const FAR = '9999-12-31'
 
 const isBill = (p) => p.goal.kind === 'recurring_bill'
 
@@ -24,7 +23,7 @@ const isBill = (p) => p.goal.kind === 'recurring_bill'
 // Categories only. A fixed Commitment qualifies when the server gave it a next due date.
 export const qualifies = (p) => isBill(p) || (p.goal.kind === 'commitment' && p.commitment_next_due_on != null)
 
-const nextDueOn = (p) => (isBill(p) ? p.earliest_unpaid_due_on : p.commitment_next_due_on) ?? FAR
+const nextDueOn = (p) => (isBill(p) ? p.earliest_unpaid_due_on : p.commitment_next_due_on) ?? null
 
 // Default: next due date, soonest first, so overdue leads. Status is the column that carries it.
 const DEFAULT_SORT = { key: 'status', dir: 'asc' }

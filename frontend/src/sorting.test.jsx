@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import Accounts from './Accounts.jsx'
@@ -95,6 +95,20 @@ describe('Accounts sort', () => {
     expect(order(names)).toEqual(['Everyday', 'Rainy day', 'Car loan'])
     tap('Side')
     expect(order(names)).toEqual(['Car loan', 'Everyday', 'Rainy day'])
+  })
+
+  it('keeps an account with an unknown type last in both directions', async () => {
+    load()
+    accounts.push(account(4, 'Mystery', 'Unknown type', true, 1))
+    cleanup()
+    render(<Accounts pickerDate="2026-10-03" />)
+    await screen.findByText('Mystery')
+    const all = [...names, 'Mystery']
+    tap('Type')
+    expect(order(all).at(-1)).toBe('Mystery')
+    tap('Type')
+    expect(header('Type')).toHaveAttribute('aria-sort', 'descending')
+    expect(order(all).at(-1)).toBe('Mystery')
   })
 
   it('Clear filters shows while the sort is not the default, and restores it', async () => {
@@ -199,6 +213,27 @@ describe('Due dates sort', () => {
     tap('Amount')
     tap('Amount')
     expect(order(names)).toEqual(['Big', 'Later', 'Soon'])
+  })
+
+  it('leads with an overdue bill in the default order', async () => {
+    load()
+    goals.push({ ...bill(4, 'Late', '2026-09-01', 700, 0), bill_status: 'overdue', bill_status_text: 'overdue since Sep 1' })
+    cleanup()
+    render(<MemoryRouter><DueDates pickerDate="2026-10-03" /></MemoryRouter>)
+    await screen.findByText('Late')
+    expect(order(['Late', ...names])).toEqual(['Late', 'Soon', 'Later', 'Big'])
+  })
+
+  it('keeps a bill with no next due date last in both directions', async () => {
+    load()
+    goals.push({ ...bill(4, 'Undated', '2026-09-01', 700, 0), earliest_unpaid_due_on: null, due_date: null })
+    cleanup()
+    render(<MemoryRouter><DueDates pickerDate="2026-10-03" /></MemoryRouter>)
+    await screen.findByText('Undated')
+    expect(order(['Undated', ...names]).at(-1)).toBe('Undated')
+    tap('Status')
+    expect(header('Status')).toHaveAttribute('aria-sort', 'descending')
+    expect(order(['Undated', ...names]).at(-1)).toBe('Undated')
   })
 
   it('remembers its sort across a remount', async () => {

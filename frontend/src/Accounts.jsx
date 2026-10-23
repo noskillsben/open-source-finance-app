@@ -429,7 +429,7 @@ export default function Accounts({ pickerDate }) {
   // Type ranks in the type list's order (on-budget types, then tracking); side is On-budget, then Tracking.
   const typeOrder = [...ON_BUDGET_TYPES, ...TRACKING_TYPES]
   const valueOf = (a, key) =>
-    key === 'type' ? typeOrder.indexOf(a.type) : key === 'side' ? (a.on_budget ? 0 : 1) : key === 'balance' ? a.balance_cents : a.name
+    key === 'type' ? (typeOrder.includes(a.type) ? typeOrder.indexOf(a.type) : null) : key === 'side' ? (a.on_budget ? 0 : 1) : key === 'balance' ? a.balance_cents : a.name
   const sorted = [...visible].sort(comparator(sort, valueOf, (a) => a.name))
   const rows = []
   const groups = new Map()
