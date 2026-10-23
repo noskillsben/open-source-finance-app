@@ -226,6 +226,7 @@ export default function Transactions({ pickerDate }) {
     if (!quickAdd) return
     setFormOpen(true)
     setDate(quickAdd.date)
+    setMemo(quickAdd.memo || '')
     showLines(
       [{ account_id: quickAdd.account_id != null ? String(quickAdd.account_id) : '', cents: quickAdd.amount_text }],
       quickAdd.category_id != null ? [{ ...emptyCategoryLine, category_id: String(quickAdd.category_id), cents: quickAdd.amount_text }] : []

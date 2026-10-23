@@ -203,6 +203,48 @@ describe('Quick add', () => {
     })
   })
 
+  it('a typed memo is sent on save, a blank one sends null, and Add another clears it', async () => {
+    renderPage()
+    fireEvent.click(await chip('Loblaws'))
+    await screen.findByText('Groceries')
+    typeAmount(screen.getByLabelText('Amount'), '-12.50')
+    fireEvent.change(screen.getByLabelText('Memo'), { target: { value: '  weekly shop ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText(/Recorded Loblaws/)
+    expect(mocks.create.mock.calls[0][0].memo).toBe('weekly shop')
+    fireEvent.click(screen.getByRole('button', { name: 'Add another' }))
+    expect(screen.getByLabelText('Memo')).toHaveValue('')
+    fireEvent.click(await chip('Loblaws'))
+    await screen.findByText('Groceries')
+    typeAmount(screen.getByLabelText('Amount'), '-3')
+    fireEvent.change(screen.getByLabelText('Memo'), { target: { value: '   ' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await screen.findByText(/Recorded Loblaws/)
+    expect(mocks.create.mock.calls[1][0].memo).toBeNull()
+  })
+
+  it('More details carries the memo', async () => {
+    let seen
+    function Catch() {
+      seen = useLocation().state
+      return <p>Transactions page</p>
+    }
+    render(
+      <MemoryRouter initialEntries={['/quick-add']}>
+        <Routes>
+          <Route path="/quick-add" element={<QuickAdd pickerDate="2026-10-13" />} />
+          <Route path="/transactions" element={<Catch />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    fireEvent.click(await chip('Loblaws'))
+    await screen.findByText('Groceries')
+    fireEvent.change(screen.getByLabelText('Memo'), { target: { value: 'birthday' } })
+    fireEvent.click(screen.getByRole('button', { name: 'More details' }))
+    await screen.findByText('Transactions page')
+    expect(seen.quickAdd.memo).toBe('birthday')
+  })
+
   it('a refused save shows the backend reason and keeps what was typed', async () => {
     mocks.create.mockRejectedValue(new Error('Lines do not add up.'))
     renderPage()
