@@ -31,6 +31,7 @@ vi.mock('./api.js', () => ({
       list: () => Promise.resolve([
         { id: 11, name: 'Rent' },
         { id: 12, name: 'Debt payments', seeded_key: 'category:debt-payments' },
+        { id: 13, name: 'Owed to me', seeded_key: 'category:owed-to-me' },
       ]),
     },
     payees: { list: (asOf, all) => Promise.resolve(all ? [...payees, archivedPayee] : payees), create: createPayee },
@@ -433,6 +434,67 @@ describe('boundary category', () => {
 
     fireEvent.click(await screen.findByText('Old loan'))
     await waitFor(async () => expect(await picker()).toHaveValue(''))
+  })
+})
+
+describe('linked category on create', () => {
+  const picker = () => screen.findByLabelText(/^Linked to/)
+  const queryPicker = () => screen.queryByLabelText(/^Linked to/)
+
+  beforeEach(() => {
+    createAccount.mockReset()
+    createAccount.mockResolvedValue({})
+  })
+
+  it('pre-fills Owed to me for Money owed to me, found by its seeded key, and sends it', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    expect(await picker()).toHaveValue('') // Chequing starts empty
+
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Sam' } })
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'Money owed to me' } })
+    expect(await picker()).toHaveValue('Owed to me')
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].linked_category_id).toBe(13)
+  })
+
+  it('can be cleared, and a cleared pick is sent as null', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Sam' } })
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'Money owed to me' } })
+    fireEvent.change(await picker(), { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].linked_category_id).toBeNull()
+  })
+
+  it('is hidden when the account is switched to tracking, and not sent', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    fireEvent.change(screen.getByLabelText('Name'), { target: { value: 'Sam' } })
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'Money owed to me' } })
+    expect(await picker()).toBeTruthy()
+    fireEvent.click(screen.getByLabelText(/On-budget \(money here/))
+    expect(queryPicker()).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(createAccount).toHaveBeenCalled())
+    expect(createAccount.mock.calls[0][0].linked_category_id).toBeNull()
+  })
+
+  it('is not on the edit form', async () => {
+    accounts = [account({ id: 6, name: 'Sam', type: 'Money owed to me', on_budget: true })]
+    render(<Accounts pickerDate="2026-10-03" />)
+    fireEvent.click(await screen.findByText('Sam'))
+    await screen.findByLabelText('Name')
+    expect(queryPicker()).toBeNull()
   })
 })
 

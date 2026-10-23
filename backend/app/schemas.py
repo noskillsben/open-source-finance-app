@@ -92,6 +92,7 @@ class AccountCreate(BaseModel):
     opening_balance_cents: int
     locked_payee_id: int | None = None
     boundary_category_id: int | None = None
+    linked_category_id: int | None = None  # the one category the new account starts linked to
     terms: DebtTerms = DebtTerms()
 
     @field_validator("type")

@@ -33,7 +33,16 @@ from app.services.accounts import (
 )
 from app.services.splits import live_split_block
 from app.services.archiving import Archivable, ArchiveError, _visible, archive, unarchive
-from app.services.links import drift_cents, drift_note, linked_category_ids, prune_archived_links, suggest_split
+from app.services.links import (
+    LinkError,
+    add_category_link,
+    check_new_account_link,
+    drift_cents,
+    drift_note,
+    linked_category_ids,
+    prune_archived_links,
+    suggest_split,
+)
 from app.services.transactions import TransactionError
 from app.services.valuations import (
     check_balance,
@@ -114,6 +123,14 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
     _reject_unknown_payee(session, payload.locked_payee_id)
     _reject_bad_boundary_category(session, payload.boundary_category_id)
     _reject_floor_below_credit_limit(payload.on_budget_floor_cents, payload.terms.credit_limit_cents)
+    if payload.linked_category_id is not None:
+        try:
+            check_new_account_link(
+                session, payload.linked_category_id,
+                account_created_on=payload.created_on, on_budget=payload.on_budget,
+            )
+        except LinkError as exc:
+            raise HTTPException(status_code=400, detail=str(exc))
     try:
         account = create_account_with_opening_valuation(
             session,
@@ -129,6 +146,8 @@ def create_account(payload: AccountCreate, session: Session = Depends(get_sessio
         )
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"An account named {payload.name!r} already exists.")
+    if payload.linked_category_id is not None:
+        add_category_link(session, payload.linked_category_id, account.id)
     return _account_out(session, account)
 
 

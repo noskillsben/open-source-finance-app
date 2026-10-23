@@ -32,3 +32,9 @@ export const BOUNDARY_DEFAULT_TYPES = ['Line of credit', 'Loan', 'Mortgage', 'Pa
 // Must equal the stored seeded_key of the Debt payments row: backend/app/seed.py stores category keys as
 // `category:<key>`, and backend/tests/test_seed.py asserts "category:debt-payments". Change both together.
 export const BOUNDARY_DEFAULT_SEEDED_KEY = 'category:debt-payments'
+
+// The type whose create form pre-fills "Linked to" with the seeded Owed to me category (DESIGN.md §
+// Accounts → Linked categories → Owed to me — a form default, account type's sanctioned use). Must
+// equal OWED_TO_ME_KEY in backend/app/seed.py; the test in test_seed.py pins the string.
+export const LINKED_DEFAULT_TYPE = 'Money owed to me'
+export const OWED_TO_ME_SEEDED_KEY = 'category:owed-to-me'

@@ -2,7 +2,7 @@ import { Fragment, useEffect, useState } from 'react'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from './api.js'
 import {
-  BOUNDARY_DEFAULT_SEEDED_KEY, BOUNDARY_DEFAULT_TYPES, COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, GIFT_CARD_TYPE, ON_BUDGET_TYPES, PREPAYMENT_MODELS,
+  BOUNDARY_DEFAULT_SEEDED_KEY, BOUNDARY_DEFAULT_TYPES, COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, GIFT_CARD_TYPE, LINKED_DEFAULT_TYPE, ON_BUDGET_TYPES, OWED_TO_ME_SEEDED_KEY, PREPAYMENT_MODELS,
   TRACKING_TYPES,
 } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
@@ -71,6 +71,7 @@ function emptyForm(pickerDate) {
     credit_limit_cents: creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[ON_BUDGET_TYPES[0]]),
     locked_payee_id: null,
     boundary_category_id: null,
+    linked_category_id: null, // create only: the one category a new account starts linked to
     opening_balance_cents: '',
     created_on: pickerDate,
     ...emptyTermsText(),
@@ -179,6 +180,12 @@ export default function Accounts({ pickerDate }) {
     return categories?.find((c) => c.seeded_key === BOUNDARY_DEFAULT_SEEDED_KEY)?.id ?? null
   }
 
+  // The seeded "Owed to me" for Money owed to me, found by seeded_key and never by name; live only.
+  function linkedDefault(type) {
+    if (type !== LINKED_DEFAULT_TYPE) return null
+    return categories?.find((c) => c.seeded_key === OWED_TO_ME_SEEDED_KEY && !c.archived_on)?.id ?? null
+  }
+
   function selectType(type) {
     if (!editingId) setBoundaryKey((k) => k + 1)
     setForm((f) => ({
@@ -188,6 +195,9 @@ export default function Accounts({ pickerDate }) {
       // Only when creating, and only while the pick is still the previous type's default.
       boundary_category_id:
         editingId || f.boundary_category_id !== boundaryDefault(f.type) ? f.boundary_category_id : boundaryDefault(type),
+      // Same for the link: only when creating, and only while the pick is still the previous type's default.
+      linked_category_id:
+        editingId || f.linked_category_id !== linkedDefault(f.type) ? f.linked_category_id : linkedDefault(type),
       // Only when creating; a limit already typed is never overridden, and an edit never re-defaults.
       credit_limit_cents:
         editingId || f.credit_limit_cents !== creditLimitText(DEFAULT_CREDIT_LIMIT_CENTS[f.type])
@@ -438,6 +448,7 @@ export default function Accounts({ pickerDate }) {
           opening_balance_cents: openingBalanceCents,
           locked_payee_id: form.locked_payee_id,
           boundary_category_id: form.boundary_category_id,
+          linked_category_id: form.on_budget ? form.linked_category_id : null,
           terms: { ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       }
@@ -708,6 +719,16 @@ export default function Accounts({ pickerDate }) {
           items={categories.filter((c) => !c.archived_on)}
           initialId={form.boundary_category_id}
           onChange={(id) => updateField('boundary_category_id', id)}
+        />
+      )}
+
+      {categories && onBudget && !editingId && (
+        <NamePicker
+          key={`linked-${boundaryKey}`}
+          label="Linked to (optional — the category this account's money belongs to)"
+          items={categories.filter((c) => !c.archived_on)}
+          initialId={form.linked_category_id}
+          onChange={(id) => updateField('linked_category_id', id)}
         />
       )}
 

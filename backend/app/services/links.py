@@ -9,6 +9,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.models import Account, Category, CategoryAccountLink
+from app.seed import OWED_TO_ME_KEY
 from app.services.accounts import account_balance_cents, dollars
 from app.services.categories import category_balance_cents
 
@@ -35,6 +36,36 @@ def set_category_links(session: Session, category: Category, account_ids: list[i
     session.execute(delete(CategoryAccountLink).where(CategoryAccountLink.category_id == category.id))
     session.add_all(CategoryAccountLink(category_id=category.id, account_id=a) for a in wanted)
     session.flush()
+
+
+def _live_on(category: Category, day: date) -> bool:
+    return category.created_on <= day and (category.archived_on is None or category.archived_on > day)
+
+
+def check_new_account_link(session: Session, category_id: int, *, account_created_on: date, on_budget: bool) -> Category:
+    """Validate the one category a new account is created linked to: it exists, is live on the
+    account's `created_on`, and the account is on-budget. Raises LinkError; writes nothing.
+    """
+    category = session.get(Category, category_id)
+    if category is None:
+        raise LinkError(f"Unknown category id: {category_id}")
+    if not _live_on(category, account_created_on):
+        raise LinkError(f"{category.name} is archived.")
+    if not on_budget:
+        raise LinkError("A tracking account can't be linked to a category; only on-budget accounts can.")
+    return category
+
+
+def add_category_link(session: Session, category_id: int, account_id: int) -> None:
+    """Add one link without touching the category's other links."""
+    session.add(CategoryAccountLink(category_id=category_id, account_id=account_id))
+    session.flush()
+
+
+def seeded_owed_to_me(session: Session, *, on: date) -> Category | None:
+    """The seeded Owed to me category when it is live on `on` — found by key, never by name."""
+    category = session.scalar(select(Category).where(Category.seeded_key == OWED_TO_ME_KEY))
+    return category if category is not None and _live_on(category, on) else None
 
 
 def prune_archived_links(session: Session) -> None:
