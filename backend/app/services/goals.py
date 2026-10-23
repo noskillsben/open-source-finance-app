@@ -33,6 +33,7 @@ def apply_goal(
     amount_cents: int | None, cadence: str | None, cadence_weeks: int | None,
     target_date: date | None, level_cents: int | None,
     income_stream_id: int | None = None, percent_of_net=None, first_due_on: date | None = None,
+    set_aside_whole: bool = False,
 ) -> Goal:
     """The one write path for a goal, shared by create and edit. Validates everything before
     touching the row; a field the kind doesn't use must be left empty (null, never zero).
@@ -104,6 +105,10 @@ def apply_goal(
 
     if percent_of_net is not None and income_stream_id is None:
         raise GoalError("A percentage of net needs a bound pay.")
+    if set_aside_whole and kind != "recurring_bill":
+        raise GoalError("Only a recurring bill can be set aside whole.")
+    if set_aside_whole and income_stream_id is None:
+        raise GoalError("A bill can only be set aside whole when it is paid by a named pay.")
 
     if goal is None:
         goal = Goal(category_id=category.id, created_on=on)
@@ -118,6 +123,7 @@ def apply_goal(
     goal.level_cents = level_cents
     goal.income_stream_id = income_stream_id
     goal.percent_of_net = percent_of_net
+    goal.set_aside_whole = set_aside_whole
     return goal
 
 
@@ -344,7 +350,27 @@ def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as
         return None
     balance = int(category_balance_cents(session, goal.category_id, as_of=as_of))
     shortfall = max(target - balance, 0)
-    return -(-shortfall // _periods_left(stream, next_payday(stream, as_of=as_of), due))
+    periods = _periods_left(stream, next_payday(stream, as_of=as_of), due)
+    if goal.kind == "recurring_bill" and goal.set_aside_whole and periods > 1:
+        return 0  # due on/after this pay's next payday: a later pay fills it whole
+    return -(-shortfall // periods)
+
+
+def set_aside_context(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> str | None:
+    """The pay screen's context line for a bill set aside whole that wants nothing yet, worded once
+    here: "set aside whole on Oct 24" — the last payday of the pay on or before the due date (the
+    pay that fills it). None when the goal isn't set aside whole or wants its full shortfall now."""
+    if goal.kind != "recurring_bill" or not goal.set_aside_whole:
+        return None
+    due = due_date(session, goal)
+    if due is None:
+        return None
+    pivot = next_payday(stream, as_of=as_of)
+    periods = _periods_left(stream, pivot, due)
+    if periods <= 1:
+        return None
+    last = step(stream.cadence, stream.cadence_weeks, pivot, periods - 1)
+    return f"set aside whole on {_short_date(last, as_of=as_of)}"
 
 
 def is_bill_due_date(goal: Goal, day: date) -> bool:

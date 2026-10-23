@@ -435,6 +435,7 @@ export default function PayRecord({ pickerDate }) {
     name: g.goal.name,
     dueDate: g.due_date,
     expectedCents: g.goal.amount_cents,
+    contextText: g.context_text,
     cents: parseCents(billAmounts[g.goal.id]) ?? 0,
   }))
   const billTotal = billRows.reduce((sum, r) => sum + r.cents, 0)
@@ -732,6 +733,7 @@ export default function PayRecord({ pickerDate }) {
                 <div className="text-text-2">
                   {categoriesById.get(r.categoryId)?.name} · due {formatDate(r.dueDate)}
                   {r.expectedCents != null && <> · expected {formatCents(r.expectedCents)}</>}
+                  {r.contextText && <> · {r.contextText}</>}
                 </div>
               </div>
               <MoneyInput className="w-28" value={billAmounts[r.goalId] ?? ''} onChange={(text) => setBillAmounts({ ...billAmounts, [r.goalId]: text })} />
@@ -752,7 +754,7 @@ export default function PayRecord({ pickerDate }) {
               level: g.goal.level_cents != null,
               shortfallCents: g.owed_cents,
               levelCents: g.goal.level_cents,
-              contextText: g.commitment_context_text,
+              contextText: g.context_text,
             })),
             categoriesById,
             leftover

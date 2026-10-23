@@ -20,7 +20,7 @@ export const COMMITMENT_CADENCES = [
 ]
 export const EMPTY_GOAL = {
   kind: '', name: '', flavour: 'add', addFlavour: 'fixed', amount: '', level: '', percent: '',
-  cadence: '', weeks: '', date: '', firstDueMonth: '', incomeStreamId: null,
+  cadence: '', weeks: '', date: '', firstDueMonth: '', incomeStreamId: null, setAsideWhole: false,
 }
 
 // "2026-10" -> the month's last day, "2026-10-31". Day 0 of the next month, in UTC.
@@ -45,6 +45,7 @@ export function goalToForm(goal) {
     date: (goal.kind === 'recurring_bill' ? goal.first_due_on : goal.target_date) ?? '',
     firstDueMonth: goal.first_due_on ? goal.first_due_on.slice(0, 7) : '',
     incomeStreamId: goal.income_stream_id ?? null,
+    setAsideWhole: goal.set_aside_whole ?? false,
   }
 }
 
@@ -70,6 +71,8 @@ export function goalBody(g, pickerDate) {
     first_due_on: g.kind === 'recurring_bill' ? g.date || null : commitmentCadence && g.firstDueMonth ? monthEnd(g.firstDueMonth) : null,
     target_date: g.kind === 'target' && g.date ? g.date : null,
     income_stream_id: g.incomeStreamId ?? null,
+    // Only a recurring bill with a named pay can be set aside whole; anything else sends false.
+    set_aside_whole: g.kind === 'recurring_bill' && g.incomeStreamId != null && !!g.setAsideWhole,
   }
 }
 
@@ -99,7 +102,7 @@ export function GoalFields({ goal, onChange, streams, kinds, allowNone = true })
       label="Named pay this is paid by (optional)"
       items={streams}
       initialId={goal.incomeStreamId}
-      onChange={(id) => set(id != null && goal.kind === 'target' ? { incomeStreamId: id, cadence: '', weeks: '' } : { incomeStreamId: id })}
+      onChange={(id) => set(id != null && goal.kind === 'target' ? { incomeStreamId: id, cadence: '', weeks: '' } : id == null ? { incomeStreamId: id, setAsideWhole: false } : { incomeStreamId: id })}
     />
   )
   const cadenceInput = (label, optional) => (
@@ -174,6 +177,17 @@ export function GoalFields({ goal, onChange, streams, kinds, allowNone = true })
           {moneyInput('Amount per bill', 'amount')}
           {cadenceInput('How often', false)}
           {dateInput('First due date')}
+          {goal.incomeStreamId != null && (
+            <label className="flex min-h-11 items-start gap-2 text-sm">
+              <input
+                type="checkbox"
+                className="mt-1"
+                checked={!!goal.setAsideWhole}
+                onChange={(e) => set({ setAsideWhole: e.target.checked })}
+              />
+              <span>Set aside whole on the last payday before it's due</span>
+            </label>
+          )}
         </>
       )}
       {goal.kind === 'target' && (

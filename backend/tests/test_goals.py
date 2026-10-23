@@ -529,22 +529,22 @@ def test_commitment_each_payday_stays_the_full_amount(client, category, stream):
     assert response.status_code == 200
     (row,) = _progress(client)
     assert row["due_by_next_payday_cents"] is None  # the pay screen pre-fills the full amount
-    assert row["commitment_context_text"] == "each payday"
+    assert row["context_text"] == "each payday"
 
 
-def test_commitment_context_text_on_the_goals_api(client, db_session, category, stream):
+def test_context_text_on_the_goals_api(client, db_session, category, stream):
     _set(client, category, kind="commitment", amount_cents=20000, cadence="monthly",
          first_due_on="2026-03-31", income_stream_id=stream.id)
     _fund(db_session, category, 10000, on=datetime.date(2026, 3, 2))
     (row,) = _progress(client)
     assert row["due_by_next_payday_cents"] == 5000
-    assert row["commitment_context_text"] == "$100.00 of $200.00 due Mar 31"
+    assert row["context_text"] == "$100.00 of $200.00 due Mar 31"
 
 
 def test_context_text_is_null_for_a_refill_commitment(client, category, stream):
     _set(client, category, kind="commitment", level_cents=60000, income_stream_id=stream.id)
     (row,) = _progress(client)
-    assert row["commitment_context_text"] is None
+    assert row["context_text"] is None
 
 
 # --- #158: a fixed Commitment's goal row wording -----------------------------------------------
@@ -643,7 +643,7 @@ def test_commitment_row_text_on_the_goals_api(client, db_session, category):
     (row,) = _progress(client)
     assert row["commitment_cadence_text"] == "$200.00 monthly · next due Mar 31"
     assert row["commitment_progress_text"] == "$140.00 of $200.00 this month"
-    assert row["commitment_context_text"] is None  # no bound pay: the pay screen's line is unchanged
+    assert row["context_text"] is None  # no bound pay: the pay screen's line is unchanged
 
 
 # #198: a Target with a date shows one pace — its named pay's or its own cadence, never both.
@@ -694,3 +694,75 @@ def test_goal_progress_has_no_next_due_date_for_an_each_payday_commitment(db_ses
     from app.services.goals import goal_progress
     goal = _commitment(db_session, category, stream, cadence=None, first_due_on=None, amount=5000)
     assert goal_progress(db_session, goal, as_of=DAY).commitment_next_due_on is None
+
+
+# --- #360: a bill set aside whole on the last payday before it's due -------------------------
+# Salary is paid every other Friday: Mar 6, Mar 20, Apr 3.
+
+def _rent(client, category, stream, *, due="2026-03-28", whole=True):
+    response = _set(
+        client, category, kind="recurring_bill", amount_cents=150000, cadence="monthly",
+        first_due_on=due, income_stream_id=stream.id, set_aside_whole=whole,
+    )
+    assert response.status_code == 200
+    assert response.json()["set_aside_whole"] is whole
+
+
+def test_set_aside_whole_wants_nothing_until_the_last_payday_before_due(client, category, stream):
+    _rent(client, category, stream)
+    (row,) = _progress(client, datetime.date(2026, 3, 1))  # pay being recorded: Mar 6
+    assert row["due_by_next_payday_cents"] == 0
+    assert row["context_text"] == "set aside whole on Mar 20"
+    (row,) = _progress(client, datetime.date(2026, 3, 7))  # pay being recorded: Mar 20
+    assert row["due_by_next_payday_cents"] == 150000
+    assert row["context_text"] is None
+
+
+def test_set_aside_whole_off_still_splits(client, category, stream):
+    _rent(client, category, stream, whole=False)
+    (row,) = _progress(client, datetime.date(2026, 3, 1))
+    assert row["due_by_next_payday_cents"] == 75000
+    assert row["context_text"] is None
+    (row,) = _progress(client, datetime.date(2026, 3, 7))
+    assert row["due_by_next_payday_cents"] == 150000
+
+
+def test_set_aside_whole_due_exactly_on_the_next_payday_waits_for_it(client, category, stream):
+    _rent(client, category, stream, due="2026-04-03")
+    (row,) = _progress(client, datetime.date(2026, 3, 7))  # pay being recorded: Mar 20
+    assert row["due_by_next_payday_cents"] == 0
+    assert row["context_text"] == "set aside whole on Apr 3"
+    (row,) = _progress(client, datetime.date(2026, 3, 21))  # pay being recorded: Apr 3
+    assert row["due_by_next_payday_cents"] == 150000
+
+
+def test_set_aside_whole_overdue_bill_wants_the_full_shortfall(client, category, stream):
+    _rent(client, category, stream, due="2026-03-01")
+    (row,) = _progress(client, datetime.date(2026, 3, 7))
+    assert row["due_by_next_payday_cents"] == 150000
+    assert row["context_text"] is None
+
+
+def test_set_aside_whole_refused_on_an_unbound_bill(client, category):
+    response = _set(
+        client, category, kind="recurring_bill", amount_cents=150000, cadence="monthly",
+        first_due_on="2026-03-28", set_aside_whole=True,
+    )
+    assert response.status_code == 400
+    assert "named pay" in response.json()["detail"]
+    assert _progress(client) == []
+
+
+@pytest.mark.parametrize("fields", [
+    {"kind": "target", "amount_cents": 10000},
+    {"kind": "commitment", "amount_cents": 5000},
+])
+def test_set_aside_whole_refused_on_a_non_bill(client, category, stream, fields):
+    response = _set(client, category, income_stream_id=stream.id, set_aside_whole=True, **fields)
+    assert response.status_code == 400
+    assert "recurring bill" in response.json()["detail"]
+
+
+def test_set_aside_whole_defaults_to_false(client, category):
+    response = _set(client, category, kind="target", amount_cents=10000)
+    assert response.json()["set_aside_whole"] is False
