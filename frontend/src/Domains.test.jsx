@@ -24,10 +24,15 @@ describe('add a domain', () => {
     expect(createDomain).toHaveBeenCalledTimes(1)
 
     finish({})
-    await waitFor(() => expect(button).not.toBeDisabled())
-    expect(screen.getByLabelText('Domain name')).toHaveValue('')
-    // #220: the panel stays open for the next entry, with focus back on the name box.
-    expect(screen.getByLabelText('Domain name')).toHaveFocus()
-    expect(screen.getByText('Added Food.')).toBeTruthy()
+    // #321: a successful add closes the panel.
+    await waitFor(() => expect(screen.queryByLabelText('Domain name')).toBeNull())
+  })
+
+  it('Cancel closes the add panel, with no Done button', async () => {
+    render(<Domains pickerDate="2026-10-03" />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Add a domain' }))[0])
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByLabelText('Domain name')).toBeNull()
   })
 })

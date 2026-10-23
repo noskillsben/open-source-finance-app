@@ -8,7 +8,7 @@ import ListFilters from './components/ListFilters.jsx'
 import { useFilters } from './utils/useFilters.js'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
-import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import { RefusalNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
@@ -136,7 +136,6 @@ export default function Pay({ pickerDate }) {
   const [formKey, setFormKey] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
-  const [saved, setSaved] = useState(null) // the save note after an add
 
   function refresh() {
     api.incomeStreams.list(pickerDate, showArchived).then(setStreams).catch((e) => setError(e.message))
@@ -150,19 +149,16 @@ export default function Pay({ pickerDate }) {
   function startAdd() {
     resetForm()
     setPanelOpen(true)
-    setSaved(null)
     setFocusKey((k) => k + 1)
   }
 
   function closePanel() {
     resetForm()
     setPanelOpen(false)
-    setSaved(null)
   }
 
   function startEdit(stream) {
     setPanelOpen(true)
-    setSaved(null)
     setFocusKey((k) => k + 1)
     setFormKey((k) => k + 1)
     setEditing(stream)
@@ -210,15 +206,13 @@ export default function Pay({ pickerDate }) {
         closePanel()
       } else {
         await api.incomeStreams.create(body)
-        resetForm()
-        setSaved(`Added ${body.name}.`)
+        closePanel()
       }
       refresh()
     } catch (err) {
       setFormError(err.message)
     } finally {
       setSaving(false)
-      setFocusKey((k) => k + 1)
     }
   }
 
@@ -258,7 +252,6 @@ export default function Pay({ pickerDate }) {
             Lumpy income? You can always set it monthly and estimate the least and most you receive in a month.
           </p>
           {formError && <RefusalNote>{formError}</RefusalNote>}
-          {saved && <SaveNote>{saved}</SaveNote>}
           <label className="block space-y-1">
             <span className="field-label">Name</span>
             <input
@@ -336,7 +329,7 @@ export default function Pay({ pickerDate }) {
           />
           <div className="flex gap-3">
             <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add named pay'}</Button>
-            <Button variant="secondary" onClick={closePanel}>{editing ? 'Cancel' : 'Done'}</Button>
+            <Button variant="secondary" onClick={closePanel}>Cancel</Button>
           </div>
       </form>
     </SidePanel>

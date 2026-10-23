@@ -39,8 +39,8 @@ export function PanelLayout({ panel, children }) {
 }
 
 /** The side panel: an add or edit form for one row. It closes on cancel, Escape or ×; saving is the
- * form's business. `focusKey` returns focus to the first field whenever it changes (after an add,
- * ready for the next entry). */
+ * form's business (a save closes it). `focusKey` returns focus to the first field whenever it
+ * changes (opening a form, or switching to another row's form while the panel is open). */
 export default function SidePanel({ title, onClose, focusKey = 0, children }) {
   const ref = useRef(null)
   const ctx = useContext(FormOpenContext)

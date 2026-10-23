@@ -75,8 +75,7 @@ describe('add a named pay', () => {
     expect(createStream).toHaveBeenCalledTimes(1)
 
     finish({})
-    await waitFor(() => expect(screen.getByLabelText('Name')).not.toBeDisabled())
-    expect(screen.getByRole('button', { name: 'Add named pay' })).not.toBeDisabled()
-    expect(screen.getByLabelText('Name')).toHaveFocus() // #220: ready for the next entry
+    // #321: a successful add closes the panel.
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
   })
 })

@@ -150,6 +150,22 @@ describe('the Split expenses page', () => {
     expect(await screen.findByText(/add up to 110%, more than 100%/)).toBeInTheDocument()
   })
 
+  it('closes the add panel on a successful save, and Cancel closes it too (#321)', async () => {
+    createSplit.mockReset()
+    createSplit.mockResolvedValue({})
+    renderSplits()
+    await openAddForm()
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
+    fireEvent.change(await screen.findByLabelText('Split name'), { target: { value: 'Rent' } })
+    await addMember('Sam', '50', 0)
+    fireEvent.click(screen.getByRole('button', { name: 'Add split' }))
+    await waitFor(() => expect(screen.queryByLabelText('Split name')).toBeNull())
+
+    await openAddForm()
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByLabelText('Split name')).toBeNull()
+  })
+
   it('shows the backend refusal detail when a save is refused', async () => {
     createSplit.mockRejectedValue(new Error('The members add up to 110%, which is more than 100%.'))
     renderSplits()
