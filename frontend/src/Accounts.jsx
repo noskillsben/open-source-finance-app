@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api } from './api.js'
 import {
-  BOUNDARY_DEFAULT_SEEDED_KEY, BOUNDARY_DEFAULT_TYPES, COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, ON_BUDGET_TYPES, PREPAYMENT_MODELS,
+  BOUNDARY_DEFAULT_SEEDED_KEY, BOUNDARY_DEFAULT_TYPES, COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, GIFT_CARD_TYPE, ON_BUDGET_TYPES, PREPAYMENT_MODELS,
   TRACKING_TYPES,
 } from './account_types.js'
 import { formatCents, formatDate, parseCents } from './utils/format.js'
@@ -506,8 +506,26 @@ export default function Accounts({ pickerDate }) {
     return (parsed.terms && termsLine(parsed.terms)) || 'Nothing entered'
   })()
 
+  // Gift card / store credit puts the lock field first (a form-only ordering; the lock stays the one mechanism).
+  const lockFirst = form.type === GIFT_CARD_TYPE
+  const lockField = (
+    <label className="block space-y-1">
+      <span className="field-label">Locked to a payee (optional — a gift card or store credit only spends there)</span>
+      <PayeePicker
+        key={formKey}
+        payees={pickerPayees}
+        payeeId={form.locked_payee_id}
+        onSelect={(id) => updateField('locked_payee_id', id)}
+        onAdd={addPayee}
+        onError={setFormError}
+        inline
+      />
+    </label>
+  )
+
   const editForm = (
     <form className="space-y-4" onSubmit={submit}>
+      {lockFirst && lockField}
       {formError && <RefusalNote>{formError}</RefusalNote>}
       {saved && <SaveNote>{saved}</SaveNote>}
       <label className="block space-y-1">
@@ -591,18 +609,7 @@ export default function Accounts({ pickerDate }) {
         )}
       </div>
 
-      <label className="block space-y-1">
-        <span className="field-label">Locked to a payee (optional — a gift card or store credit only spends there)</span>
-        <PayeePicker
-          key={formKey}
-          payees={pickerPayees}
-          payeeId={form.locked_payee_id}
-          onSelect={(id) => updateField('locked_payee_id', id)}
-          onAdd={addPayee}
-          onError={setFormError}
-          inline
-        />
-      </label>
+      {!lockFirst && lockField}
 
       {categories && !onBudget && (
         <NamePicker

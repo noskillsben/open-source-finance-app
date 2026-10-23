@@ -11,6 +11,7 @@ ACCOUNT_TYPES: dict[str, bool] = {
     "Cash": True,
     "Chequing": True,
     "Credit card": True,
+    "Gift card / store credit": True,
     "Investment": False,
     "Line of credit": False,
     "Loan": False,

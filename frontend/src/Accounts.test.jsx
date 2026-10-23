@@ -207,6 +207,25 @@ describe('payee-locked accounts', () => {
     expect(createAccount.mock.calls[0][0].locked_payee_id).toBe(7)
   })
 
+  it('Gift card / store credit starts on-budget, floor 0, credit limit 0, with the lock field first', async () => {
+    accounts = []
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    fireEvent.change(await screen.findByLabelText('Type'), { target: { value: 'Gift card / store credit' } })
+
+    expect(screen.getByLabelText(/On-budget \(money here/)).toBeChecked()
+    expect(screen.getByLabelText('On-budget floor').value).toMatch(/^0(\.00)?$/)
+    expect(screen.getByLabelText(/Credit limit/).value).toMatch(/^0(\.00)?$/)
+    const lock = screen.getByText(/Locked to a payee/)
+    const name = screen.getByText('Name', { selector: 'span' })
+    expect(lock.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+
+    fireEvent.change(screen.getByLabelText('Type'), { target: { value: 'Cash' } })
+    const lock2 = screen.getByText(/Locked to a payee/)
+    const name2 = screen.getByText('Name', { selector: 'span' })
+    expect(lock2.compareDocumentPosition(name2) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy()
+  })
+
   it('adds a new payee from the lock box and saves the account locked to it', async () => {
     accounts = []
     createAccount.mockResolvedValue({})
