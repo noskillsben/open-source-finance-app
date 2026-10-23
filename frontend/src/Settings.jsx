@@ -12,6 +12,7 @@ export default function Settings() {
   const [latest, setLatest] = useState(null)
   const [error, setError] = useState(null)
   const [downloading, setDownloading] = useState(false)
+  const [backingUp, setBackingUp] = useState(false)
   const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
@@ -42,6 +43,24 @@ export default function Settings() {
     }
   }
 
+  async function backUpNow() {
+    setBackingUp(true)
+    setError(null)
+    try {
+      setLatest(await api.backups.takeNow())
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setBackingUp(false)
+    }
+  }
+
+  const backUpButton = (
+    <Button variant="secondary" disabled={backingUp} onClick={backUpNow}>
+      {backingUp ? 'Taking backup…' : 'Back up now'}
+    </Button>
+  )
+
   async function download() {
     setDownloading(true)
     setError(null)
@@ -62,13 +81,19 @@ export default function Settings() {
         <h3 className="text-lg font-medium">Backup</h3>
         {error && <WarningNote>{error}</WarningNote>}
         {!latest && !error && <LoadingRows />}
-        {latest && !latest.name && <EmptyState>{NO_BACKUP}</EmptyState>}
+        {latest && !latest.name && (
+          <div className="flex flex-col items-start gap-3">
+            <EmptyState>{NO_BACKUP}</EmptyState>
+            {backUpButton}
+          </div>
+        )}
         {latest?.name && (
           <div className="flex flex-col items-start gap-3">
             <p className="text-text-2">Last backup: {formatDateTime(latest.taken_at)}</p>
             <Button variant="secondary" disabled={downloading} onClick={download}>
               Download latest backup
             </Button>
+            {backUpButton}
           </div>
         )}
         <div className="flex flex-col items-start gap-3">

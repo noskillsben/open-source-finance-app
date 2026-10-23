@@ -3,15 +3,16 @@ import { fireEvent } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings.jsx'
 
-const { latest, downloadLatest, exportDownload } = vi.hoisted(() => ({
-  latest: vi.fn(), downloadLatest: vi.fn(), exportDownload: vi.fn(),
+const { latest, downloadLatest, takeNow, exportDownload } = vi.hoisted(() => ({
+  latest: vi.fn(), downloadLatest: vi.fn(), takeNow: vi.fn(), exportDownload: vi.fn(),
 }))
 
-vi.mock('./api.js', () => ({ api: { backups: { latest, downloadLatest }, exportData: { download: exportDownload } } }))
+vi.mock('./api.js', () => ({ api: { backups: { latest, downloadLatest, takeNow }, exportData: { download: exportDownload } } }))
 
 beforeEach(() => {
   latest.mockReset()
   downloadLatest.mockReset()
+  takeNow.mockReset()
   exportDownload.mockReset()
 })
 
@@ -78,5 +79,29 @@ describe('Export data', () => {
     render(<Settings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Export data' }))
     await waitFor(() => expect(screen.getByText('Export failed')).toBeInTheDocument())
+  })
+})
+
+describe('Back up now', () => {
+  it('is offered in the no-backup state and updates Last backup on success', async () => {
+    latest.mockResolvedValue({ name: null, taken_at: null })
+    let resolve
+    takeNow.mockReturnValue(new Promise((r) => { resolve = r }))
+    render(<Settings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Back up now' }))
+    const busy = await screen.findByRole('button', { name: 'Taking backup…' })
+    expect(busy).toBeDisabled()
+    resolve({ name: 'nightly-20261023T120000Z.sql', taken_at: '2026-10-23T12:00:00Z' })
+    expect(await screen.findByText(/Last backup: .*2026/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Back up now' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Download latest backup' })).toBeInTheDocument()
+  })
+
+  it('shows the error detail when it fails', async () => {
+    latest.mockResolvedValue({ name: 'nightly-20261019T030000Z.sql', taken_at: '2026-10-19T03:00:00Z' })
+    takeNow.mockRejectedValue(new Error('A backup is already being taken'))
+    render(<Settings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Back up now' }))
+    expect(await screen.findByText('A backup is already being taken')).toBeInTheDocument()
   })
 })

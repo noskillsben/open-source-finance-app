@@ -139,6 +139,7 @@ export const api = {
   },
   backups: {
     latest: () => request('/api/backups/latest'),
+    takeNow: () => request('/api/backups', { method: 'POST' }),
     downloadLatest: () => request('/api/backups/latest/download', { as: 'blob' }),
   },
   exportData: {
