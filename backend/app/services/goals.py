@@ -435,7 +435,8 @@ def unbound_bill_horizon(session: Session, *, as_of: date) -> date | None:
 
 
 def bill_status(
-    session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None, horizon: date | None = None
+    session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None, horizon: date | None = None,
+    balance_cents: int = 0,
 ) -> tuple[str, str] | None:
     """A recurring bill's status and its wording, computed here so no component words it again:
     "overdue" once `as_of` is past its earliest unpaid due date; "due" when that date falls
@@ -444,13 +445,19 @@ def bill_status(
     the earliest such payday across all live pays (`horizon`, from `unbound_bill_horizon`), or
     `as_of` itself when there are none, so it is due on its due date. Otherwise "next_due",
     including a bill due exactly on that next payday, which waits for that payday to arrive. None for any other kind of goal.
+
+    A due or overdue bill also says how much its envelope is still short: the bill's amount less
+    `balance_cents` (the category balance at `as_of`, the same number the row's progress uses),
+    appended as " · $300.00 short" when positive. Nothing is stored; "next due" never carries it.
     """
     due = earliest_unpaid_due_date(session, goal)
     if due is None:
         return None
     day = _short_date(due, as_of=as_of)
+    missing = goal.amount_cents - balance_cents
+    short = f" · {dollars(missing)} short" if missing > 0 else ""
     if due < as_of:
-        return "overdue", f"overdue since {day}"
+        return "overdue", f"overdue since {day}{short}"
     if stream is not None:
         due_now = due < next_payday(stream, as_of=as_of + timedelta(days=1))
     elif horizon is None:
@@ -458,7 +465,7 @@ def bill_status(
     else:
         due_now = due < horizon
     if due_now:
-        return "due", f"due {day} · not paid"
+        return "due", f"due {day} · not paid{short}"
     return "next_due", f"next due {day}"
 
 

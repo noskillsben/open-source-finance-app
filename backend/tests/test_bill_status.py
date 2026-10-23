@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
-from app.models import Category, Goal, IncomeStream
+from app.models import Category, EarmarkLine, Goal, IncomeStream
 from app.services.accounts import create_account_with_opening_valuation
 
 DAY = datetime.date(2026, 9, 1)
@@ -83,8 +83,8 @@ def _pay(client, chequing, category, goal, due_on, *, cents, day="2026-10-03"):
 @pytest.mark.parametrize(
     "first_due, as_of, status, text",
     [
-        (datetime.date(2026, 9, 1), datetime.date(2026, 9, 2), "overdue", "overdue since Sep 1"),
-        (datetime.date(2026, 9, 1), datetime.date(2026, 9, 1), "due", "due Sep 1 · not paid"),
+        (datetime.date(2026, 9, 1), datetime.date(2026, 9, 2), "overdue", "overdue since Sep 1 · $1,200.00 short"),
+        (datetime.date(2026, 9, 1), datetime.date(2026, 9, 1), "due", "due Sep 1 · not paid · $1,200.00 short"),
         (datetime.date(2026, 9, 2), datetime.date(2026, 9, 1), "next_due", "next due Sep 2"),
     ],
 )
@@ -211,7 +211,7 @@ def test_an_overdue_bill_keeps_its_due_date_on_both_surfaces(db_session, client,
     _, goal = _bill(db_session, datetime.date(2026, 8, 1), stream=salary)
     row = _row(client, goal, DAY)
     assert row["due_date"] == row["earliest_unpaid_due_on"] == "2026-08-01"
-    assert row["bill_status_text"] == "overdue since Aug 1"
+    assert row["bill_status_text"] == "overdue since Aug 1 · $1,200.00 short"
     assert row["due_by_next_payday_cents"] == 120_000  # overdue: the whole shortfall, no instalments
 
 
@@ -353,3 +353,52 @@ def test_an_every_6_months_bill_moves_on_six_months_from_its_first_due_date(db_s
     assert _row(client, goal, DAY)["due_date"] == "2027-02-28"  # month-end clamps
     _pay(client, chequing, category, goal, "2027-02-28", cents=120_000, day="2027-02-28")
     assert _row(client, goal, datetime.date(2027, 3, 1))["due_date"] == "2027-08-31"
+
+
+RENT_DUE = datetime.date(2026, 11, 1)
+
+
+def _paydays_rent(db_session, chequing, envelope):
+    income = Category(name="Salary income", created_on=DAY)
+    db_session.add(income)
+    db_session.flush()
+    stream = IncomeStream(  # paydays Oct 10, Oct 24, Nov 7
+        name="Salary", cadence="weeks", cadence_weeks=2, anchor_payday=datetime.date(2026, 10, 10),
+        expected_net_low_cents=0, expected_net_high_cents=0, income_category_id=income.id,
+        destination_account_id=chequing.id, created_on=DAY,
+    )
+    db_session.add(stream)
+    db_session.flush()
+    category, goal = _bill(db_session, RENT_DUE, stream=stream, amount=150_000)
+    if envelope:
+        db_session.add(EarmarkLine(date=DAY, category_id=category.id, cents=envelope, source="move"))
+        db_session.flush()
+    return goal
+
+
+@pytest.mark.parametrize(
+    "as_of, text",
+    [
+        (datetime.date(2026, 10, 20), "next due Nov 1"),
+        (datetime.date(2026, 10, 25), "due Nov 1 · not paid · $300.00 short"),
+        (datetime.date(2026, 11, 2), "overdue since Nov 1 · $300.00 short"),
+    ],
+)
+def test_a_due_bill_says_how_much_its_envelope_is_short(db_session, client, chequing, as_of, text):
+    goal = _paydays_rent(db_session, chequing, 120_000)
+    assert _row(client, goal, as_of)["bill_status_text"] == text
+
+
+def test_a_fully_funded_or_overfunded_envelope_has_no_short_note(db_session, client, chequing):
+    goal = _paydays_rent(db_session, chequing, 150_000)
+    assert _row(client, goal, datetime.date(2026, 10, 25))["bill_status_text"] == "due Nov 1 · not paid"
+    db_session.add(EarmarkLine(date=DAY, category_id=goal.category_id, cents=50_000, source="move"))
+    db_session.flush()
+    assert _row(client, goal, datetime.date(2026, 11, 2))["bill_status_text"] == "overdue since Nov 1"
+
+
+def test_an_unbound_bill_says_how_much_it_is_short(db_session, client):
+    category, goal = _bill(db_session, RENT_DUE, amount=150_000)
+    db_session.add(EarmarkLine(date=DAY, category_id=category.id, cents=120_000, source="move"))
+    db_session.flush()
+    assert _row(client, goal, RENT_DUE)["bill_status_text"] == "due Nov 1 · not paid · $300.00 short"
