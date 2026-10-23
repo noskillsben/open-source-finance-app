@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { Fragment, useEffect, useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from './api.js'
 import {
   BOUNDARY_DEFAULT_SEEDED_KEY, BOUNDARY_DEFAULT_TYPES, COMPOUNDING_RULES, DEBT_TYPES, DEFAULT_CREDIT_LIMIT_CENTS, DEFAULT_ON_BUDGET, GIFT_CARD_TYPE, ON_BUDGET_TYPES, PREPAYMENT_MODELS,
@@ -8,6 +9,7 @@ import { formatCents, formatDate, parseCents } from './utils/format.js'
 import Button from './components/Button.jsx'
 import ChoicePicker from './components/ChoicePicker.jsx'
 import EmptyState from './components/EmptyState.jsx'
+import GroupBy from './components/GroupBy.jsx'
 import ListFilters from './components/ListFilters.jsx'
 import SortHeader from './components/SortHeader.jsx'
 import { useFilters } from './utils/useFilters.js'
@@ -21,6 +23,39 @@ import PayeePicker from './PayeePicker.jsx'
 import { emptyTermsText, termsLine, termsToText, textToTerms } from './utils/terms.js'
 
 const VALUE_TYPES = ['Asset', 'Investment']
+
+const GROUP_BY_KEY = 'accounts.groupBy'
+const COLLAPSED_KEY = 'accounts.collapsed'
+const GROUP_OPTIONS = [{ value: 'side', label: 'Budget side' }, { value: 'type', label: 'Type' }]
+const DEFAULT_SORT = { key: 'name', dir: 'asc' }
+
+// Group by and which groups are collapsed are per-device conveniences (DESIGN.md § Nested and grouped
+// lists): localStorage, and the page works without it.
+function loadGroupBy() {
+  try {
+    const saved = localStorage.getItem(GROUP_BY_KEY)
+    return GROUP_OPTIONS.some((o) => o.value === saved) ? saved : 'side'
+  } catch {
+    return 'side'
+  }
+}
+
+function loadCollapsed() {
+  try {
+    const keys = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]')
+    return Array.isArray(keys) ? keys : []
+  } catch {
+    return []
+  }
+}
+
+function saveLocal(key, value) {
+  try {
+    localStorage.setItem(key, typeof value === 'string' ? value : JSON.stringify(value))
+  } catch {
+    // private window or blocked storage: the state just doesn't survive a reload
+  }
+}
 
 // Blank string is null (unknown); "0.00" is 0 (no credit) — the form never collapses them.
 function creditLimitText(cents) {
@@ -116,6 +151,8 @@ export default function Accounts({ pickerDate }) {
   const [undoError, setUndoError] = useState(null)
 
   const [showArchived, setShowArchived] = useState(false)
+  const [groupBy, setGroupByState] = useState(loadGroupBy)
+  const [collapsed, setCollapsedState] = useState(loadCollapsed) // group keys, per device
   const [archivingId, setArchivingId] = useState(null)
   const [archiveDate, setArchiveDate] = useState(pickerDate)
   const [archiveError, setArchiveError] = useState(null)
@@ -418,7 +455,24 @@ export default function Accounts({ pickerDate }) {
 
   // Accounts locked to the same payee read as one line with a balance each (DESIGN.md § Payee-locked
   // accounts). Derived here from the list, at read time: a lone locked account keeps its own row.
-  const { filters, setFilter, clear: clearFilters, active: filtersActive, sort, toggleSort } = useFilters('accounts.filters', { search: '', type: '', side: '' }, { key: 'name', dir: 'asc' })
+  const { filters, setFilter, clear: clearFilters, active: filtersActive, filtered, sort, toggleSort } = useFilters('accounts.filters', { search: '', type: '', side: '' }, DEFAULT_SORT)
+  function setGroupBy(value) {
+    setGroupByState(value)
+    saveLocal(GROUP_BY_KEY, value)
+  }
+  function setCollapsed(keys) {
+    setCollapsedState(keys)
+    saveLocal(COLLAPSED_KEY, keys)
+  }
+  function toggleGroup(key) {
+    setCollapsed(collapsed.includes(key) ? collapsed.filter((k) => k !== key) : [...collapsed, key])
+  }
+  // The column the list is grouped by is hidden, so a saved sort on it falls back to Name A→Z.
+  const hiddenKey = groupBy === 'side' ? 'side' : 'type'
+  useEffect(() => {
+    if (sort.key === hiddenKey) toggleSort(DEFAULT_SORT.key)
+  }, [sort.key, hiddenKey])
+  const effectiveSort = sort.key === hiddenKey ? DEFAULT_SORT : sort
   const needle = filters.search.trim().toLowerCase()
   const visible = (accounts ?? []).filter(
     (a) =>
@@ -430,19 +484,43 @@ export default function Accounts({ pickerDate }) {
   const typeOrder = [...ON_BUDGET_TYPES, ...TRACKING_TYPES]
   const valueOf = (a, key) =>
     key === 'type' ? (typeOrder.includes(a.type) ? typeOrder.indexOf(a.type) : null) : key === 'side' ? (a.on_budget ? 0 : 1) : key === 'balance' ? a.balance_cents : a.name
-  const sorted = [...visible].sort(comparator(sort, valueOf, (a) => a.name))
-  const rows = []
-  const groups = new Map()
-  for (const a of sorted) {
-    const shared = a.locked_payee_id != null && accounts.filter((o) => o.locked_payee_id === a.locked_payee_id).length > 1
-    if (!shared) rows.push({ account: a })
-    else if (!groups.has(a.locked_payee_id)) {
-      const row = { payeeId: a.locked_payee_id, group: [] }
-      groups.set(a.locked_payee_id, row)
-      rows.push(row)
-    }
-    if (shared) groups.get(a.locked_payee_id).group.push(a)
-  }
+  const sorted = [...visible].sort(comparator(effectiveSort, valueOf, (a) => a.name))
+
+  // Groups: by side (On-budget, Tracking) or by type (the type list's order, an unknown type last);
+  // archived accounts, shown only with Show archived, sit in one Archived group last. Empty groups vanish.
+  const groupDefs =
+    groupBy === 'side'
+      ? [{ key: 'side:on', label: 'On-budget' }, { key: 'side:off', label: 'Tracking' }]
+      : [...typeOrder.map((t) => ({ key: `type:${t}`, label: t })), { key: 'type:unknown', label: 'Unknown type' }]
+  groupDefs.push({ key: 'archived', label: 'Archived' })
+  const groupKeyOf = (a) =>
+    a.archived_on
+      ? 'archived'
+      : groupBy === 'side'
+        ? (a.on_budget ? 'side:on' : 'side:off')
+        : (typeOrder.includes(a.type) ? `type:${a.type}` : 'type:unknown')
+  const groupedRows = groupDefs
+    .map((def) => {
+      const members = sorted.filter((a) => groupKeyOf(a) === def.key)
+      const rows = []
+      const clusters = new Map()
+      for (const a of members) {
+        const shared = a.locked_payee_id != null && accounts.filter((o) => o.locked_payee_id === a.locked_payee_id).length > 1
+        if (!shared) rows.push({ account: a })
+        else if (!clusters.has(a.locked_payee_id)) {
+          const row = { payeeId: a.locked_payee_id, group: [] }
+          clusters.set(a.locked_payee_id, row)
+          rows.push(row)
+        }
+        if (shared) clusters.get(a.locked_payee_id).group.push(a)
+      }
+      return { ...def, rows, total: members.reduce((sum, a) => sum + a.balance_cents, 0), count: members.length }
+    })
+    .filter((g) => g.count > 0)
+  // A search or filter opens every group holding a match, so a collapsed group never hides a hit.
+  const isOpen = (key) => filtered || !collapsed.includes(key)
+  const hasRows = groupedRows.length > 0
+  const colCount = 4
 
   // A lock on a payee archived since stays visible in the picker, labelled, and saves unchanged
   // (DESIGN.md § General concepts): archived entities leave pickers but not where they are referenced.
@@ -807,8 +885,11 @@ export default function Accounts({ pickerDate }) {
             noun="accounts"
             search={filters.search}
             onSearch={(v) => setFilter('search', v)}
-            active={filtersActive}
-            onClear={clearFilters}
+            active={filtersActive || groupBy !== 'side'}
+            onClear={() => {
+              clearFilters()
+              setGroupBy('side')
+            }}
             facets={[
               { name: 'type', label: 'Type', value: filters.type, onChange: (v) => setFilter('type', v), options: [...ON_BUDGET_TYPES, ...TRACKING_TYPES].map((t) => ({ value: t, label: t })) },
               { name: 'side', label: 'Side', value: filters.side, onChange: (v) => setFilter('side', v), options: [{ value: 'on', label: 'On-budget' }, { value: 'off', label: 'Tracking' }] },
@@ -818,6 +899,13 @@ export default function Accounts({ pickerDate }) {
               <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
               Show archived
             </label>
+            <GroupBy value={groupBy} onChange={setGroupBy} options={GROUP_OPTIONS} />
+            {hasRows && !filtered && (
+              <div className="flex">
+                <Button variant="quiet" onClick={() => setCollapsed([])}>Expand all</Button>
+                <Button variant="quiet" onClick={() => setCollapsed(groupedRows.map((g) => g.key))}>Collapse all</Button>
+              </div>
+            )}
           </ListFilters>
           {!error && !accounts && <LoadingRows />}
           {accounts && accounts.length === 0 && (
@@ -825,26 +913,48 @@ export default function Accounts({ pickerDate }) {
               No accounts yet.
             </EmptyState>
           )}
-          {accounts && accounts.length > 0 && rows.length === 0 && (
+          {accounts && accounts.length > 0 && !hasRows && (
             <p className="text-text-2">No accounts match these filters.</p>
           )}
-          {accounts && accounts.length > 0 && rows.length > 0 && (
+          {accounts && accounts.length > 0 && hasRows && (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead>
                   <tr>
-                    <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
-                    <SortHeader label="Type" sortKey="type" sort={sort} onSort={toggleSort} />
-                    <SortHeader label="Side" sortKey="side" sort={sort} onSort={toggleSort} />
-                    <SortHeader label="Balance" sortKey="balance" sort={sort} onSort={toggleSort} className="text-right" />
+                    <SortHeader label="Name" sortKey="name" sort={effectiveSort} onSort={toggleSort} />
+                    {groupBy !== 'type' && <SortHeader label="Type" sortKey="type" sort={effectiveSort} onSort={toggleSort} />}
+                    {groupBy !== 'side' && <SortHeader label="Side" sortKey="side" sort={effectiveSort} onSort={toggleSort} />}
+                    <SortHeader label="Balance" sortKey="balance" sort={effectiveSort} onSort={toggleSort} className="text-right" />
                     <th></th>
                   </tr>
                 </thead>
                 <tbody>
-                  {rows.map((row) =>
+                  {groupedRows.map((g) => {
+                    const open = isOpen(g.key)
+                    const Chevron = open ? ChevronDown : ChevronRight
+                    return (
+                      <Fragment key={g.key}>
+                        <tr>
+                          <td colSpan={colCount - 2} className="py-1">
+                            <button
+                              type="button"
+                              aria-expanded={open}
+                              className="inline-flex min-h-14 items-center gap-1 font-medium md:min-h-11"
+                              onClick={() => toggleGroup(g.key)}
+                            >
+                              <Chevron size={20} aria-hidden="true" />
+                              {g.label}
+                            </button>
+                          </td>
+                          <td className={`tabular py-1 text-right font-medium ${g.total < 0 ? 'text-negative' : ''}`}>{formatCents(g.total)}</td>
+                          <td></td>
+                        </tr>
+                        {open && (
+                          <>
+                            {g.rows.map((row) =>
                     row.group ? (
                       <tr key={`payee-${row.payeeId}`}>
-                        <td colSpan={5} className="py-1">
+                        <td colSpan={colCount} className="py-1">
                           <div className="text-sm text-text-3">
                             Locked to {payeesAll?.find((p) => p.id === row.payeeId)?.name ?? `#${row.payeeId}`}
                           </div>
@@ -876,8 +986,8 @@ export default function Accounts({ pickerDate }) {
                           {row.account.name}
                           {accountNotes(row.account)}
                         </td>
-                        <td className="py-1">{row.account.type}</td>
-                        <td className="py-1">{row.account.on_budget ? 'On-budget' : 'Tracking'}</td>
+                        {groupBy !== 'type' && <td className="py-1">{row.account.type}</td>}
+                        {groupBy !== 'side' && <td className="py-1">{row.account.on_budget ? 'On-budget' : 'Tracking'}</td>}
                         <td className={`tabular py-1 text-right ${row.account.balance_cents < 0 ? 'text-negative' : ''}`}>
                           {formatCents(row.account.balance_cents)}
                         </td>
@@ -885,6 +995,11 @@ export default function Accounts({ pickerDate }) {
                       </tr>
                     ),
                   )}
+                          </>
+                        )}
+                      </Fragment>
+                    )
+                  })}
                 </tbody>
               </table>
             </div>

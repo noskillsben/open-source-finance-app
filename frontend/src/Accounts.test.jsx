@@ -543,7 +543,7 @@ describe('Owed / Held toggle on balance fields', () => {
   it('shows a card owing money as negative in the list', async () => {
     accounts = [account({ id: 1, name: 'Visa', type: 'Credit card', balance_cents: -50000 })]
     render(<Accounts pickerDate="2026-10-03" />)
-    expect(await screen.findByText(/-\$500\.00|−\$500\.00/)).toBeTruthy()
+    expect((await screen.findAllByText(/-\$500\.00|−\$500\.00/)).length).toBeGreaterThan(0)
   })
 })
 
