@@ -11,6 +11,7 @@ vi.mock('./api.js', () => ({
   api: {
     accounts: { list: () => Promise.resolve([{ id: 1, name: 'Chequing', linked_category_ids: [], on_budget: true }]) },
     splits: { list: () => Promise.resolve([]) },
+    domains: { list: () => Promise.resolve([]) },
     categories: { list: () => Promise.resolve([]) },
     payees: { list: () => Promise.resolve([{ id: 1, name: 'Zed' }, { id: 2, name: 'Amy' }]) },
     transactions: { list: () => Promise.resolve(transactions) },

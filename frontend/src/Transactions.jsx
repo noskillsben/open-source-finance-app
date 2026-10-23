@@ -11,7 +11,10 @@ import ChoicePicker from './components/ChoicePicker.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import LedgerTable, { groupByMonth, monthKey } from './LedgerTable.jsx'
-import { useSort } from './utils/useSort.js'
+import { useFilters } from './utils/useFilters.js'
+import ListFilters from './components/ListFilters.jsx'
+import FilterPicker from './components/FilterPicker.jsx'
+import { NEED_LEVELS } from './utils/order.js'
 import PayeePicker from './PayeePicker.jsx'
 import { basisFromSplit, basisFromTransaction, linesFromBasis, receiptsForTotal, scaleBasis, spreadCents } from './sharedBill.js'
 
@@ -72,6 +75,28 @@ const splitSign = (text) => {
 
 const COLLAPSED_KEY = 'transactions.collapsed'
 const DEFAULT_SORT = { key: 'date', dir: 'desc' }
+const NO_FILTERS = { search: '', account: '', category: '', payee: '', domain: '', need: '' }
+
+const marked = (list) => (list ?? []).map((e) => ({ id: e.id, name: e.archived_on ? `${e.name} (archived)` : e.name }))
+
+// Every active facet must hold (DESIGN.md § UI conventions). Category is that exact category, never its
+// descendants; domain and need level are the category's as it is now.
+function matches(t, f, categoriesAll, payeesAll) {
+  if (f.account && !t.account_lines.some((l) => String(l.account_id) === f.account)) return false
+  if (f.category && !t.category_lines.some((l) => String(l.category_id) === f.category)) return false
+  if (f.payee && String(t.payee_id) !== f.payee) return false
+  if (f.domain || f.need) {
+    const cats = t.category_lines.map((l) => categoriesAll?.find((c) => c.id === l.category_id))
+    if (f.domain && !cats.some((c) => c && String(c.domain_id) === f.domain)) return false
+    if (f.need && !cats.some((c) => c && c.need_level === f.need)) return false
+  }
+  const needle = f.search.trim().toLowerCase()
+  if (needle) {
+    const payee = t.payee_id == null ? '' : (payeesAll?.find((p) => p.id === t.payee_id)?.name ?? '')
+    if (!`${t.memo ?? ''}\n${payee}`.toLowerCase().includes(needle)) return false
+  }
+  return true
+}
 
 // Which months are collapsed is a per-device convenience (DESIGN.md § Nested and grouped lists):
 // localStorage, and the page works without it.
@@ -100,6 +125,7 @@ export default function Transactions({ pickerDate }) {
   const [payeesAll, setPayeesAll] = useState(null)
   const [goalsAll, setGoalsAll] = useState(null)
   const [splitsAll, setSplitsAll] = useState(null)
+  const [domainsAll, setDomainsAll] = useState(null)
 
   const [date, setDate] = useState(pickerDate)
   const [memo, setMemo] = useState('')
@@ -145,7 +171,7 @@ export default function Transactions({ pickerDate }) {
   const [formOpen, setFormOpen] = useState(false)
   // The row just saved, highlighted when the list comes back.
   const [highlightId, setHighlightId] = useState(null)
-  const { sort, toggle: toggleSort } = useSort('transactions.sort', DEFAULT_SORT)
+  const { filters, setFilter, clear: clearFilters, active: clearShows, filtered, sort, toggleSort } = useFilters('transactions.filters', NO_FILTERS, DEFAULT_SORT, 'transactions.sort')
   const [collapsed, setCollapsedState] = useState(loadCollapsed)
   function setCollapsed(keys) {
     setCollapsedState(keys)
@@ -184,6 +210,7 @@ export default function Transactions({ pickerDate }) {
     api.payees.list(undefined, true).then(setPayeesAll).catch((e) => setError(e.message))
     api.goals.list(pickerDate, true, true).then(setGoalsAll).catch((e) => setError(e.message))
     api.splits.list(undefined, true).then(setSplitsAll).catch((e) => setError(e.message))
+    api.domains.list(undefined, true).then(setDomainsAll).catch((e) => setError(e.message))
   }
 
   async function addPayee(name) {
@@ -796,6 +823,8 @@ export default function Transactions({ pickerDate }) {
   const editedLabel = [editedWho, editedTx && formatDate(editedTx.date)].filter(Boolean).join(', ')
   const formTitle = editingId ? (editedLabel ? `Edit · ${editedLabel}` : 'Edit transaction') : 'Record a transaction'
 
+  const shown = (transactions ?? []).filter((t) => matches(t, filters, categoriesAll, payeesAll))
+
   if (!formOpen) {
     return (
       <div className="space-y-6 py-4">
@@ -812,6 +841,21 @@ export default function Transactions({ pickerDate }) {
             <EmptyState action={<Button onClick={openAdd}>Record a transaction</Button>}>No transactions yet.</EmptyState>
           )}
           {transactions && transactions.length > 0 && (
+            <ListFilters
+              noun="transactions"
+              search={filters.search}
+              onSearch={(v) => setFilter('search', v)}
+              facets={[{ name: 'need', label: 'Need level', value: filters.need, onChange: (v) => setFilter('need', v), options: NEED_LEVELS }]}
+              active={clearShows}
+              onClear={clearFilters}
+            >
+              <FilterPicker label="Account" items={marked(accountsAll)} value={filters.account} onChange={(v) => setFilter('account', v)} />
+              <FilterPicker label="Category" items={marked(categoriesAll)} value={filters.category} onChange={(v) => setFilter('category', v)} />
+              <FilterPicker label="Payee" items={marked(payeesAll)} value={filters.payee} onChange={(v) => setFilter('payee', v)} />
+              <FilterPicker label="Domain" items={marked(domainsAll)} value={filters.domain} onChange={(v) => setFilter('domain', v)} />
+            </ListFilters>
+          )}
+          {transactions && transactions.length > 0 && !filtered && (
             <div className="flex">
               <Button variant="quiet" onClick={() => setCollapsed([])}>Expand all</Button>
               <Button variant="quiet" onClick={() => setCollapsed(groupByMonth(transactions, DEFAULT_SORT, () => '').map((g) => g.key))}>
@@ -819,18 +863,26 @@ export default function Transactions({ pickerDate }) {
               </Button>
             </div>
           )}
-          {transactions && transactions.length > 0 && (
+          {transactions && transactions.length > 0 && shown.length === 0 && (
+            <EmptyState action={<Button onClick={clearFilters}>Clear filters</Button>}>No transactions match these filters.</EmptyState>
+          )}
+          {transactions && shown.length > 0 && (
             <div className="overflow-x-auto">
               <LedgerTable
-                transactions={transactions}
+                transactions={shown}
                 names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
                 onSelect={editTransaction}
                 selectedId={highlightId}
                 byMonth={{
                   sort,
                   onSort: toggleSort,
-                  collapsed,
-                  onToggle: (key) => setCollapsed(collapsed.includes(key) ? collapsed.filter((k) => k !== key) : [...collapsed, key]),
+                  // While filtering, every month holding a match is open; the stored list is left alone.
+                  collapsed: filtered ? [] : collapsed,
+                  onToggle: (key) => {
+                    if (filtered) return
+                    setCollapsed(collapsed.includes(key) ? collapsed.filter((k) => k !== key) : [...collapsed, key])
+                  },
+                  accountId: filters.account ? Number(filters.account) : null,
                 }}
               />
             </div>

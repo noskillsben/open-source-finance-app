@@ -16,8 +16,8 @@ function load(key, defaults) {
 
 // With a defaultSort, the sort is remembered beside the filters, Clear restores it, and a sort other than
 // the default counts as active (`filtered` is the filters alone).
-export function useFilters(storageKey, defaults, defaultSort = { key: null, dir: 'asc' }) {
-  const sorting = useSort(`${storageKey}.sort`, defaultSort)
+export function useFilters(storageKey, defaults, defaultSort = { key: null, dir: 'asc' }, sortKey = `${storageKey}.sort`) {
+  const sorting = useSort(sortKey, defaultSort)
   const [filters, setFilters] = useState(() => load(storageKey, defaults))
   useEffect(() => {
     try {
