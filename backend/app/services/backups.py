@@ -1,11 +1,13 @@
 """The latest nightly backup (DESIGN.md § Architecture Overview -> Backups are one mechanism).
 
 `backup-nightly.sh` writes `nightly-<UTC stamp>.sql` into the backup directory. Only those files
-count here: `.nightly-*.tmp` (a dump in progress), `pre-migrate-` and `manual-` files are not what
+count here: `.nightly-*.tmp` (a dump in progress) and `pre-migrate-` files are not what
 the Download button hands over. The newest is picked by the stamp in the name, never by mtime.
 """
+import fcntl
 import os
 import re
+import subprocess
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -42,3 +44,40 @@ def latest_backup(directory: Path | None = None) -> Backup | None:
             continue
         found.append(Backup(name=entry.name, taken_at=taken_at, path=entry))
     return max(found, key=lambda b: b.taken_at, default=None)
+
+
+SCRIPT = Path(__file__).resolve().parents[2] / "backup-nightly.sh"
+LOCK_NAME = ".backup-now.lock"  # matches neither nightly-*.sql nor .nightly-*.tmp
+
+
+class BackupBusy(Exception):
+    pass
+
+
+class BackupFailed(Exception):
+    pass
+
+
+def take_backup_now() -> Backup | None:
+    """Run `backup-nightly.sh once` and wait; the script does the dump, the completeness check and pruning.
+
+    Run through `sh` because in dev ./backend is bind-mounted over /app and the exec bit is not guaranteed.
+    A non-blocking flock keeps two requests from dumping at once; it is released when the process dies.
+    """
+    directory = backup_dir()
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        lock = open(directory / LOCK_NAME, "a")
+    except OSError as exc:
+        raise BackupFailed(f"Backup failed: {exc}. Earlier backups were left alone.")
+    with lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError:
+            raise BackupBusy("A backup is already being taken.")
+        result = subprocess.run(["sh", str(SCRIPT), "once"], capture_output=True, text=True, env=os.environ.copy())
+    if result.returncode != 0:
+        lines = [line for line in result.stderr.strip().splitlines() if line.strip()]
+        reason = f" ({lines[-1]})" if lines else ""
+        raise BackupFailed(f"Backup failed{reason}. Earlier backups were left alone.")
+    return latest_backup(directory)

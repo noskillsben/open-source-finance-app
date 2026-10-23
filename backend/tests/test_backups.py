@@ -67,3 +67,55 @@ def test_none_yet(backup_dir):
     res = client.get("/api/backups/latest/download")
     assert res.status_code == 404
     assert "03:00 UTC" in res.json()["detail"]
+
+
+# --- Back up now: runs backup-nightly.sh once with a stub pg_dump and a temp BACKUP_DIR ---
+
+COMPLETE = "-- PostgreSQL database dump complete"
+
+
+@pytest.fixture()
+def stub_dump(tmp_path_factory, backup_dir, monkeypatch):
+    bin_dir = tmp_path_factory.mktemp("bin")
+
+    def make(ok=True):
+        stub = bin_dir / "pg_dump"
+        stub.write_text("#!/bin/sh\necho 'CREATE TABLE t();'\n" + (f"echo '{COMPLETE}'\n" if ok else ""))
+        stub.chmod(0o755)
+
+    monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
+    for key in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
+        monkeypatch.setenv(key, "x")
+    return make
+
+
+def test_back_up_now_writes_a_file_the_latest_endpoint_returns(backup_dir, stub_dump):
+    stub_dump()
+    res = client.post("/api/backups")
+    assert res.status_code == 200
+    files = list(backup_dir.glob("nightly-*.sql"))
+    assert len(files) == 1
+    assert res.json()["name"] == files[0].name
+    assert client.get("/api/backups/latest").json() == res.json()
+
+
+def test_back_up_now_failed_dump_leaves_earlier_files(backup_dir, stub_dump):
+    old = touch(backup_dir, "nightly-20200101T030000Z.sql", COMPLETE)
+    stub_dump(ok=False)
+    res = client.post("/api/backups")
+    assert res.status_code == 500
+    assert "Backup failed" in res.json()["detail"] and "Earlier backups were left alone" in res.json()["detail"]
+    assert old.read_text() == COMPLETE
+    assert [p.name for p in backup_dir.glob("nightly-*.sql")] == [old.name]
+
+
+def test_back_up_now_while_one_is_running_is_409_and_runs_nothing(backup_dir, stub_dump):
+    import fcntl
+
+    stub_dump()
+    with open(backup_dir / ".backup-now.lock", "a") as held:
+        fcntl.flock(held, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        res = client.post("/api/backups")
+    assert res.status_code == 409
+    assert res.json()["detail"] == "A backup is already being taken"
+    assert not list(backup_dir.glob("nightly-*.sql"))
