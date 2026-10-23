@@ -1,3 +1,10 @@
+// The name the backend gave a download: `attachment; filename="export-20261023.zip"` -> the quoted
+// (or bare) filename, or null when the header is missing or has none.
+export function filenameFromDisposition(header) {
+  const match = /filename\s*=\s*(?:"([^"]+)"|([^;\s]+))/i.exec(header || '')
+  return match ? (match[1] || match[2]) : null
+}
+
 // Every fetch in the app goes through request(). It surfaces the backend's `detail` on any non-OK response,
 // so a carefully worded 4xx message actually reaches the screen.
 export async function request(path, { as, ...options } = {}) {
@@ -15,6 +22,7 @@ export async function request(path, { as, ...options } = {}) {
     throw new Error(detail)
   }
   if (as === 'blob') return res.blob() // a file to save, e.g. the latest backup
+  if (as === 'file') return { blob: await res.blob(), filename: filenameFromDisposition(res.headers.get('Content-Disposition')) }
   return res.status === 204 ? null : res.json()
 }
 
@@ -134,6 +142,6 @@ export const api = {
     downloadLatest: () => request('/api/backups/latest/download', { as: 'blob' }),
   },
   exportData: {
-    download: () => request('/api/export', { as: 'blob' }),
+    download: () => request('/api/export', { as: 'file' }), // { blob, filename },
   },
 }
