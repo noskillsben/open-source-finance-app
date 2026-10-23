@@ -99,6 +99,9 @@ export default function Accounts({ pickerDate }) {
   const [adding, setAdding] = useState(false) // the add form is open in the side panel
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
   const [saving, setSaving] = useState(false)
+  // The row just saved is highlighted; an add also says Recorded. Both clear when another form opens.
+  const [savedNote, setSavedNote] = useState(null)
+  const [highlightId, setHighlightId] = useState(null)
 
   const [checkingId, setCheckingId] = useState(null)
   const [checkForm, setCheckForm] = useState(() => emptyCheckForm(pickerDate))
@@ -154,7 +157,13 @@ export default function Accounts({ pickerDate }) {
     }))
   }
 
+  function clearSaved() {
+    setSavedNote(null)
+    setHighlightId(null)
+  }
+
   function startAdd() {
+    clearSaved()
     resetCheck()
     resetArchive()
     resetForm()
@@ -170,6 +179,7 @@ export default function Accounts({ pickerDate }) {
   }
 
   function editAccount(a) {
+    clearSaved()
     resetCheck()
     resetArchive()
     setAdding(false)
@@ -211,6 +221,7 @@ export default function Accounts({ pickerDate }) {
   }
 
   function startCheck(account) {
+    clearSaved()
     setAdding(false)
     resetArchive()
     setFocusKey((k) => k + 1)
@@ -231,6 +242,7 @@ export default function Accounts({ pickerDate }) {
   }
 
   function startArchive(account) {
+    clearSaved()
     setAdding(false)
     setFocusKey((k) => k + 1)
     setEditingId(null)
@@ -358,9 +370,11 @@ export default function Accounts({ pickerDate }) {
     if (lenderTerms.error) return setFormError(lenderTerms.error)
 
     try {
+      let saved
+      const wasAdd = !editingId
       if (editingId) {
         setSaving(true)
-        await api.accounts.update(editingId, {
+        saved = await api.accounts.update(editingId, {
           name: form.name.trim(),
           type: form.type,
           on_budget: form.on_budget,
@@ -376,7 +390,7 @@ export default function Accounts({ pickerDate }) {
         if (!form.created_on) return setFormError('Opening balance date is required.')
         if (openingBalanceCents === null) return setFormError('Opening balance must be a number.')
         setSaving(true)
-        await api.accounts.create({
+        saved = await api.accounts.create({
           name: form.name.trim(),
           created_on: form.created_on,
           type: form.type,
@@ -388,7 +402,10 @@ export default function Accounts({ pickerDate }) {
           terms: { ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       }
+      const savedId = saved?.id ?? editingId
       closePanel()
+      setSavedNote(wasAdd ? 'Recorded.' : null)
+      setHighlightId(savedId ?? null)
       refresh()
     } catch (err) {
       setFormError(err.message)
@@ -778,6 +795,7 @@ export default function Accounts({ pickerDate }) {
           {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
           {undoError && <WarningNote>{undoError}</WarningNote>}
           {rowError && <WarningNote>{rowError}</WarningNote>}
+          {savedNote && <SaveNote>{savedNote}</SaveNote>}
           <ListFilters
             noun="accounts"
             search={filters.search}
@@ -826,7 +844,7 @@ export default function Accounts({ pickerDate }) {
                           {row.group.map((a) => (
                             <div
                               key={a.id}
-                              className={`flex min-h-14 cursor-pointer flex-wrap items-center justify-between gap-2 hover:bg-raised md:min-h-11 ${selectedId === a.id ? 'bg-raised' : ''}`}
+                              className={`flex min-h-14 cursor-pointer flex-wrap items-center justify-between gap-2 hover:bg-raised md:min-h-11 ${selectedId === a.id || highlightId === a.id ? 'bg-raised' : ''}`}
                               onClick={() => editAccount(a)}
                             >
                               <div>
@@ -844,7 +862,7 @@ export default function Accounts({ pickerDate }) {
                     ) : (
                       <tr
                         key={row.account.id}
-                        className={`cursor-pointer hover:bg-raised ${selectedId === row.account.id ? 'bg-raised' : ''}`}
+                        className={`cursor-pointer hover:bg-raised ${selectedId === row.account.id || highlightId === row.account.id ? 'bg-raised' : ''}`}
                         onClick={() => editAccount(row.account)}
                       >
                         <td className="py-1">

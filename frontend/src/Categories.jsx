@@ -229,6 +229,9 @@ export default function Categories({ pickerDate }) {
   const [moveTo, setMoveTo] = useState({}) // the panel's "Move to…" pick, { id, text }
   const [moveKey, setMoveKey] = useState(0) // remounts the "Move to…" picker after a move
   const [moveNote, setMoveNote] = useState(null)
+  // The row just saved is highlighted; an add also says Recorded. Both clear when another form opens.
+  const [savedNote, setSavedNote] = useState(null)
+  const [highlightId, setHighlightId] = useState(null)
   const [collapsed, setCollapsed] = useState(loadCollapsed) // ids of collapsed groups, per device
   const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('categories.filters', { search: '', need: '', goal: '', overspent: false })
   const search = filters.search
@@ -253,12 +256,16 @@ export default function Categories({ pickerDate }) {
   useEffect(refresh, [pickerDate, showArchived])
 
   function startAdd() {
+    setSavedNote(null)
+    setHighlightId(null)
     resetForm()
     setPanelOpen(true)
     setFocusKey((k) => k + 1)
   }
 
   function startEdit(category) {
+    setSavedNote(null)
+    setHighlightId(null)
     setFormKey((k) => k + 1)
     setPanelOpen(true)
     setFocusKey((k) => k + 1)
@@ -294,6 +301,13 @@ export default function Categories({ pickerDate }) {
 
   function toggleGroup(id) {
     setCollapsedIds(collapsed.includes(id) ? collapsed.filter((x) => x !== id) : [...collapsed, id])
+  }
+
+  // Expands the saved row's parent and its parents, so a collapsed group never hides the highlight.
+  function showUnder(parentId) {
+    const open = new Set()
+    for (let id = parentId; id != null && !open.has(id); id = categories?.find((c) => c.id === id)?.parent_id) open.add(id)
+    if (collapsed.some((id) => open.has(id))) setCollapsedIds(collapsed.filter((id) => !open.has(id)))
   }
 
   function resetForm() {
@@ -340,9 +354,15 @@ export default function Categories({ pickerDate }) {
         const before = editing.linked_accounts.map((a) => a.id).sort().join()
         if (before !== [...linkIds].sort().join()) await api.categories.setLinkedAccounts(editing.id, pickerDate, linkIds)
         closePanel()
+        setSavedNote(null)
+        setHighlightId(editing.id)
+        showUnder(settings.parent_id)
       } else {
-        await api.categories.create({ ...settings, created_on: pickerDate })
+        const created = await api.categories.create({ ...settings, created_on: pickerDate })
         closePanel()
+        setSavedNote('Recorded.')
+        setHighlightId(created?.id ?? null)
+        showUnder(settings.parent_id)
       }
       refresh()
     } catch (err) {
@@ -586,6 +606,7 @@ export default function Categories({ pickerDate }) {
         <section className="card space-y-3">
           {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
           {rowError && <WarningNote>{rowError}</WarningNote>}
+          {savedNote && <SaveNote>{savedNote}</SaveNote>}
           {!panelOpen && assignError && <WarningNote>{assignError}</WarningNote>}
           {!panelOpen && linkedWarning && <WarningNote>{linkedWarning}</WarningNote>}
           {warnings.map((w) => (
@@ -659,7 +680,7 @@ export default function Categories({ pickerDate }) {
                     return (
                       <Fragment key={c.id}>
                         <tr
-                          className={`cursor-pointer ${editing?.id === c.id ? 'bg-raised' : ''}`}
+                          className={`cursor-pointer ${editing?.id === c.id || highlightId === c.id ? 'bg-raised' : ''}`}
                           tabIndex={0}
                           onClick={() => startEdit(c)}
                           onKeyDown={(e) => {
@@ -737,7 +758,7 @@ export default function Categories({ pickerDate }) {
                             depth={depth}
                             archived={!!c.archived_on}
                             streams={streams}
-                            selected={editing?.id === c.id}
+                            selected={editing?.id === c.id || highlightId === c.id}
                             onSelect={() => startEdit(c)}
                           />
                         )}

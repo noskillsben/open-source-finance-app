@@ -8,7 +8,7 @@ import ListFilters from './components/ListFilters.jsx'
 import { useFilters } from './utils/useFilters.js'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
-import { RefusalNote, WarningNote } from './components/Notes.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
@@ -136,6 +136,9 @@ export default function Pay({ pickerDate }) {
   const [formKey, setFormKey] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
+  // The row just saved is highlighted; an add also says Recorded. Both clear when another form opens.
+  const [savedNote, setSavedNote] = useState(null)
+  const [highlightId, setHighlightId] = useState(null)
 
   function refresh() {
     api.incomeStreams.list(pickerDate, showArchived).then(setStreams).catch((e) => setError(e.message))
@@ -147,6 +150,8 @@ export default function Pay({ pickerDate }) {
   useEffect(refresh, [pickerDate, showArchived])
 
   function startAdd() {
+    setSavedNote(null)
+    setHighlightId(null)
     resetForm()
     setPanelOpen(true)
     setFocusKey((k) => k + 1)
@@ -158,6 +163,8 @@ export default function Pay({ pickerDate }) {
   }
 
   function startEdit(stream) {
+    setSavedNote(null)
+    setHighlightId(null)
     setPanelOpen(true)
     setFocusKey((k) => k + 1)
     setFormKey((k) => k + 1)
@@ -202,11 +209,16 @@ export default function Pay({ pickerDate }) {
     try {
       const body = streamBody(form, pickerDate, deductions)
       if (editing) {
-        await api.incomeStreams.update(editing.id, body)
+        const editedId = editing.id
+        await api.incomeStreams.update(editedId, body)
         closePanel()
+        setSavedNote(null)
+        setHighlightId(editedId)
       } else {
-        await api.incomeStreams.create(body)
+        const created = await api.incomeStreams.create(body)
         closePanel()
+        setSavedNote('Recorded.')
+        setHighlightId(created?.id ?? null)
       }
       refresh()
     } catch (err) {
@@ -346,6 +358,7 @@ export default function Pay({ pickerDate }) {
       <section className="card space-y-3">
         {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
         {rowError && <WarningNote>{rowError}</WarningNote>}
+        {savedNote && <SaveNote>{savedNote}</SaveNote>}
         {warnings.map((w) => (
           <WarningNote key={w}>{w}</WarningNote>
         ))}
@@ -390,7 +403,7 @@ export default function Pay({ pickerDate }) {
             </thead>
             <tbody>
               {shown.map((s) => (
-                <tr key={s.id}>
+                <tr key={s.id} className={editing?.id === s.id || highlightId === s.id ? 'bg-raised' : ''}>
                   <td className="py-1">
                     {s.name}
                     {s.archived_on && (

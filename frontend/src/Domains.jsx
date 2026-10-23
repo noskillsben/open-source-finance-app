@@ -4,7 +4,7 @@ import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import { ListRow } from './components/ListRow.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
-import { RefusalNote, WarningNote } from './components/Notes.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { formatDate } from './utils/format.js'
 
@@ -20,6 +20,9 @@ export default function Domains({ pickerDate }) {
   const [formError, setFormError] = useState(null)
   const [saving, setSaving] = useState(false)
   const [focusKey, setFocusKey] = useState(0)
+  // The row just saved is highlighted; an add also says Recorded. Both clear when another form opens.
+  const [savedNote, setSavedNote] = useState(null)
+  const [highlightId, setHighlightId] = useState(null)
 
   function refresh() {
     api.domains.list(pickerDate, showArchived).then(setDomains).catch((e) => setError(e.message))
@@ -32,6 +35,8 @@ export default function Domains({ pickerDate }) {
     setName(next === 'add' ? '' : next.name)
     setDescription(next === 'add' ? '' : (next.description ?? ''))
     setFormError(null)
+    setSavedNote(null)
+    setHighlightId(null)
     setFocusKey((k) => k + 1)
   }
 
@@ -48,12 +53,13 @@ export default function Domains({ pickerDate }) {
     const body = { name: name.trim(), description: description.trim() || null }
     setSaving(true)
     try {
-      if (panel === 'add') {
-        await api.domains.create({ ...body, created_on: pickerDate })
-      } else {
-        await api.domains.update(panel.id, body)
-      }
+      const wasAdd = panel === 'add'
+      const saved = wasAdd
+        ? await api.domains.create({ ...body, created_on: pickerDate })
+        : await api.domains.update(panel.id, body)
       close()
+      setSavedNote(wasAdd ? 'Recorded.' : null)
+      setHighlightId(saved?.id ?? (wasAdd ? null : panel.id))
       refresh()
     } catch (err) {
       setFormError(err.message)
@@ -109,6 +115,7 @@ export default function Domains({ pickerDate }) {
             A domain is a label for grouping categories in reports — Food might hold Groceries and Dining out.
           </p>
           {error && <WarningNote>{error}</WarningNote>}
+          {savedNote && <SaveNote>{savedNote}</SaveNote>}
           <label className="flex min-h-11 items-center gap-2">
             <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
             Show archived
@@ -124,7 +131,7 @@ export default function Domains({ pickerDate }) {
               {domains.map((d) => (
                 <ListRow
                   key={d.id}
-                  selected={editing?.id === d.id}
+                  selected={editing?.id === d.id || highlightId === d.id}
                   actions={
                     <>
                       <Button variant="quiet" onClick={() => open(d)}>Edit</Button>

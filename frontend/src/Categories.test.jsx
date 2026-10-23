@@ -481,3 +481,48 @@ describe('rows and groups (#286)', () => {
     expect(screen.queryByLabelText(/Amount to add to or withdraw from/)).toBeNull()
   })
 })
+
+describe('Recorded and the highlight (#343)', () => {
+  const cat = (id, name, parent_id = null) => ({
+    id, name, parent_id, archived_on: null, need_level: null, linked_accounts: [], pool_id: null, absorb_overspending: false,
+  })
+
+  it('an add says Recorded, opens its collapsed group and highlights the row; an edit highlights with no note; opening a form clears both', async () => {
+    goals = []
+    summaryRows = []
+    const { api } = await import('./api.js')
+    api.categories.list = () => Promise.resolve([cat(1, 'Food'), cat(2, 'Groceries', 1), cat(4, 'Rent')])
+    localStorage.clear()
+    localStorage.setItem('categories.collapsed', JSON.stringify([1]))
+    createCategory.mockReset()
+    createCategory.mockResolvedValue({ id: 2 })
+    updateCategory.mockClear()
+    const rowOf = (name) => screen.getByText(name).closest('tr')
+    renderCategories()
+    await screen.findByText('Rent')
+    expect(screen.queryByText('Groceries')).toBeNull() // the group is collapsed
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a category' }))
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Groceries' } })
+    fireEvent.change(screen.getByLabelText('Sits under (optional)'), { target: { value: 'Food' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add category' }))
+
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+    expect(screen.getByText('Recorded.')).toBeInTheDocument()
+    expect(createCategory.mock.calls[0][0].parent_id).toBe(1)
+    expect(rowOf('Groceries')).toHaveClass('bg-raised') // the group opened
+    expect(rowOf('Rent')).not.toHaveClass('bg-raised')
+
+    fireEvent.click(rowOf('Rent'))
+    expect(screen.queryByText('Recorded.')).toBeNull()
+    expect(rowOf('Groceries')).not.toHaveClass('bg-raised')
+    fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+    expect(screen.queryByText('Recorded.')).toBeNull()
+    expect(rowOf('Rent')).toHaveClass('bg-raised')
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a category' }))
+    expect(rowOf('Rent')).not.toHaveClass('bg-raised')
+  })
+})

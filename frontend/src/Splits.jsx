@@ -5,7 +5,7 @@ import LedgerTable, { useLedgerNames } from './LedgerTable.jsx'
 import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
-import { RefusalNote, WarningNote } from './components/Notes.jsx'
+import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
@@ -30,6 +30,9 @@ export default function Splits({ pickerDate }) {
   const [formKey, setFormKey] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
+  // The row just saved is highlighted; an add also says Recorded. Both clear when another form opens.
+  const [savedNote, setSavedNote] = useState(null)
+  const [highlightId, setHighlightId] = useState(null)
   const nextKey = useRef(1)
   const navigate = useNavigate()
   const names = useLedgerNames(pickerDate)
@@ -75,6 +78,8 @@ export default function Splits({ pickerDate }) {
   function startAdd() {
     reset()
     setPanelOpen(true)
+    setSavedNote(null)
+    setHighlightId(null)
     setError(null)
     setWarnings([])
     setFocusKey((k) => k + 1)
@@ -86,6 +91,8 @@ export default function Splits({ pickerDate }) {
   }
 
   function startEdit(split) {
+    setSavedNote(null)
+    setHighlightId(null)
     setPanelOpen(true)
     setFocusKey((k) => k + 1)
     setEditing(split)
@@ -128,10 +135,15 @@ export default function Splits({ pickerDate }) {
       if (editing) {
         const result = await api.splits.update(editing.id, { name: name.trim(), description: description.trim() || null, as_of: pickerDate, members: body })
         setWarnings(result.warnings ?? [])
+        const editedId = editing.id
         closePanel()
+        setSavedNote(null)
+        setHighlightId(editedId)
       } else {
-        await api.splits.create({ name: name.trim(), description: description.trim() || null, created_on: pickerDate, members: body })
+        const created = await api.splits.create({ name: name.trim(), description: description.trim() || null, created_on: pickerDate, members: body })
         closePanel()
+        setSavedNote('Recorded.')
+        setHighlightId(created?.id ?? null)
       }
       refresh()
     } catch (err) {
@@ -241,6 +253,7 @@ export default function Splits({ pickerDate }) {
             you are never a member, your share is whatever they leave.
           </p>
           {!panelOpen && error && <WarningNote>{error}</WarningNote>}
+          {savedNote && <SaveNote>{savedNote}</SaveNote>}
           {warnings.map((w) => (
             <WarningNote key={w}>{w}</WarningNote>
           ))}
@@ -257,7 +270,7 @@ export default function Splits({ pickerDate }) {
           {splits && splits.length > 0 && (
             <ul className="space-y-3">
               {splits.map((s) => (
-                <li key={s.id} className={`rounded-lg px-2 py-1 ${editing?.id === s.id ? 'bg-raised' : ''}`}>
+                <li key={s.id} className={`rounded-lg px-2 py-1 ${editing?.id === s.id || highlightId === s.id ? 'bg-raised' : ''}`}>
                   <div className="flex items-start justify-between gap-3">
                     <span className="font-medium">
                       {s.name}
