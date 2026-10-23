@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Splits from './Splits.jsx'
@@ -204,5 +204,36 @@ describe('the Split expenses page', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
 
     expect(await screen.findByText('You still owe Sam $5.00; their balance stays on Accounts.')).toBeInTheDocument()
+  })
+
+  it('an add says Recorded and highlights the new split; an edit highlights with no note; opening a form clears both (#343)', async () => {
+    balances.splits = household()
+    createSplit.mockReset()
+    createSplit.mockResolvedValue({ id: 6 })
+    updateSplit.mockReset()
+    updateSplit.mockResolvedValue({ ...household()[0], warnings: [] })
+    const rowOf = (name) => screen.getByText(name).closest('li.rounded-lg')
+    renderSplits()
+    await openAddForm()
+    fireEvent.change(await screen.findByLabelText('Split name'), { target: { value: 'Trips' } })
+    await addMember('Sam', '50', 0)
+    fireEvent.click(screen.getByRole('button', { name: 'Add split' }))
+
+    await waitFor(() => expect(screen.queryByLabelText('Split name')).toBeNull())
+    expect(screen.getByText('Recorded.')).toBeInTheDocument()
+    expect(rowOf('Trips')).toHaveClass('bg-raised')
+    expect(rowOf('Household')).not.toHaveClass('bg-raised')
+
+    fireEvent.click(within(rowOf('Household')).getByRole('button', { name: 'Edit' }))
+    expect(screen.queryByText('Recorded.')).toBeNull()
+    expect(rowOf('Trips')).not.toHaveClass('bg-raised')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+
+    await waitFor(() => expect(screen.queryByLabelText('Split name')).toBeNull())
+    expect(screen.queryByText('Recorded.')).toBeNull()
+    expect(rowOf('Household')).toHaveClass('bg-raised')
+
+    await openAddForm()
+    expect(rowOf('Household')).not.toHaveClass('bg-raised')
   })
 })

@@ -546,3 +546,35 @@ describe('Owed / Held toggle on balance fields', () => {
     expect(await screen.findByText(/-\$500\.00|−\$500\.00/)).toBeTruthy()
   })
 })
+
+describe('Recorded and the highlight (#343)', () => {
+  it('an add says Recorded and highlights the new row; an edit highlights with no note; opening a form clears both', async () => {
+    createAccount.mockReset()
+    createAccount.mockResolvedValue({ id: 2 })
+    updateAccount.mockReset()
+    updateAccount.mockResolvedValue({ id: 1 })
+    accounts = [account({ id: 1, name: 'Chequing' }), account({ id: 2, name: 'Wallet', type: 'Cash' })]
+    const rowOf = (name) => screen.getAllByText(name).map((el) => el.closest('tr')).find(Boolean)
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openAdd()
+    fireEvent.change(await screen.findByLabelText('Name'), { target: { value: 'Wallet' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Add account' }))
+
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+    expect(screen.getByText('Recorded.')).toBeInTheDocument()
+    expect(rowOf('Wallet')).toHaveClass('bg-raised')
+    expect(rowOf('Chequing')).not.toHaveClass('bg-raised')
+
+    fireEvent.click(rowOf('Chequing'))
+    expect(screen.queryByText('Recorded.')).toBeNull()
+    expect(rowOf('Wallet')).not.toHaveClass('bg-raised')
+    fireEvent.click(await screen.findByRole('button', { name: 'Save changes' }))
+
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+    expect(screen.queryByText('Recorded.')).toBeNull()
+    expect(rowOf('Chequing')).toHaveClass('bg-raised')
+
+    await openAdd()
+    expect(rowOf('Chequing')).not.toHaveClass('bg-raised')
+  })
+})
