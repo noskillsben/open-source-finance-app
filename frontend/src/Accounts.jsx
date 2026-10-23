@@ -98,7 +98,6 @@ export default function Accounts({ pickerDate }) {
   const [termsOpen, setTermsOpen] = useState(false)
   const [adding, setAdding] = useState(false) // the add form is open in the side panel
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
-  const [saved, setSaved] = useState(null) // the save note after an add
   const [saving, setSaving] = useState(false)
 
   const [checkingId, setCheckingId] = useState(null)
@@ -160,7 +159,6 @@ export default function Accounts({ pickerDate }) {
     resetArchive()
     resetForm()
     setAdding(true)
-    setSaved(null)
     setFocusKey((k) => k + 1)
   }
 
@@ -169,14 +167,12 @@ export default function Accounts({ pickerDate }) {
     resetCheck()
     resetArchive()
     setAdding(false)
-    setSaved(null)
   }
 
   function editAccount(a) {
     resetCheck()
     resetArchive()
     setAdding(false)
-    setSaved(null)
     setFocusKey((k) => k + 1)
     setEditingId(a.id)
     setForm({
@@ -217,7 +213,6 @@ export default function Accounts({ pickerDate }) {
   function startCheck(account) {
     setAdding(false)
     resetArchive()
-    setSaved(null)
     setFocusKey((k) => k + 1)
     setEditingId(null)
     setCheckingId(account.id)
@@ -237,7 +232,6 @@ export default function Accounts({ pickerDate }) {
 
   function startArchive(account) {
     setAdding(false)
-    setSaved(null)
     setFocusKey((k) => k + 1)
     setEditingId(null)
     resetCheck()
@@ -394,17 +388,12 @@ export default function Accounts({ pickerDate }) {
           terms: { ...lenderTerms.terms, credit_limit_cents: creditLimitCents },
         })
       }
-      if (editingId) closePanel()
-      else {
-        resetForm()
-        setSaved(`Added ${form.name.trim()}.`)
-      }
+      closePanel()
       refresh()
     } catch (err) {
       setFormError(err.message)
     } finally {
       setSaving(false)
-      setFocusKey((k) => k + 1)
     }
   }
 
@@ -527,7 +516,6 @@ export default function Accounts({ pickerDate }) {
     <form className="space-y-4" onSubmit={submit}>
       {lockFirst && lockField}
       {formError && <RefusalNote>{formError}</RefusalNote>}
-      {saved && <SaveNote>{saved}</SaveNote>}
       <label className="block space-y-1">
         <span className="field-label">Name</span>
         <input
@@ -652,7 +640,7 @@ export default function Accounts({ pickerDate }) {
 
       <div className="flex gap-3">
         <Button type="submit" disabled={saving}>{editingId ? 'Save changes' : 'Add account'}</Button>
-        <Button variant="secondary" onClick={closePanel}>{editingId ? 'Cancel' : 'Done'}</Button>
+        <Button variant="secondary" onClick={closePanel}>Cancel</Button>
       </div>
     </form>
   )

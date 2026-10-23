@@ -365,10 +365,16 @@ describe('add a category', () => {
     expect(createCategory).toHaveBeenCalledTimes(1)
 
     finish({})
-    await waitFor(() => expect(screen.getByLabelText('Name')).not.toBeDisabled())
-    expect(screen.getByLabelText('Name')).toHaveValue('')
-    expect(screen.getByRole('button', { name: 'Add category' })).not.toBeDisabled()
-    expect(screen.getByLabelText('Name')).toHaveFocus() // #220: ready for the next entry
+    // #321: a successful add closes the panel.
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
+  })
+
+  it('Cancel closes the add panel, with no Done button', async () => {
+    renderCategories()
+    fireEvent.click(await screen.findByRole('button', { name: 'Add a category' }))
+    expect(screen.queryByRole('button', { name: 'Done' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByLabelText('Name')).toBeNull()
   })
 })
 

@@ -224,7 +224,6 @@ export default function Categories({ pickerDate }) {
   const [formKey, setFormKey] = useState(0) // remounts the form so its pickers reseed their text
   const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
-  const [saved, setSaved] = useState(null) // the save note after an add
   const [summary, setSummary] = useState(null) // ready to assign, overspent and each category's available
   const [moveAmount, setMoveAmount] = useState('') // the panel's Move money amount
   const [moveTo, setMoveTo] = useState({}) // the panel's "Move to…" pick, { id, text }
@@ -256,14 +255,12 @@ export default function Categories({ pickerDate }) {
   function startAdd() {
     resetForm()
     setPanelOpen(true)
-    setSaved(null)
     setFocusKey((k) => k + 1)
   }
 
   function startEdit(category) {
     setFormKey((k) => k + 1)
     setPanelOpen(true)
-    setSaved(null)
     setFocusKey((k) => k + 1)
     setEditing(category)
     setForm({
@@ -311,7 +308,6 @@ export default function Categories({ pickerDate }) {
   function closePanel() {
     resetForm()
     setPanelOpen(false)
-    setSaved(null)
   }
 
   async function submit(e) {
@@ -346,15 +342,13 @@ export default function Categories({ pickerDate }) {
         closePanel()
       } else {
         await api.categories.create({ ...settings, created_on: pickerDate })
-        resetForm()
-        setSaved(`Added ${name}.`)
+        closePanel()
       }
       refresh()
     } catch (err) {
       setFormError(err.message)
     } finally {
       setSaving(false)
-      setFocusKey((k) => k + 1)
     }
   }
 
@@ -491,7 +485,6 @@ export default function Categories({ pickerDate }) {
       )}
       <form key={formKey} onSubmit={submit} className="space-y-4">
         {formError && <RefusalNote>{formError}</RefusalNote>}
-        {saved && <SaveNote>{saved}</SaveNote>}
         <label className="block space-y-1">
           <span className="field-label">Name</span>
           <input
@@ -554,7 +547,7 @@ export default function Categories({ pickerDate }) {
         )}
         <div className="flex gap-3">
           <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add category'}</Button>
-          <Button variant="secondary" onClick={closePanel}>{editing ? 'Cancel' : 'Done'}</Button>
+          <Button variant="secondary" onClick={closePanel}>Cancel</Button>
         </div>
       </form>
       {editing && (

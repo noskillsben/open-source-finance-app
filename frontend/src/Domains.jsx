@@ -4,7 +4,7 @@ import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import { ListRow } from './components/ListRow.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
-import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import { RefusalNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { formatDate } from './utils/format.js'
 
@@ -18,7 +18,6 @@ export default function Domains({ pickerDate }) {
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
   const [formError, setFormError] = useState(null)
-  const [saved, setSaved] = useState(null)
   const [saving, setSaving] = useState(false)
   const [focusKey, setFocusKey] = useState(0)
 
@@ -33,14 +32,12 @@ export default function Domains({ pickerDate }) {
     setName(next === 'add' ? '' : next.name)
     setDescription(next === 'add' ? '' : (next.description ?? ''))
     setFormError(null)
-    setSaved(null)
     setFocusKey((k) => k + 1)
   }
 
   function close() {
     setPanel(null)
     setFormError(null)
-    setSaved(null)
   }
 
   async function submit(e) {
@@ -53,19 +50,15 @@ export default function Domains({ pickerDate }) {
     try {
       if (panel === 'add') {
         await api.domains.create({ ...body, created_on: pickerDate })
-        setSaved(`Added ${body.name}.`)
-        setName('')
-        setDescription('')
       } else {
         await api.domains.update(panel.id, body)
-        close()
       }
+      close()
       refresh()
     } catch (err) {
       setFormError(err.message)
     } finally {
       setSaving(false)
-      setFocusKey((k) => k + 1)
     }
   }
 
@@ -87,7 +80,6 @@ export default function Domains({ pickerDate }) {
     <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a domain'} onClose={close} focusKey={focusKey}>
       <form onSubmit={submit} className="space-y-4">
         {formError && <RefusalNote>{formError}</RefusalNote>}
-        {saved && <SaveNote>{saved}</SaveNote>}
         <label className="block space-y-1">
           <span className="field-label">{editing ? `Rename ${editing.name}` : 'Domain name'}</span>
           <input className="field w-full" value={name} disabled={saving} onChange={(e) => setName(e.target.value)} />
@@ -98,7 +90,7 @@ export default function Domains({ pickerDate }) {
         </label>
         <div className="flex gap-3">
           <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add domain'}</Button>
-          <Button variant="secondary" onClick={close}>{adding ? 'Done' : 'Cancel'}</Button>
+          <Button variant="secondary" onClick={close}>Cancel</Button>
         </div>
       </form>
     </SidePanel>

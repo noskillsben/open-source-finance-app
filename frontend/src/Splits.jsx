@@ -5,7 +5,7 @@ import LedgerTable, { useLedgerNames } from './LedgerTable.jsx'
 import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
-import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
+import { RefusalNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
@@ -30,7 +30,6 @@ export default function Splits({ pickerDate }) {
   const [formKey, setFormKey] = useState(0)
   const [panelOpen, setPanelOpen] = useState(false) // the add/edit side panel
   const [focusKey, setFocusKey] = useState(0) // returns focus to the panel's first field
-  const [saved, setSaved] = useState(null) // the save note after an add
   const nextKey = useRef(1)
   const navigate = useNavigate()
   const names = useLedgerNames(pickerDate)
@@ -76,7 +75,6 @@ export default function Splits({ pickerDate }) {
   function startAdd() {
     reset()
     setPanelOpen(true)
-    setSaved(null)
     setError(null)
     setWarnings([])
     setFocusKey((k) => k + 1)
@@ -85,12 +83,10 @@ export default function Splits({ pickerDate }) {
   function closePanel() {
     reset()
     setPanelOpen(false)
-    setSaved(null)
   }
 
   function startEdit(split) {
     setPanelOpen(true)
-    setSaved(null)
     setFocusKey((k) => k + 1)
     setEditing(split)
     setName(split.name)
@@ -135,16 +131,13 @@ export default function Splits({ pickerDate }) {
         closePanel()
       } else {
         await api.splits.create({ name: name.trim(), description: description.trim() || null, created_on: pickerDate, members: body })
-        const added = name.trim()
-        reset()
-        setSaved(`Added ${added}.`)
+        closePanel()
       }
       refresh()
     } catch (err) {
       setError(err.message)
     } finally {
       setSaving(false)
-      setFocusKey((k) => k + 1)
     }
   }
 
@@ -166,7 +159,6 @@ export default function Splits({ pickerDate }) {
   const formPanel = panelOpen && (
     <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a split'} onClose={closePanel} focusKey={focusKey}>
         <form key={formKey} onSubmit={submit} className="space-y-4">
-          {saved && <SaveNote>{saved}</SaveNote>}
           {error && <RefusalNote>{error}</RefusalNote>}
           <label className="block space-y-1">
             <span className="field-label">Split name</span>
@@ -229,7 +221,7 @@ export default function Splits({ pickerDate }) {
           )}
           <div className="flex gap-3">
             <Button type="submit" disabled={saving}>{editing ? 'Save' : 'Add split'}</Button>
-            <Button variant="secondary" onClick={closePanel}>{editing ? 'Cancel' : 'Done'}</Button>
+            <Button variant="secondary" onClick={closePanel}>Cancel</Button>
           </div>
         </form>
     </SidePanel>

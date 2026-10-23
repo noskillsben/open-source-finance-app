@@ -161,7 +161,8 @@ describe('add an account: opening balance', () => {
     expect(createAccount).toHaveBeenCalledTimes(1)
 
     finish({})
-    await waitFor(() => expect(screen.getByLabelText('Name')).not.toBeDisabled())
+    // #321: a successful add closes the panel.
+    await waitFor(() => expect(screen.queryByLabelText('Name')).toBeNull())
   })
 
   it('still refuses text that is not a number', async () => {
