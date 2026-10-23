@@ -1,7 +1,10 @@
-import { useEffect, useState } from 'react'
+import { ChevronDown, ChevronRight } from 'lucide-react'
+import { Fragment, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
-import { formatCents, formatDate } from './utils/format.js'
+import SortHeader from './components/SortHeader.jsx'
+import { formatCents, formatDate, formatMonth } from './utils/format.js'
+import { compareValues } from './utils/useSort.js'
 
 // Ledger name lookups: resolve from the "all" (archived-included) lists so a row that names an
 // archived entity still shows its name, marked "(archived)", instead of falling back to `#id`
@@ -32,9 +35,41 @@ function Amount({ cents }) {
   return <span className={`tabular ${cents < 0 ? 'text-negative' : ''}`}>{formatCents(cents)}</span>
 }
 
+/** "2026-10-03" -> "2026-10": the key of the month a transaction is grouped under. */
+export const monthKey = (date) => date.slice(0, 7)
+
+/** Transactions grouped by calendar month, newest month first (DESIGN.md § Sorting and grouping). Rows
+ * inside a month follow `sort` ({ key: 'date' | 'payee', dir }); ties fall back to newest first. */
+export function groupByMonth(transactions, sort, payeeName) {
+  const byDate = (a, b) => b.date.localeCompare(a.date) || b.id - a.id
+  const rank =
+    sort.key === 'payee'
+      ? (a, b) =>
+          compareValues(
+            a.payee_id == null ? null : payeeName(a.payee_id),
+            b.payee_id == null ? null : payeeName(b.payee_id),
+            sort.dir,
+          ) || byDate(a, b)
+      : (a, b) => (sort.dir === 'asc' ? -byDate(a, b) : byDate(a, b))
+  const months = new Map()
+  for (const t of transactions) {
+    const key = monthKey(t.date)
+    if (!months.has(key)) months.set(key, [])
+    months.get(key).push(t)
+  }
+  return [...months.keys()]
+    .sort()
+    .reverse()
+    .map((key) => {
+      const rows = months.get(key).sort(rank)
+      const total = rows.reduce((sum, t) => sum + t.account_lines.reduce((s, l) => s + l.cents, 0), 0)
+      return { key, label: formatMonth(`${key}-01`), rows, total }
+    })
+}
+
 /** The Ledger's list of transactions (DESIGN.md § Transactions). Without `onSelect` it is read-only:
  * no row click, no pointer — the Splits page shows it this way. */
-export default function LedgerTable({ transactions, names, onSelect, selectedId }) {
+export default function LedgerTable({ transactions, names, onSelect, selectedId, byMonth }) {
   const { accounts, categories, payees, goals, splits } = names
   function splitLabel(id) {
     const match = splits?.find((s) => s.id === id)
@@ -47,19 +82,7 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId 
     return match.goal.archived_on ? `${match.goal.name} (archived)` : match.goal.name
   }
 
-  return (
-    <table className="w-full">
-      <thead>
-        <tr className="text-left text-text-2">
-          <th className="pb-1">Date</th>
-          <th className="pb-1">Memo</th>
-          <th className="pb-1">Payee</th>
-          <th className="pb-1">Account lines</th>
-          <th className="pb-1">Category lines</th>
-        </tr>
-      </thead>
-      <tbody>
-        {transactions.map((t) => (
+  const renderRow = (t) => (
           <tr
             key={t.id}
             className={`${onSelect ? 'cursor-pointer hover:bg-raised' : ''} ${selectedId === t.id ? 'bg-raised' : ''}`.trim() || undefined}
@@ -111,7 +134,56 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId 
               )}
             </td>
           </tr>
-        ))}
+  )
+
+  return (
+    <table className="w-full">
+      <thead>
+        <tr className="text-left text-text-2">
+          {byMonth ? (
+            <>
+              <SortHeader label="Date" sortKey="date" sort={byMonth.sort} onSort={byMonth.onSort} className="pb-1" />
+              <th className="pb-1">Memo</th>
+              <SortHeader label="Payee" sortKey="payee" sort={byMonth.sort} onSort={byMonth.onSort} className="pb-1" />
+            </>
+          ) : (
+            <>
+              <th className="pb-1">Date</th>
+              <th className="pb-1">Memo</th>
+              <th className="pb-1">Payee</th>
+            </>
+          )}
+          <th className="pb-1">Account lines</th>
+          <th className="pb-1">Category lines</th>
+        </tr>
+      </thead>
+      <tbody>
+        {byMonth
+          ? groupByMonth(transactions, byMonth.sort, (id) => payees?.find((p) => p.id === id)?.name ?? '').map((g) => {
+              const open = !byMonth.collapsed.includes(g.key)
+              const Chevron = open ? ChevronDown : ChevronRight
+              return (
+                <Fragment key={g.key}>
+                  <tr>
+                    <td colSpan={3} className="py-1">
+                      <button
+                        type="button"
+                        aria-expanded={open}
+                        className="inline-flex min-h-14 items-center gap-1 font-medium md:min-h-11"
+                        onClick={() => byMonth.onToggle(g.key)}
+                      >
+                        <Chevron size={20} aria-hidden="true" />
+                        {g.label}
+                      </button>
+                    </td>
+                    <td className={`tabular py-1 font-medium ${g.total < 0 ? 'text-negative' : ''}`}>{formatCents(g.total)}</td>
+                    <td></td>
+                  </tr>
+                  {open && g.rows.map(renderRow)}
+                </Fragment>
+              )
+            })
+          : transactions.map(renderRow)}
       </tbody>
     </table>
   )

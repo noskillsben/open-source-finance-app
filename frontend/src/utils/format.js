@@ -35,6 +35,14 @@ export function formatDate(iso) {
   return date.format(new Date(`${iso}T12:00:00Z`))
 }
 
+const monthYear = new Intl.DateTimeFormat('en-CA', { year: 'numeric', month: 'long', timeZone: 'UTC' })
+
+/** ISO date "2026-10-03" → "October 2026". */
+export function formatMonth(iso) {
+  if (!iso) return ''
+  return monthYear.format(new Date(`${iso}T12:00:00Z`))
+}
+
 /** "$1,234.56" or "-12.3" → integer cents. Money inputs are text, never type="number"
  * (phone keypads have no minus key), so every money field parses through this. */
 export function parseCents(text) {
