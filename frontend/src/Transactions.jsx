@@ -10,7 +10,8 @@ import LoadingRows from './components/LoadingRows.jsx'
 import ChoicePicker from './components/ChoicePicker.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
-import LedgerTable from './LedgerTable.jsx'
+import LedgerTable, { groupByMonth, monthKey } from './LedgerTable.jsx'
+import { useSort } from './utils/useSort.js'
 import PayeePicker from './PayeePicker.jsx'
 import { basisFromSplit, basisFromTransaction, linesFromBasis, receiptsForTotal, scaleBasis, spreadCents } from './sharedBill.js'
 
@@ -67,6 +68,20 @@ function readShape(aLines, cLines) {
 const splitSign = (text) => {
   const cents = parseCents(text)
   return cents === null || cents === 0 ? 1 : cents < 0 ? 1 : -1
+}
+
+const COLLAPSED_KEY = 'transactions.collapsed'
+const DEFAULT_SORT = { key: 'date', dir: 'desc' }
+
+// Which months are collapsed is a per-device convenience (DESIGN.md § Nested and grouped lists):
+// localStorage, and the page works without it.
+function loadCollapsed() {
+  try {
+    const keys = JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]')
+    return Array.isArray(keys) ? keys : []
+  } catch {
+    return []
+  }
 }
 
 export default function Transactions({ pickerDate }) {
@@ -130,6 +145,16 @@ export default function Transactions({ pickerDate }) {
   const [formOpen, setFormOpen] = useState(false)
   // The row just saved, highlighted when the list comes back.
   const [highlightId, setHighlightId] = useState(null)
+  const { sort, toggle: toggleSort } = useSort('transactions.sort', DEFAULT_SORT)
+  const [collapsed, setCollapsedState] = useState(loadCollapsed)
+  function setCollapsed(keys) {
+    setCollapsedState(keys)
+    try {
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify(keys))
+    } catch {
+      // private window or blocked storage: the state just doesn't survive a reload
+    }
+  }
   const dateRef = useRef(null)
   const [editingId, setEditingId] = useState(null)
   const [predatesCheckNotes, setPredatesCheckNotes] = useState([])
@@ -754,6 +779,8 @@ export default function Transactions({ pickerDate }) {
       // Saving returns to the list with the saved row highlighted.
       setSavedNote(wasAdd ? 'Recorded.' : null)
       setHighlightId(savedId ?? null)
+      // The saved row must be visible: open its month if it was collapsed.
+      if (collapsed.includes(monthKey(body.date))) setCollapsed(collapsed.filter((k) => k !== monthKey(body.date)))
       setFormOpen(false)
       refresh()
     } catch (err) {
@@ -785,12 +812,26 @@ export default function Transactions({ pickerDate }) {
             <EmptyState action={<Button onClick={openAdd}>Record a transaction</Button>}>No transactions yet.</EmptyState>
           )}
           {transactions && transactions.length > 0 && (
+            <div className="flex">
+              <Button variant="quiet" onClick={() => setCollapsed([])}>Expand all</Button>
+              <Button variant="quiet" onClick={() => setCollapsed(groupByMonth(transactions, DEFAULT_SORT, () => '').map((g) => g.key))}>
+                Collapse all
+              </Button>
+            </div>
+          )}
+          {transactions && transactions.length > 0 && (
             <div className="overflow-x-auto">
               <LedgerTable
                 transactions={transactions}
                 names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
                 onSelect={editTransaction}
                 selectedId={highlightId}
+                byMonth={{
+                  sort,
+                  onSort: toggleSort,
+                  collapsed,
+                  onToggle: (key) => setCollapsed(collapsed.includes(key) ? collapsed.filter((k) => k !== key) : [...collapsed, key]),
+                }}
               />
             </div>
           )}
