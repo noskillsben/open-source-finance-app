@@ -437,6 +437,13 @@ class BalanceCheckIn(BaseModel):
     category_lines: list[CategoryLineIn] | None = None
 
 
+class AccountBalanceOut(BaseModel):
+    """An account's balance from every line dated on or before a day, optionally leaving one
+    transaction out — what the envelope step is worked out against."""
+
+    balance_cents: int
+
+
 class BalanceCheckPreviewOut(BaseModel):
     """What a balance check would find, and the linked-category split it would suggest."""
 
