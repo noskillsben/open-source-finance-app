@@ -461,7 +461,7 @@ describe('rows and groups (#286)', () => {
     const { api } = await import('./api.js')
     fireEvent.click(within(screen.getByText('Rent').closest('tr')).getByRole('button', { name: 'Move money' }))
     fireEvent.change(await screen.findByLabelText('Amount'), { target: { value: '25.00' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Add' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Add from ready to assign' }))
     await waitFor(() => expect(api.earmarkMoves.create).toHaveBeenCalledWith({ date: '2026-10-03', cents: 2500, to_category_id: 4 }))
   })
 

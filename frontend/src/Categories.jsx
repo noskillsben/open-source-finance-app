@@ -454,6 +454,9 @@ export default function Categories({ pickerDate }) {
       {editing && !editing.archived_on && (
         <section aria-label="Move money" className="mb-4 space-y-3 rounded-lg bg-raised p-3">
           <h4 className="text-section">Move money</h4>
+          <p className="text-sm text-text-2">
+            Amount: Add moves it from ready to assign into this category; Withdraw moves it back out to ready to assign.
+          </p>
           {assignError && <WarningNote>{assignError}</WarningNote>}
           {moveNote && <SaveNote>{moveNote}</SaveNote>}
           {linkedWarning && <WarningNote>{linkedWarning}</WarningNote>}
@@ -465,12 +468,17 @@ export default function Categories({ pickerDate }) {
             }}
           >
             <MoneyInput label="Amount" value={moveAmount} onChange={setMoveAmount} />
-            <div className="flex gap-3">
-              <Button type="submit" variant="secondary">Add</Button>
-              <Button variant="secondary" onClick={() => addOrWithdraw(editing, 'withdraw')}>Withdraw</Button>
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <Button type="submit" variant="secondary">Add from ready to assign</Button>
+              <Button variant="secondary" onClick={() => addOrWithdraw(editing, 'withdraw')}>
+                Withdraw to ready to assign
+              </Button>
             </div>
           </form>
-          <form className="space-y-3" onSubmit={(e) => moveToCategory(e, editing)}>
+          <form className="space-y-3 border-t border-line pt-3" onSubmit={(e) => moveToCategory(e, editing)}>
+            <p className="text-sm text-text-2">
+              Or move this amount to another category. Ready to assign stays the same.
+            </p>
             <NamePicker
               key={moveKey}
               label="Move to…"
