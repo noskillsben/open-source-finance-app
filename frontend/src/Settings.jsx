@@ -33,7 +33,8 @@ export default function Settings() {
     setExporting(true)
     setError(null)
     try {
-      saveBlob(await api.exportData.download(), 'export.zip')
+      const { blob, filename } = await api.exportData.download()
+      saveBlob(blob, filename || 'export.zip')
     } catch (err) {
       setError(err.message)
     } finally {

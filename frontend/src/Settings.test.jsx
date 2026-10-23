@@ -42,12 +42,34 @@ describe('Download latest backup', () => {
 describe('Export data', () => {
   it('is offered even when there is no backup yet, and fetches the export', async () => {
     latest.mockResolvedValue({ name: null, taken_at: null })
-    exportDownload.mockResolvedValue(new Blob(['zip']))
+    exportDownload.mockResolvedValue({ blob: new Blob(['zip']), filename: 'export-20261023.zip' })
     URL.createObjectURL = vi.fn(() => 'blob:x')
     URL.revokeObjectURL = vi.fn()
     render(<Settings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Export data' }))
     await waitFor(() => expect(exportDownload).toHaveBeenCalledTimes(1))
+  })
+
+  async function savedName(response) {
+    latest.mockResolvedValue({ name: null, taken_at: null })
+    exportDownload.mockResolvedValue(response)
+    URL.createObjectURL = vi.fn(() => 'blob:x')
+    URL.revokeObjectURL = vi.fn()
+    let name
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () { name = this.download })
+    render(<Settings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export data' }))
+    await waitFor(() => expect(click).toHaveBeenCalled())
+    click.mockRestore()
+    return name
+  }
+
+  it('saves the export under the name the backend gave it', async () => {
+    expect(await savedName({ blob: new Blob(['zip']), filename: 'export-20261023.zip' })).toBe('export-20261023.zip')
+  })
+
+  it('falls back to export.zip when the response has no name', async () => {
+    expect(await savedName({ blob: new Blob(['zip']), filename: null })).toBe('export.zip')
   })
 
   it('shows the backend detail when the export fails', async () => {
