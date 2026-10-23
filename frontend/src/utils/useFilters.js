@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSort } from './useSort.js'
 
 // A list page's filter state: a per-viewer convenience (DESIGN.md § UI conventions), so it is React
 // state, remembered in sessionStorage when that works and never sent to the API. With storage
@@ -13,7 +14,10 @@ function load(key, defaults) {
   return defaults
 }
 
-export function useFilters(storageKey, defaults) {
+// With a defaultSort, the sort is remembered beside the filters, Clear restores it, and a sort other than
+// the default counts as active (`filtered` is the filters alone).
+export function useFilters(storageKey, defaults, defaultSort = { key: null, dir: 'asc' }) {
+  const sorting = useSort(`${storageKey}.sort`, defaultSort)
   const [filters, setFilters] = useState(() => load(storageKey, defaults))
   useEffect(() => {
     try {
@@ -23,7 +27,11 @@ export function useFilters(storageKey, defaults) {
     }
   }, [storageKey, filters])
   const setFilter = (name, value) => setFilters((f) => ({ ...f, [name]: value }))
-  const clear = () => setFilters(defaults)
-  const active = Object.keys(defaults).some((k) => filters[k] !== defaults[k])
-  return { filters, setFilter, clear, active }
+  const clear = () => {
+    setFilters(defaults)
+    sorting.reset()
+  }
+  const filtered = Object.keys(defaults).some((k) => filters[k] !== defaults[k])
+  const active = filtered || !sorting.isDefault
+  return { filters, setFilter, clear, active, filtered, sort: sorting.sort, toggleSort: sorting.toggle }
 }

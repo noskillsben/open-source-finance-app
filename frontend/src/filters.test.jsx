@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { useState } from 'react'
 import { MemoryRouter } from 'react-router-dom'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -116,7 +116,7 @@ describe('Accounts filters', () => {
   it('picks the balance-check difference category by typing, not from a drop-down', async () => {
     categories = [category(11, 'Rent'), category(12, 'Groceries')]
     await load()
-    fireEvent.click(screen.getAllByRole('button', { name: 'Check balance' })[0])
+    fireEvent.click(within(screen.getByText('Everyday').closest('tr')).getByRole('button', { name: 'Check balance' }))
     const box = await screen.findByLabelText('Category for the difference')
     expect(box.tagName).toBe('INPUT')
     fireEvent.change(box, { target: { value: 'gro' } })

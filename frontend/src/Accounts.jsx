@@ -9,7 +9,9 @@ import Button from './components/Button.jsx'
 import ChoicePicker from './components/ChoicePicker.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import ListFilters from './components/ListFilters.jsx'
+import SortHeader from './components/SortHeader.jsx'
 import { useFilters } from './utils/useFilters.js'
+import { comparator } from './utils/useSort.js'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
@@ -416,7 +418,7 @@ export default function Accounts({ pickerDate }) {
 
   // Accounts locked to the same payee read as one line with a balance each (DESIGN.md § Payee-locked
   // accounts). Derived here from the list, at read time: a lone locked account keeps its own row.
-  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('accounts.filters', { search: '', type: '', side: '' })
+  const { filters, setFilter, clear: clearFilters, active: filtersActive, sort, toggleSort } = useFilters('accounts.filters', { search: '', type: '', side: '' }, { key: 'name', dir: 'asc' })
   const needle = filters.search.trim().toLowerCase()
   const visible = (accounts ?? []).filter(
     (a) =>
@@ -424,9 +426,14 @@ export default function Accounts({ pickerDate }) {
       (filters.type === '' || a.type === filters.type) &&
       (filters.side === '' || a.on_budget === (filters.side === 'on')),
   )
+  // Type ranks in the type list's order (on-budget types, then tracking); side is On-budget, then Tracking.
+  const typeOrder = [...ON_BUDGET_TYPES, ...TRACKING_TYPES]
+  const valueOf = (a, key) =>
+    key === 'type' ? typeOrder.indexOf(a.type) : key === 'side' ? (a.on_budget ? 0 : 1) : key === 'balance' ? a.balance_cents : a.name
+  const sorted = [...visible].sort(comparator(sort, valueOf, (a) => a.name))
   const rows = []
   const groups = new Map()
-  for (const a of visible) {
+  for (const a of sorted) {
     const shared = a.locked_payee_id != null && accounts.filter((o) => o.locked_payee_id === a.locked_payee_id).length > 1
     if (!shared) rows.push({ account: a })
     else if (!groups.has(a.locked_payee_id)) {
@@ -826,10 +833,10 @@ export default function Accounts({ pickerDate }) {
               <table className="w-full">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Side</th>
-                    <th className="text-right">Balance</th>
+                    <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Type" sortKey="type" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Side" sortKey="side" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Balance" sortKey="balance" sort={sort} onSort={toggleSort} className="text-right" />
                     <th></th>
                   </tr>
                 </thead>
