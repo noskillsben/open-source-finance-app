@@ -40,7 +40,7 @@ export const monthKey = (date) => date.slice(0, 7)
 
 /** Transactions grouped by calendar month, newest month first (DESIGN.md § Sorting and grouping). Rows
  * inside a month follow `sort` ({ key: 'date' | 'payee', dir }); ties fall back to newest first. */
-export function groupByMonth(transactions, sort, payeeName) {
+export function groupByMonth(transactions, sort, payeeName, accountId = null) {
   const byDate = (a, b) => b.date.localeCompare(a.date) || b.id - a.id
   const rank =
     sort.key === 'payee'
@@ -62,7 +62,7 @@ export function groupByMonth(transactions, sort, payeeName) {
     .reverse()
     .map((key) => {
       const rows = months.get(key).sort(rank)
-      const total = rows.reduce((sum, t) => sum + t.account_lines.reduce((s, l) => s + l.cents, 0), 0)
+      const total = rows.reduce((sum, t) => sum + t.account_lines.reduce((s, l) => (accountId == null || l.account_id === accountId ? s + l.cents : s), 0), 0)
       return { key, label: formatMonth(`${key}-01`), rows, total }
     })
 }
@@ -70,6 +70,8 @@ export function groupByMonth(transactions, sort, payeeName) {
 /** The Ledger's list of transactions (DESIGN.md § Transactions). Without `onSelect` it is read-only:
  * no row click, no pointer — the Splits page shows it this way. */
 export default function LedgerTable({ transactions, names, onSelect, selectedId, byMonth }) {
+  // With an account filter on, the Account lines column and the month totals count only that account.
+  const accountId = byMonth?.accountId ?? null
   const { accounts, categories, payees, goals, splits } = names
   function splitLabel(id) {
     const match = splits?.find((s) => s.id === id)
@@ -107,7 +109,7 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId,
               {t.payee_id != null ? entityLabel(payees, t.payee_id, `#${t.payee_id}`) : '—'}
             </td>
             <td className="py-1 align-top">
-              {t.account_lines.map((l) => (
+              {t.account_lines.filter((l) => accountId == null || l.account_id === accountId).map((l) => (
                 <div key={l.id}>
                   {entityLabel(accounts, l.account_id, `#${l.account_id}`)}: <Amount cents={l.cents} />
                 </div>
@@ -159,7 +161,7 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId,
       </thead>
       <tbody>
         {byMonth
-          ? groupByMonth(transactions, byMonth.sort, (id) => payees?.find((p) => p.id === id)?.name ?? '').map((g) => {
+          ? groupByMonth(transactions, byMonth.sort, (id) => payees?.find((p) => p.id === id)?.name ?? '', accountId).map((g) => {
               const open = !byMonth.collapsed.includes(g.key)
               const Chevron = open ? ChevronDown : ChevronRight
               return (

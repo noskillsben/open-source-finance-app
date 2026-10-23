@@ -62,6 +62,7 @@ vi.mock('./api.js', () => ({
   api: {
     accounts: { list: () => Promise.resolve(ACCOUNTS) },
     splits: { list: () => Promise.resolve(SPLITS) },
+    domains: { list: () => Promise.resolve([]) },
     categories: { list: () => Promise.resolve(CATEGORIES), create: vi.fn() },
     payees: { list: () => Promise.resolve(existingPayees), create: calls.payeeCreate, fill: calls.payeeFill },
     transactions: {
