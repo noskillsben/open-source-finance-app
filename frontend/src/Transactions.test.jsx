@@ -20,6 +20,7 @@ const calls = vi.hoisted(() => ({
   remove: vi.fn(),
   payBatchGet: vi.fn(),
   payBatchReplace: vi.fn(),
+  balance: vi.fn(),
 }))
 
 const ACCOUNTS = [
@@ -29,6 +30,8 @@ const ACCOUNTS = [
   { id: 4, name: 'Sam', linked_category_ids: [] },
   { id: 5, name: 'Car loan', linked_category_ids: [], on_budget: false, boundary_category_id: 12 },
   { id: 6, name: 'Credit line', linked_category_ids: [], on_budget: false, boundary_category_id: null },
+  { id: 7, name: 'Friend', linked_category_ids: [13], on_budget: true },
+  { id: 8, name: 'Pool', linked_category_ids: [11, 13], on_budget: true },
 ]
 const SPLITS = [
   {
@@ -47,6 +50,7 @@ const CATEGORIES = [
   { id: 10, name: 'Groceries', archived_on: null },
   { id: 11, name: 'Rent', archived_on: null },
   { id: 12, name: 'Debt payments', archived_on: null },
+  { id: 13, name: 'Owed to me', archived_on: null },
 ]
 const RENT_GOAL = {
   goal: { id: 7, category_id: 11, name: 'Rent', kind: 'recurring_bill', archived_on: null },
@@ -60,7 +64,7 @@ const DUE_DATES = [
 
 vi.mock('./api.js', () => ({
   api: {
-    accounts: { list: () => Promise.resolve(ACCOUNTS) },
+    accounts: { list: () => Promise.resolve(ACCOUNTS), balance: calls.balance },
     splits: { list: () => Promise.resolve(SPLITS) },
     domains: { list: () => Promise.resolve([]) },
     categories: { list: () => Promise.resolve(CATEGORIES), create: vi.fn() },
@@ -122,6 +126,8 @@ beforeEach(() => {
   calls.lastPayment.mockResolvedValue({ payee_id: null, account_id: null })
   calls.remove.mockReset()
   calls.remove.mockResolvedValue({})
+  calls.balance.mockReset()
+  calls.balance.mockResolvedValue({ balance_cents: 0 })
   calls.payBatchGet.mockReset()
   calls.payBatchGet.mockResolvedValue([])
   calls.payBatchReplace.mockReset()
@@ -1546,5 +1552,75 @@ describe("Ledger form: 'More details' from Quick add", () => {
     expect(screen.getByLabelText('Category')).toHaveValue('Rent')
     expect(screen.getAllByPlaceholderText('0.00').map(readAmount)).toEqual(['-12.50']) // typed once
     expect(calls.create).not.toHaveBeenCalled()
+  })
+})
+
+describe('Ledger form: the envelope step is pre-filled from the balance before the line (#328)', () => {
+  const quick = (amount_text) => ({
+    quickAdd: { date: '2026-10-05', payee_id: null, account_id: 7, category_id: null, amount_text, goal: null, refill: false },
+  })
+
+  const envelopeAmount = () => {
+    const boxes = screen.getAllByLabelText('Amount')
+    return boxes[boxes.length - 1]
+  }
+
+  it('pre-fills money in from ready to assign into the one linked category', async () => {
+    renderLedger(quick('50'))
+    await waitFor(() => expect(screen.getByLabelText('Envelope')).toHaveValue('Owed to me'))
+    expect(envelopeAmount()).toHaveValue('50')
+    expect(calls.balance).toHaveBeenCalledWith(7, '2026-10-05')
+    expect(screen.getByText('Which envelope does this fund?')).toBeInTheDocument()
+  })
+
+  it('directs only the part above zero when a line crosses zero', async () => {
+    calls.balance.mockResolvedValue({ balance_cents: -2000 })
+    renderLedger(quick('50'))
+    await waitFor(() => expect(envelopeAmount()).toHaveValue('30'))
+  })
+
+  it('moves money out of the envelope when the balance falls', async () => {
+    calls.balance.mockResolvedValue({ balance_cents: 10000 })
+    renderLedger(quick('-40'))
+    await waitFor(() => expect(envelopeAmount()).toHaveValue('40'))
+    expect(screen.getByText('Which envelope does this money leave?')).toBeInTheDocument()
+  })
+
+  it('pre-fills nothing when the balance stays below zero', async () => {
+    calls.balance.mockResolvedValue({ balance_cents: -2000 })
+    renderLedger(quick('-30'))
+    await waitFor(() => expect(calls.balance).toHaveBeenCalled())
+    expect(await screen.findByText('Which envelope does this money leave?')).toBeInTheDocument()
+    expect(screen.queryByLabelText('Envelope')).not.toBeInTheDocument()
+  })
+
+  it('keeps what the user changed, and sends it', async () => {
+    renderLedger(quick('50'))
+    await waitFor(() => expect(envelopeAmount()).toHaveValue('50'))
+    fireEvent.change(envelopeAmount(), { target: { value: '20' } })
+    calls.balance.mockResolvedValue({ balance_cents: -2000 })
+    fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: '60' } })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(envelopeAmount()).toHaveValue('20')
+  })
+
+  it('drops the pre-filled row when the transaction stops qualifying', async () => {
+    renderLedger(quick('50'))
+    await waitFor(() => expect(screen.getByLabelText('Envelope')).toHaveValue('Owed to me'))
+    fireEvent.change(screen.getAllByLabelText('Account')[0], { target: { value: 'Pool' } })
+    await waitFor(() => expect(screen.queryByLabelText('Envelope')).not.toBeInTheDocument())
+  })
+
+  it('shows the stored items on an edit and never pre-fills', async () => {
+    existingTransactions = [{
+      id: 41, date: '2026-10-01', memo: 'Lent', payee_id: null, goal_id: null, split_id: null,
+      account_lines: [{ account_id: 7, cents: 4000 }], category_lines: [], deposits: [],
+    }]
+    renderLedger()
+    fireEvent.click(await screen.findByText('Lent'))
+    await screen.findByLabelText('Date')
+    expect(await screen.findByText('Which envelope does this fund?')).toBeInTheDocument()
+    expect(calls.balance).not.toHaveBeenCalled()
+    expect(screen.queryByLabelText('Envelope')).not.toBeInTheDocument()
   })
 })

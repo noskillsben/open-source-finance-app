@@ -9,6 +9,7 @@ from app.db import get_session
 from app.models import Account, Category, Payee, Valuation
 from app.routers.shapes import _transaction_out
 from app.schemas import (
+    AccountBalanceOut,
     AccountCreate,
     AccountOut,
     AccountUpdate,
@@ -188,6 +189,21 @@ def update_account_route(
     except IntegrityError:
         raise HTTPException(status_code=409, detail=f"An account named {payload.name!r} already exists.")
     return _account_out(session, account)
+
+
+@router.get("/api/accounts/{account_id}/balance", response_model=AccountBalanceOut)
+def account_balance(
+    account_id: int, as_of: date, exclude_transaction_id: int | None = None,
+    session: Session = Depends(get_session),
+) -> AccountBalanceOut:
+    """The account's balance from every line dated on or before `as_of`, leaving out
+    `exclude_transaction_id` — the balance before the line the envelope step is about.
+    """
+    if session.get(Account, account_id) is None:
+        raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
+    return AccountBalanceOut(balance_cents=account_balance_cents(
+        session, account_id, as_of=as_of, exclude_transaction_id=exclude_transaction_id,
+    ))
 
 
 @router.get("/api/accounts/{account_id}/balance-check-preview", response_model=BalanceCheckPreviewOut)

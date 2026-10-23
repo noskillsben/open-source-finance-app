@@ -38,6 +38,12 @@ export const api = {
     },
     create: (account) => request('/api/accounts', { method: 'POST', body: account }),
     update: (id, account) => request(`/api/accounts/${id}`, { method: 'PUT', body: account }),
+    // The balance from every line dated on or before asOf, leaving out one transaction (the envelope step).
+    balance: (id, asOf, excludeTransactionId) => {
+      const params = new URLSearchParams({ as_of: asOf })
+      if (excludeTransactionId != null) params.set('exclude_transaction_id', String(excludeTransactionId))
+      return request(`/api/accounts/${id}/balance?${params}`)
+    },
     checkBalance: (id, check) => request(`/api/accounts/${id}/balance-check`, { method: 'POST', body: check }),
     checkBalancePreview: (id, date, statedCents) =>
       request(`/api/accounts/${id}/balance-check-preview?date=${date}&stated_balance_cents=${statedCents}`),

@@ -135,6 +135,8 @@ export default function Transactions({ pickerDate }) {
   const [accountLines, setAccountLines] = useState([{ ...emptyLine }])
   const [categoryLines, setCategoryLines] = useState([])
   const [deposits, setDeposits] = useState([])
+  // Once the user has changed the envelope step it stops being re-filled from the balance.
+  const depositsTouched = useRef(false)
   // Which recurring bill this payment paid and which due date: stated, never inferred.
   const [billLink, setBillLink] = useState(null)
   const [declinedBills, setDeclinedBills] = useState([])
@@ -471,6 +473,7 @@ export default function Transactions({ pickerDate }) {
   }, [payeeFill])
 
   function updateDeposit(i, field, value) {
+    depositsTouched.current = true
     setDeposits((rows) => rows.map((d, idx) => (idx === i ? { ...d, [field]: value } : d)))
   }
 
@@ -593,6 +596,7 @@ export default function Transactions({ pickerDate }) {
     setAccountLines([{ ...emptyLine }])
     setCategoryLines([])
     setDeposits([])
+    depositsTouched.current = false
     setBillLink(null)
     setDeclinedBills([])
     setFormError(null)
@@ -617,6 +621,7 @@ export default function Transactions({ pickerDate }) {
       t.account_lines.map((l) => ({ account_id: String(l.account_id), cents: String(l.cents / 100) })),
       t.category_lines.map((l) => ({ category_id: String(l.category_id), cents: String(l.cents / 100), receipt: '' }))
     )
+    depositsTouched.current = true // an edit shows what was stored and never re-fills
     setDeposits(
       (t.deposits ?? []).map((d) => ({
         category_id: String(d.category_id),
@@ -734,6 +739,37 @@ export default function Transactions({ pickerDate }) {
   const dueOptions = billDueDates && billDueDates.goalId === offeredGoalId ? billDueDates.dates : []
   const dueOptionValues = dueOptions.map((d) => d.due_on)
   const offeredDue = billLink?.goal_due_on ?? dueOptions.find((d) => d.earliest_unpaid)?.due_on ?? ''
+  // DESIGN.md § Linked categories, point 2: exactly one line on a linked account whose account has
+  // exactly one linked category pre-fills the step from the balance before that line.
+  const linkedLines = accountLines.filter((l) => {
+    const account = accounts?.find((a) => String(a.id) === l.account_id)
+    return account && account.linked_category_ids.length > 0 && parseCents(l.cents) !== null
+  })
+  const prefillAccount = linkedLines.length === 1 ? accounts.find((a) => String(a.id) === linkedLines[0].account_id) : null
+  const prefillCategoryId = prefillAccount?.linked_category_ids.length === 1 ? prefillAccount.linked_category_ids[0] : null
+  const prefillCents = prefillCategoryId != null ? parseCents(linkedLines[0].cents) : null
+  useEffect(() => {
+    if (editingId != null || depositsTouched.current || !date) return
+    if (prefillCategoryId == null) return setDeposits([]) // no longer qualifies: drop the pre-filled row
+    if (!prefillCents) return setDeposits([])
+    let stale = false
+    api.accounts
+      .balance(prefillAccount.id, date)
+      .then(({ balance_cents: b }) => {
+        if (stale || depositsTouched.current) return
+        const directed = Math.max(0, b + prefillCents) - Math.max(0, b)
+        setDeposits(
+          directed === 0
+            ? []
+            : [{ category_id: String(prefillCategoryId), cents: String(Math.abs(directed) / 100), other_category_id: '' }]
+        )
+      })
+      .catch(() => {})
+    return () => {
+      stale = true
+    }
+  }, [editingId, prefillAccount?.id, prefillCategoryId, prefillCents, date])
+
   const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
   const depositTotal = deposits.reduce((sum, d) => sum + (parseCents(d.cents) ?? 0), 0)
 
@@ -1134,7 +1170,10 @@ export default function Transactions({ pickerDate }) {
                   <button
                     type="button"
                     className="btn btn-quiet"
-                    onClick={() => setDeposits((rows) => rows.filter((_, idx) => idx !== i))}
+                    onClick={() => {
+                      depositsTouched.current = true
+                      setDeposits((rows) => rows.filter((_, idx) => idx !== i))
+                    }}
                   >
                     remove
                   </button>
@@ -1143,7 +1182,10 @@ export default function Transactions({ pickerDate }) {
               <button
                 type="button"
                 className="btn btn-quiet"
-                onClick={() => setDeposits((rows) => [...rows, { ...emptyDeposit }])}
+                onClick={() => {
+                  depositsTouched.current = true
+                  setDeposits((rows) => [...rows, { ...emptyDeposit }])
+                }}
               >
                 + add envelope
               </button>

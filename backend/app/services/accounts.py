@@ -272,9 +272,11 @@ def account_balance_cents(
     account_id: int,
     *,
     as_of: date | None = None,
+    exclude_transaction_id: int | None = None,
 ) -> int:
     """No stored balances (DESIGN.md § General concepts): sum every account line dated on or
-    before `as_of` (all of them when `as_of` is None). A valuation is never summed — it is a
+    before `as_of` (all of them when `as_of` is None), leaving out one transaction when asked
+    (the envelope step's "balance before this line"). A valuation is never summed — it is a
     stated fact, not a ledger line; the opening valuation's own adjustment line (see
     `create_account_with_opening_valuation`) is what makes the balance agree with it.
     """
@@ -285,6 +287,8 @@ def account_balance_cents(
     )
     if as_of is not None:
         line_stmt = line_stmt.where(Transaction.date <= as_of)
+    if exclude_transaction_id is not None:
+        line_stmt = line_stmt.where(Transaction.id != exclude_transaction_id)
 
     return session.scalar(line_stmt)
 
