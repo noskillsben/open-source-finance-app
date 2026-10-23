@@ -7,7 +7,7 @@ import zipfile
 from fastapi.testclient import TestClient
 from sqlalchemy import BigInteger, Column, MetaData, String, Table
 
-from app.db import Base
+from app.db import Base, get_session
 from app.main import app
 from app.models import Category, Payee
 from app.services.accounts import create_account_with_opening_valuation
@@ -91,8 +91,15 @@ def test_rows_values_names_and_filters(db_session):
     assert opening["on_budget_floor"] == "0.00"
 
 
-def test_endpoint_streams_a_dated_zip():
-    res = TestClient(app).get("/api/export")
+def test_endpoint_streams_a_dated_zip(db_session):
+    def override():
+        yield db_session
+
+    app.dependency_overrides[get_session] = override
+    try:
+        res = TestClient(app).get("/api/export")
+    finally:
+        app.dependency_overrides.clear()
     assert res.status_code == 200
     assert res.headers["content-type"] == "application/zip"
     assert res.headers["content-disposition"].startswith('attachment; filename="export-')
