@@ -5,7 +5,9 @@ import { CADENCES } from './cadences.js'
 import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import ListFilters from './components/ListFilters.jsx'
+import SortHeader from './components/SortHeader.jsx'
 import { useFilters } from './utils/useFilters.js'
+import { comparator } from './utils/useSort.js'
 import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
@@ -128,7 +130,7 @@ export default function Pay({ pickerDate }) {
   const [rowError, setRowError] = useState(null)
   const [warnings, setWarnings] = useState([])
   const [showArchived, setShowArchived] = useState(false)
-  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('income.filters', { search: '', cadence: '' })
+  const { filters, setFilter, clear: clearFilters, active: filtersActive, sort, toggleSort } = useFilters('income.filters', { search: '', cadence: '' }, { key: 'next_payday', dir: 'asc' })
   const [editing, setEditing] = useState(null)
   const [form, setForm] = useState(EMPTY_FORM)
   const [formError, setFormError] = useState(null)
@@ -253,9 +255,11 @@ export default function Pay({ pickerDate }) {
 
   // A pay already recorded for its next payday is re-opened to correct it, not recorded again.
 
-  const shown = (streams ?? []).filter(
-    (s) => s.name.toLowerCase().includes(filters.search.trim().toLowerCase()) && (filters.cadence === '' || s.cadence === filters.cadence),
-  )
+  const shown = (streams ?? [])
+    .filter(
+      (s) => s.name.toLowerCase().includes(filters.search.trim().toLowerCase()) && (filters.cadence === '' || s.cadence === filters.cadence),
+    )
+    .sort(comparator(sort, (s, key) => (key === 'name' ? s.name : s.next_payday), (s) => s.name))
 
   const formPanel = panelOpen && (
     <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a named pay'} onClose={closePanel} focusKey={focusKey}>
@@ -395,9 +399,9 @@ export default function Pay({ pickerDate }) {
           <table className="w-full">
             <thead>
               <tr className="text-left text-text-2">
-                <th className="pb-1">Name</th>
+                <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} className="pb-1" />
                 <th className="pb-1">Cadence</th>
-                <th className="pb-1">Next payday</th>
+                <SortHeader label="Next payday" sortKey="next_payday" sort={sort} onSort={toggleSort} className="pb-1" />
                 <th className="pb-1"></th>
               </tr>
             </thead>

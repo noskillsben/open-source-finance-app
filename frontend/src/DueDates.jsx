@@ -11,10 +11,11 @@ import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { EMPTY_GOAL, GoalFields, goalBody, goalToForm } from './GoalFields.jsx'
 import { goalSaved } from './goalProgress.js'
 import NamePicker from './NamePicker.jsx'
+import SortHeader from './components/SortHeader.jsx'
+import { comparator, useSort } from './utils/useSort.js'
 
 // The Due dates page (DESIGN.md § Goals → The Due dates page): a view of goals, never a second store.
 // It lists the recurring bills and the fixed Commitments with a due month, soonest next due first.
-const FAR = '9999-12-31'
 
 const isBill = (p) => p.goal.kind === 'recurring_bill'
 
@@ -22,14 +23,16 @@ const isBill = (p) => p.goal.kind === 'recurring_bill'
 // Categories only. A fixed Commitment qualifies when the server gave it a next due date.
 export const qualifies = (p) => isBill(p) || (p.goal.kind === 'commitment' && p.commitment_next_due_on != null)
 
-const nextDueOn = (p) => (isBill(p) ? p.earliest_unpaid_due_on : p.commitment_next_due_on) ?? FAR
+const nextDueOn = (p) => (isBill(p) ? p.earliest_unpaid_due_on : p.commitment_next_due_on) ?? null
 
-/** Overdue bills first, then by next due date, then by name. */
-export function sortDueDates(rows) {
-  const rank = (p) => (p.bill_status === 'overdue' ? 0 : 1)
-  return [...rows].sort(
-    (a, b) => rank(a) - rank(b) || nextDueOn(a).localeCompare(nextDueOn(b)) || a.goal.name.localeCompare(b.goal.name),
-  )
+// Default: next due date, soonest first, so overdue leads. Status is the column that carries it.
+const DEFAULT_SORT = { key: 'status', dir: 'asc' }
+const dueValue = (p, key) =>
+  key === 'name' ? p.goal.name : key === 'amount' ? p.goal.amount_cents : key === 'saved' ? p.balance_cents : nextDueOn(p)
+
+/** Rows in the chosen order; ties fall back to name A to Z. */
+export function sortDueDates(rows, sort = DEFAULT_SORT) {
+  return [...rows].sort(comparator(sort, dueValue, (p) => p.goal.name))
 }
 
 // A Commitment's "$200.00 monthly · next due Oct 31" is worded once on the server; the amount and
@@ -145,6 +148,7 @@ export default function DueDates({ pickerDate }) {
   const [categories, setCategories] = useState([])
   const [streams, setStreams] = useState([])
   const [error, setError] = useState(null)
+  const { sort, toggle: toggleSort } = useSort('due-dates.sort', DEFAULT_SORT)
   const [kind, setKind] = useState('')
   const [cadence, setCadence] = useState('')
   const [categoryId, setCategoryId] = useState(null)
@@ -167,6 +171,7 @@ export default function DueDates({ pickerDate }) {
         (cadence === '' || p.goal.cadence === cadence) &&
         (categoryId == null || p.goal.category_id === categoryId),
     ),
+    sort,
   )
   const filtered = kind !== '' || cadence !== '' || categoryId != null
   const closePanel = () => setPanel(null)
@@ -248,10 +253,10 @@ export default function DueDates({ pickerDate }) {
               <table className="w-full">
                 <thead>
                   <tr>
-                    <th>Name</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th className="text-right">Saved</th>
+                    <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Amount" sortKey="amount" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Saved" sortKey="saved" sort={sort} onSort={toggleSort} className="text-right" />
                     <th><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>

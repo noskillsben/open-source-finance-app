@@ -7,7 +7,9 @@ import { GoalRow as GoalRowShell } from './components/ListRow.jsx'
 import RecordBillLink from './components/RecordBillLink.jsx'
 import { EMPTY_GOAL, GOAL_KINDS, GoalFields, goalBody, goalToForm } from './GoalFields.jsx'
 import ListFilters from './components/ListFilters.jsx'
+import SortHeader from './components/SortHeader.jsx'
 import { NEED_LEVELS } from './utils/order.js'
+import { comparator } from './utils/useSort.js'
 import { useFilters } from './utils/useFilters.js'
 import { goalSaved } from './goalProgress.js'
 import LoadingRows from './components/LoadingRows.jsx'
@@ -40,6 +42,7 @@ function orderTree(categories) {
   return rows
 }
 
+const DEFAULT_SORT = { key: 'name', dir: 'asc' }
 const COLLAPSED_KEY = 'categories.collapsed'
 
 // Which groups are collapsed is a per-device convenience (DESIGN.md § Nested and grouped lists), so it
@@ -65,7 +68,7 @@ function saveCollapsed(ids) {
 // descendant's), minus the descendants of a collapsed group. A parent holding money of its own gets a
 // "<name> itself" line first among its children. A search shows only matches and their ancestors, with
 // every group open, so a collapsed group never hides a hit.
-function viewRows(categories, availableOf, collapsed, search, passes = () => true) {
+function viewRows(categories, availableOf, collapsed, search, passes = () => true, sort = DEFAULT_SORT) {
   const ordered = orderTree(categories)
   const ids = new Set(categories.map((c) => c.id))
   const childrenOf = new Map()
@@ -81,6 +84,11 @@ function viewRows(categories, availableOf, collapsed, search, passes = () => tru
     }
     return totals.get(c.id)
   }
+  // Siblings reorder under their parent; a parent ranks among its siblings by its group total.
+  const valueOf = (c, key) =>
+    key === 'need' ? (c.need_level ? NEED_LEVELS.findIndex((n) => n.value === c.need_level) : null) : key === 'available' ? totalOf(c) : c.name
+  const rank = comparator(sort, valueOf, (c) => c.name)
+  for (const kids of childrenOf.values()) kids.sort(rank)
   const query = search.trim().toLowerCase()
   // A facet (need level, goal kind) narrows to the matching rows and their ancestors; a name search
   // alone also keeps a match's whole subtree.
@@ -233,7 +241,7 @@ export default function Categories({ pickerDate }) {
   const [savedNote, setSavedNote] = useState(null)
   const [highlightId, setHighlightId] = useState(null)
   const [collapsed, setCollapsed] = useState(loadCollapsed) // ids of collapsed groups, per device
-  const { filters, setFilter, clear: clearFilters, active: filtersActive } = useFilters('categories.filters', { search: '', need: '', goal: '', overspent: false })
+  const { filters, setFilter, clear: clearFilters, active: clearShows, filtered: filtersActive, sort, toggleSort } = useFilters('categories.filters', { search: '', need: '', goal: '', overspent: false }, DEFAULT_SORT)
   const search = filters.search
   const [assignError, setAssignError] = useState(null)
   const [goals, setGoals] = useState([]) // every goal shown at the picker date, with its progress
@@ -454,7 +462,7 @@ export default function Categories({ pickerDate }) {
     (!filters.overspent || available(c.id) < 0) &&
     (filters.goal === '' || (filters.goal === 'none' ? !goalOf(c.id) : goalOf(c.id)?.goal.kind === filters.goal))
   passes.faceted = filters.need !== '' || filters.goal !== '' || filters.overspent
-  const rows = categories ? viewRows(categories, available, collapsed, search, passes) : []
+  const rows = categories ? viewRows(categories, available, collapsed, search, passes, sort) : []
   const parentIds = rows.filter((r) => r.isParent).map((r) => r.category.id)
   const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
@@ -616,7 +624,7 @@ export default function Categories({ pickerDate }) {
             noun="categories"
             search={search}
             onSearch={(v) => setFilter('search', v)}
-            active={filtersActive}
+            active={clearShows}
             onClear={clearFilters}
             checks={[{ name: 'overspent', label: 'Overspent', checked: filters.overspent, onChange: (v) => setFilter('overspent', v) }]}
             facets={[
@@ -649,10 +657,10 @@ export default function Categories({ pickerDate }) {
               <table className="w-full">
                 <thead>
                   <tr>
-                    <th>Name</th>
+                    <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
                     <th>Domain</th>
-                    <th>Need level</th>
-                    <th className="text-right">Available</th>
+                    <SortHeader label="Need level" sortKey="need" sort={sort} onSort={toggleSort} />
+                    <SortHeader label="Available" sortKey="available" sort={sort} onSort={toggleSort} className="text-right" />
                     <th><span className="sr-only">Actions</span></th>
                   </tr>
                 </thead>
