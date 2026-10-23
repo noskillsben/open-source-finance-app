@@ -133,7 +133,10 @@ def list_goals(
         if stream is not None:
             due_cents = due_by_next_payday(session, g, stream, as_of=as_of)
             context_text = commitment_context(session, g, stream, as_of=as_of)
-        status = bill_status(session, g, as_of=as_of, stream=stream, horizon=horizon)
+        progress = goal_progress(session, g, as_of=as_of, stream=stream)
+        status = bill_status(
+            session, g, as_of=as_of, stream=stream, horizon=horizon, balance_cents=progress.balance_cents
+        )
         last_paid = last_paid_text(session, g, as_of=as_of) if g.kind == "recurring_bill" else None
         earliest_unpaid = earliest_unpaid_due_date(session, g)
         out.append(
@@ -148,7 +151,7 @@ def list_goals(
                 last_paid_due_on=last_paid[0] if last_paid else None,
                 last_paid_cents=last_paid[1] if last_paid else None,
                 last_paid_text=last_paid[2] if last_paid else None,
-                **vars(goal_progress(session, g, as_of=as_of, stream=stream)),
+                **vars(progress),
             )
         )
     return out
