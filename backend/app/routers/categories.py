@@ -25,7 +25,8 @@ from app.services.archiving import Archivable, ArchiveError, _visible, archive, 
 from app.services.categories import CategoryError, apply_category_settings, build_category_archivable
 from app.services.earmarks import sweep_archived_category_tree
 from app.services.goals import (
-    GoalError, _short_date, apply_goal, bill_status, commitment_context, due_by_next_payday, earliest_unpaid_due_date,
+    GoalError, _short_date, apply_goal, bill_status, commitment_context, due_by_next_payday,
+    earliest_unpaid_due_date, set_aside_context,
     goal_latest_linked_date, goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
     unbound_bill_horizon,
 )
@@ -132,7 +133,9 @@ def list_goals(
         stream = session.get(IncomeStream, g.income_stream_id) if g.income_stream_id is not None else None
         if stream is not None:
             due_cents = due_by_next_payday(session, g, stream, as_of=as_of)
-            context_text = commitment_context(session, g, stream, as_of=as_of)
+            context_text = commitment_context(session, g, stream, as_of=as_of) or set_aside_context(
+                session, g, stream, as_of=as_of
+            )
         progress = goal_progress(session, g, as_of=as_of, stream=stream)
         status = bill_status(
             session, g, as_of=as_of, stream=stream, horizon=horizon, balance_cents=progress.balance_cents
@@ -143,7 +146,7 @@ def list_goals(
             GoalProgressOut(
                 goal=GoalOut.model_validate(g),
                 due_by_next_payday_cents=due_cents,
-                commitment_context_text=context_text,
+                context_text=context_text,
                 earliest_unpaid_due_on=earliest_unpaid,
                 earliest_unpaid_due_text=_short_date(earliest_unpaid, as_of=as_of) if earliest_unpaid else None,
                 bill_status=status[0] if status else None,
@@ -199,6 +202,7 @@ def set_category_goal(category_id: int, payload: GoalIn, session: Session = Depe
             cadence_weeks=payload.cadence_weeks, first_due_on=payload.first_due_on,
             target_date=payload.target_date, level_cents=payload.level_cents,
             income_stream_id=payload.income_stream_id, percent_of_net=payload.percent_of_net,
+            set_aside_whole=payload.set_aside_whole,
         )
     except GoalError as exc:
         raise HTTPException(status_code=400, detail=str(exc))

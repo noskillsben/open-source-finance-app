@@ -491,6 +491,7 @@ class GoalIn(BaseModel):
     level_cents: int | None = None
     income_stream_id: int | None = None
     percent_of_net: Decimal | None = None
+    set_aside_whole: bool = False
 
     @model_validator(mode="after")
     def _bill_needs_first_due_date(self):
@@ -514,6 +515,7 @@ class GoalOut(BaseModel):
     level_cents: int | None
     income_stream_id: int | None
     percent_of_net: Decimal | None
+    set_aside_whole: bool
     created_on: date
     archived_on: date | None
 
@@ -619,9 +621,10 @@ class GoalProgressOut(BaseModel):
     # links to on the Categories goal row.
     earliest_unpaid_due_text: str | None = None
     due_by_next_payday_cents: int | None
-    # A fixed Commitment's context line on the pay screen, worded once on the server: "each
-    # payday" or "$100.00 of $200.00 due Oct 31"; null for any other goal or with no bound pay.
-    commitment_context_text: str | None = None
+    # The pay screen's context line, worded once on the server: a fixed Commitment's "each payday"
+    # or "$100.00 of $200.00 due Oct 31", or a bill set aside whole's "set aside whole on Oct 24";
+    # null for any other goal or with no bound pay.
+    context_text: str | None = None
     # A fixed Commitment's goal-row lines, worded once on the server: "$200.00 monthly · next due
     # Oct 31" / "$50.00 each payday", and "$140.00 of $200.00 this month" (null for each payday and
     # for any other goal).

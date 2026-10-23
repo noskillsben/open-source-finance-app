@@ -387,6 +387,15 @@ def _assert_a6c3e9d27f51(session):
     assert "need_level" not in {c["name"] for c in inspect(session.get_bind()).get_columns("category_line")}
 
 
+def _assert_b7d2f4a96c18(session):
+    from app.models import Goal
+
+    goals = session.query(Goal).order_by(Goal.id).all()
+    assert [(g.name, g.income_stream_id is not None, g.set_aside_whole) for g in goals] == [
+        ("Rent", True, False), ("Internet", False, False), ("Vacation", True, False), ("Old bill", True, False),
+    ]
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -417,6 +426,7 @@ ASSERTIONS = {
     "e5f9c3b82a74": _assert_e5f9c3b82a74,
     "f2b7d4c91e85": _assert_f2b7d4c91e85,
     "a6c3e9d27f51": _assert_a6c3e9d27f51,
+    "b7d2f4a96c18": _assert_b7d2f4a96c18,
 }
 
 

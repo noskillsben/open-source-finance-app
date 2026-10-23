@@ -230,6 +230,9 @@ class Goal(Base, Owned, NonLedger):
         BigInteger, ForeignKey("income_stream.id"), nullable=True, index=True
     )
     percent_of_net: Mapped[Decimal | None] = mapped_column(Numeric(9, 4), nullable=True)
+    # A recurring bill bound to a named pay: true wants nothing until the last payday on or before its
+    # due date (DESIGN.md § Goals); false (the default) splits it across paydays.
+    set_aside_whole: Mapped[bool] = mapped_column(nullable=False, default=False, server_default=text("false"))
 
     __table_args__ = (
         Index("ix_goal_category_live", "category_id", unique=True, postgresql_where=text("archived_on IS NULL")),

@@ -526,3 +526,59 @@ describe('Recorded and the highlight (#343)', () => {
     expect(rowOf('Rent')).not.toHaveClass('bg-raised')
   })
 })
+
+// #360: a bill paid by a named pay can be set aside whole on the last payday before it's due.
+describe('set aside whole (#360)', () => {
+  const BOX = "Set aside whole on the last payday before it's due"
+
+  async function openBillForm() {
+    goals = []
+    summaryRows = [{ category_id: 11, available_cents: 0, pool_available_cents: 0, pool_absorber: null }]
+    streams = [{ id: 3, name: 'Salary' }]
+    setGoal.mockClear()
+    const { api } = await import('./api.js')
+    api.categories.list = () => Promise.resolve([{
+      id: 11, name: 'Rent', parent_id: null, archived_on: null, need_level: null, linked_accounts: [], pool_id: null, absorb_overspending: false,
+    }])
+    renderCategories()
+    await openRent()
+    fireEvent.change(await screen.findByLabelText('Kind'), { target: { value: 'recurring_bill' } })
+    fireEvent.change(screen.getByLabelText('Goal name'), { target: { value: 'Rent' } })
+    fireEvent.change(screen.getByLabelText('Amount per bill'), { target: { value: '1500.00' } })
+    fireEvent.change(screen.getByLabelText('How often'), { target: { value: 'monthly' } })
+    fireEvent.change(screen.getByLabelText('First due date'), { target: { value: '2026-11-01' } })
+  }
+
+  it('is hidden until a named pay is picked, and not offered on a Target', async () => {
+    await openBillForm()
+    expect(screen.queryByLabelText(BOX)).not.toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Named pay this is paid by (optional)'), { target: { value: 'Salary' } })
+    expect(screen.getByLabelText(BOX)).not.toBeChecked()
+    fireEvent.change(screen.getByLabelText('Kind'), { target: { value: 'target' } })
+    expect(screen.queryByLabelText(BOX)).not.toBeInTheDocument()
+  })
+
+  it('is sent when ticked', async () => {
+    await openBillForm()
+    fireEvent.change(screen.getByLabelText('Named pay this is paid by (optional)'), { target: { value: 'Salary' } })
+    fireEvent.click(screen.getByLabelText(BOX))
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ income_stream_id: 3, set_aside_whole: true })
+  })
+
+  it('is cleared when the named pay is unbound', async () => {
+    await openBillForm()
+    const pay = screen.getByLabelText('Named pay this is paid by (optional)')
+    fireEvent.change(pay, { target: { value: 'Salary' } })
+    fireEvent.click(screen.getByLabelText(BOX))
+    fireEvent.change(pay, { target: { value: '' } })
+    expect(screen.queryByLabelText(BOX)).not.toBeInTheDocument()
+    fireEvent.change(pay, { target: { value: 'Salary' } })
+    expect(screen.getByLabelText(BOX)).not.toBeChecked()
+    fireEvent.change(pay, { target: { value: '' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(setGoal).toHaveBeenCalled())
+    expect(setGoal.mock.calls[0][1]).toMatchObject({ income_stream_id: null, set_aside_whole: false })
+  })
+})

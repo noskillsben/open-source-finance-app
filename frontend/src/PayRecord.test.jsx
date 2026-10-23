@@ -306,7 +306,7 @@ describe('PayRecord re-opens a recorded pay', () => {
     goals = [
       {
         goal: { id: 11, kind: 'recurring_bill', category_id: 5, income_stream_id: 3, name: 'Rent', amount_cents: 150000, percent_of_net: null },
-        due_date: '2026-10-01', due_by_next_payday_cents: 99999,
+        due_date: '2026-10-01', due_by_next_payday_cents: 99999, context_text: 'set aside whole on Oct 24',
       },
     ]
     existingTransactions = [RECORDED]
@@ -344,6 +344,12 @@ describe('PayRecord re-opens a recorded pay', () => {
     expect(leftOver()).toHaveTextContent('$1,400.00')
     expect(screen.queryByText(/set actual/i)).not.toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Delete this pay' })).toBeInTheDocument()
+  })
+
+  it("lists a set-aside bill in Bills with the server's 'set aside whole on' wording", async () => {
+    renderSalary()
+    const bills = (await screen.findByText('Bills')).closest('fieldset')
+    expect(await within(bills).findByText(/set aside whole on Oct 24/)).toBeInTheDocument()
   })
 
   it('correcting the gross changes Left over', async () => {
@@ -503,7 +509,7 @@ describe('PayRecord lists goal categories under Everything else', () => {
 describe('PayRecord funding rules for a fixed Commitment', () => {
   const fixed = (id, categoryId, name, cents, context, due) => ({
     goal: { id, kind: 'commitment', category_id: categoryId, income_stream_id: 3, name, amount_cents: cents, level_cents: null, percent_of_net: null },
-    due_date: null, due_by_next_payday_cents: due, commitment_context_text: context, owed_cents: null,
+    due_date: null, due_by_next_payday_cents: due, context_text: context, owed_cents: null,
   })
 
   it('pre-fills the instalment with the server wording, and each payday with the full amount', async () => {
