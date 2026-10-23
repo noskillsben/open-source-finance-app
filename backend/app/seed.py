@@ -23,6 +23,7 @@ from app.services.archiving import ArchiveError
 _SINCE_ALWAYS = date.min
 
 ME_KEY = "payee:me"
+OWED_TO_ME_KEY = "category:owed-to-me"
 
 
 def _key_exists(session: Session, model: type[NonLedger], key: str) -> bool:
@@ -67,13 +68,16 @@ def _default(
     return exists, insert
 
 
-# A fresh install opens with the payee Me and the Debt payments category, and nothing else
-# (DESIGN.md § Categories: no protected categories and no starter set). A new default is one
-# line here. Key "category:debt-payments" is read by frontend/src/account_types.js
-# (BOUNDARY_DEFAULT_SEEDED_KEY); change both together.
+# A fresh install opens with the payee Me and the Debt payments and Owed to me categories, and
+# nothing else (DESIGN.md § Categories: no protected categories and no starter set). A new
+# default is one line here. Key "category:debt-payments" is read by frontend/src/account_types.js
+# (BOUNDARY_DEFAULT_SEEDED_KEY) and "category:owed-to-me" by OWED_TO_ME_SEEDED_KEY there; the
+# latter is also OWED_TO_ME_KEY above, read by services/links.py. Change them together. Owed to
+# me has no need level: null means unknown.
 SEED_DEFAULTS: list[tuple[Callable[[Session], bool], Callable[[Session], None]]] = [
     _default(Payee, ME_KEY, name="Me"),
     _default(Category, "category:debt-payments", name="Debt payments", need_level="need"),
+    _default(Category, OWED_TO_ME_KEY, name="Owed to me"),
 ]
 
 

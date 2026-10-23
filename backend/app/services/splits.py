@@ -24,6 +24,7 @@ from app.schemas import SplitMemberIn
 from app.seed import is_me
 from app.services.archiving import Archivable, archive
 from app.services.accounts import account_balance_cents, create_account_with_opening_valuation, dollars
+from app.services.links import add_category_link, seeded_owed_to_me
 
 HUNDRED = Decimal("100")
 PERCENT_PLACES = Decimal("0.0001")
@@ -164,6 +165,9 @@ def _account_for(session: Session, payee: Payee, created_on: date) -> int:
         session, name=payee.name, created_on=created_on, type=RECEIVABLE_TYPE,
         on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
     )
+    owed = seeded_owed_to_me(session, on=created_on)  # DESIGN.md § Linked categories → Owed to me
+    if owed is not None:
+        add_category_link(session, owed.id, account.id)
     return account.id
 
 

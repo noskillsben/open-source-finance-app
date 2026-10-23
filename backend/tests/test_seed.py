@@ -11,7 +11,7 @@ from app.models import Category, Domain, Payee
 from app.seed import ME_KEY, is_me, seed_defaults
 
 EARLIER = datetime.date(2026, 1, 1)
-ALL_DEFAULTS = 2  # Me and Debt payments
+ALL_DEFAULTS = 3  # Me, Debt payments and Owed to me
 
 
 def _me(session):
@@ -22,7 +22,7 @@ def _count(session, model):
     return session.scalar(select(func.count()).select_from(model))
 
 
-def test_first_run_seeds_only_me_and_debt_payments(db_session):
+def test_first_run_seeds_only_me_debt_payments_and_owed_to_me(db_session):
     inserted = seed_defaults(db_session)
 
     assert inserted == ALL_DEFAULTS
@@ -30,8 +30,12 @@ def test_first_run_seeds_only_me_and_debt_payments(db_session):
     assert _count(db_session, Payee) == 1
     assert _count(db_session, Domain) == 0
     cats = db_session.scalars(select(Category)).all()
-    assert [c.name for c in cats] == ["Debt payments"]
-    debt = cats[0]
+    assert sorted(c.name for c in cats) == ["Debt payments", "Owed to me"]
+    debt = next(c for c in cats if c.name == "Debt payments")
+    owed = next(c for c in cats if c.name == "Owed to me")
+    assert owed.seeded_key == "category:owed-to-me"
+    assert owed.need_level is None  # null means unknown
+    assert owed.created_on == datetime.date.min
     assert debt.need_level == "need"
     assert debt.domain_id is None
     assert debt.created_on == datetime.date.min  # valid on every picker date
@@ -82,7 +86,7 @@ def test_a_renamed_or_archived_debt_payments_is_not_reseeded(db_session):
 
     assert seed_defaults(db_session) == 0
 
-    assert _count(db_session, Category) == 1
+    assert _count(db_session, Category) == 2
     assert debt.name == "Loan payments" and debt.archived_on == EARLIER
 
 
@@ -97,8 +101,40 @@ def test_a_default_is_skipped_when_the_user_already_has_an_active_row_of_that_na
     assert len(rows) == 1 and rows[0].seeded_key is None  # theirs, untouched
 
 
+def test_owed_to_me_is_stored_under_the_key_the_frontend_pre_selects(db_session):
+    # frontend/src/account_types.js OWED_TO_ME_SEEDED_KEY must equal this string.
+    seed_defaults(db_session)
+    row = db_session.scalar(select(Category).where(Category.name == "Owed to me"))
+    assert row.seeded_key == "category:owed-to-me"
+
+
 def test_debt_payments_is_stored_under_the_key_the_frontend_pre_selects(db_session):
     # frontend/src/account_types.js BOUNDARY_DEFAULT_SEEDED_KEY must equal this string.
     seed_defaults(db_session)
     row = db_session.scalar(select(Category).where(Category.name == "Debt payments"))
     assert row.seeded_key == "category:debt-payments"
+
+
+def test_a_renamed_or_archived_owed_to_me_is_not_reseeded(db_session):
+    seed_defaults(db_session)
+    owed = db_session.scalar(select(Category).where(Category.seeded_key == "category:owed-to-me"))
+    owed.name = "IOUs"
+    db_session.flush()
+    assert seed_defaults(db_session) == 0
+    owed.archived_on = EARLIER
+    db_session.flush()
+
+    assert seed_defaults(db_session) == 0
+
+    assert _count(db_session, Category) == 2
+    assert owed.name == "IOUs" and owed.archived_on == EARLIER
+
+
+def test_a_users_own_live_owed_to_me_stops_the_seed(db_session):
+    db_session.add(Category(name="Owed To Me", created_on=EARLIER))
+    db_session.flush()
+
+    assert seed_defaults(db_session) == ALL_DEFAULTS - 1
+
+    rows = db_session.scalars(select(Category).where(func.lower(Category.name) == "owed to me")).all()
+    assert len(rows) == 1 and rows[0].seeded_key is None
