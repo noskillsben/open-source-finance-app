@@ -3,13 +3,16 @@ import { fireEvent } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings.jsx'
 
-const { latest, downloadLatest } = vi.hoisted(() => ({ latest: vi.fn(), downloadLatest: vi.fn() }))
+const { latest, downloadLatest, exportDownload } = vi.hoisted(() => ({
+  latest: vi.fn(), downloadLatest: vi.fn(), exportDownload: vi.fn(),
+}))
 
-vi.mock('./api.js', () => ({ api: { backups: { latest, downloadLatest } } }))
+vi.mock('./api.js', () => ({ api: { backups: { latest, downloadLatest }, exportData: { download: exportDownload } } }))
 
 beforeEach(() => {
   latest.mockReset()
   downloadLatest.mockReset()
+  exportDownload.mockReset()
 })
 
 describe('Download latest backup', () => {
@@ -33,5 +36,25 @@ describe('Download latest backup', () => {
     render(<Settings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Download latest backup' }))
     await waitFor(() => expect(screen.getByText(/No backup yet/)).toBeInTheDocument())
+  })
+})
+
+describe('Export data', () => {
+  it('is offered even when there is no backup yet, and fetches the export', async () => {
+    latest.mockResolvedValue({ name: null, taken_at: null })
+    exportDownload.mockResolvedValue(new Blob(['zip']))
+    URL.createObjectURL = vi.fn(() => 'blob:x')
+    URL.revokeObjectURL = vi.fn()
+    render(<Settings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export data' }))
+    await waitFor(() => expect(exportDownload).toHaveBeenCalledTimes(1))
+  })
+
+  it('shows the backend detail when the export fails', async () => {
+    latest.mockResolvedValue({ name: null, taken_at: null })
+    exportDownload.mockRejectedValue(new Error('Export failed'))
+    render(<Settings />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Export data' }))
+    await waitFor(() => expect(screen.getByText('Export failed')).toBeInTheDocument())
   })
 })

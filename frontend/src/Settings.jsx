@@ -12,24 +12,40 @@ export default function Settings() {
   const [latest, setLatest] = useState(null)
   const [error, setError] = useState(null)
   const [downloading, setDownloading] = useState(false)
+  const [exporting, setExporting] = useState(false)
 
   useEffect(() => {
     api.backups.latest().then(setLatest).catch((e) => setError(e.message))
   }, [])
 
+  function saveBlob(blob, filename) {
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = filename
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    URL.revokeObjectURL(url)
+  }
+
+  async function exportData() {
+    setExporting(true)
+    setError(null)
+    try {
+      saveBlob(await api.exportData.download(), 'export.zip')
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   async function download() {
     setDownloading(true)
     setError(null)
     try {
-      const blob = await api.backups.downloadLatest()
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = latest.name
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      URL.revokeObjectURL(url)
+      saveBlob(await api.backups.downloadLatest(), latest.name)
     } catch (err) {
       setError(err.message)
     } finally {
@@ -54,6 +70,12 @@ export default function Settings() {
             </Button>
           </div>
         )}
+        <div className="flex flex-col items-start gap-3">
+          <p className="text-text-2">Every table as a spreadsheet file, in one zip. You can't import it back.</p>
+          <Button variant="secondary" disabled={exporting} onClick={exportData}>
+            Export data
+          </Button>
+        </div>
       </section>
     </div>
   )

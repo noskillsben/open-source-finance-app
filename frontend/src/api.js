@@ -127,4 +127,7 @@ export const api = {
     latest: () => request('/api/backups/latest'),
     downloadLatest: () => request('/api/backups/latest/download', { as: 'blob' }),
   },
+  exportData: {
+    download: () => request('/api/export', { as: 'blob' }),
+  },
 }
