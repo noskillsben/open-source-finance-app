@@ -376,8 +376,9 @@ describe('Transactions: the form is a page of its own (#285)', () => {
   })
 
   it("opens from Quick add's More details pre-filled", async () => {
-    renderLedger({ quickAdd: { date: '2026-10-05', payee_id: null, account_id: 1, category_id: 11, amount_text: '-12.50', refill: false } })
+    renderLedger({ quickAdd: { date: '2026-10-05', memo: 'birthday', payee_id: null, account_id: 1, category_id: 11, amount_text: '-12.50', refill: false } })
     await waitFor(() => expect(screen.getByLabelText('Date')).toHaveValue('2026-10-05'))
+    expect(screen.getByLabelText('Memo')).toHaveValue('birthday')
   })
 
   it('offers an add from the empty list', async () => {

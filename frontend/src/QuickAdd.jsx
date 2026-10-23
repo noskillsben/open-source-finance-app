@@ -51,6 +51,7 @@ export default function QuickAdd({ pickerDate }) {
   const [categoryId, setCategoryId] = useState('')
   const [accountId, setAccountId] = useState('')
   const [date, setDate] = useState(pickerDate)
+  const [memo, setMemo] = useState('')
   const [fill, setFill] = useState(null) // the last payment's answer for the chosen payee
   const [billAnswer, setBillAnswer] = useState(null) // goal id -> 'yes' | 'no'
   const [formError, setFormError] = useState(null)
@@ -138,6 +139,7 @@ export default function QuickAdd({ pickerDate }) {
     setCategoryId('')
     setAccountId('')
     setDate(pickerDate)
+    setMemo('')
     setFill(null)
     setBillAnswer(null)
     setFormError(null)
@@ -156,7 +158,7 @@ export default function QuickAdd({ pickerDate }) {
     try {
       result = await api.transactions.create({
         date,
-        memo: null,
+        memo: memo.trim() || null,
         payee_id: payeeId,
         goal_id: linked ? bill.goal.id : null,
         goal_due_on: linked ? bill.earliest_unpaid_due_on : null,
@@ -196,6 +198,7 @@ export default function QuickAdd({ pickerDate }) {
       state: {
         quickAdd: {
           date,
+          memo,
           payee_id: payeeId,
           account_id: accountId ? Number(accountId) : null,
           category_id: categoryId && !isSplit ? Number(categoryId) : null,
@@ -327,6 +330,11 @@ export default function QuickAdd({ pickerDate }) {
             </ChangeRow>
             {source && <p className="text-sm text-text-3">{source}</p>}
           </section>
+
+          <label className="block space-y-1">
+            <span className="field-label">Memo</span>
+            <input className="w-full field" value={memo} onChange={(e) => setMemo(e.target.value)} />
+          </label>
 
           {bill && (
             <div className="space-y-2 rounded-lg bg-raised p-3">
