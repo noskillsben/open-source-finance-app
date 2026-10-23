@@ -50,7 +50,10 @@ const order = (names) => {
 const header = (name) => screen.getByRole('columnheader', { name })
 const tap = (name) => fireEvent.click(screen.getByRole('button', { name }))
 
-beforeEach(() => sessionStorage.clear())
+beforeEach(() => {
+  sessionStorage.clear()
+  localStorage.clear()
+})
 afterEach(() => vi.restoreAllMocks())
 
 describe('Accounts sort', () => {
@@ -71,7 +74,7 @@ describe('Accounts sort', () => {
     expect(header('Name').querySelector('svg')).not.toBeNull()
     expect(header('Balance')).toHaveAttribute('aria-sort', 'none')
     expect(header('Balance').querySelector('svg')).toBeNull()
-    expect(order(names)).toEqual(['Car loan', 'Everyday', 'Rainy day'])
+    expect(order(names)).toEqual(['Everyday', 'Rainy day', 'Car loan'])
 
     tap('Name')
     expect(header('Name')).toHaveAttribute('aria-sort', 'descending')
@@ -80,21 +83,24 @@ describe('Accounts sort', () => {
     tap('Balance')
     expect(header('Balance')).toHaveAttribute('aria-sort', 'ascending')
     expect(header('Name')).toHaveAttribute('aria-sort', 'none')
-    expect(order(names)).toEqual(['Car loan', 'Everyday', 'Rainy day'])
+    expect(order(names)).toEqual(['Everyday', 'Rainy day', 'Car loan'])
     tap('Balance')
     expect(header('Balance')).toHaveAttribute('aria-sort', 'descending')
     expect(order(names)).toEqual(['Rainy day', 'Everyday', 'Car loan'])
   })
 
-  it('sorts Type in the type list order and Side on-budget first', async () => {
+  it('sorts Type in the type list order by side, and Side by type; the grouped-by column is not a header', async () => {
     load()
     await screen.findByText('Everyday')
+    expect(screen.queryByRole('columnheader', { name: 'Side' })).toBeNull()
     tap('Type')
     expect(order(names)).toEqual(['Everyday', 'Rainy day', 'Car loan'])
+    fireEvent.change(screen.getByLabelText('Group by'), { target: { value: 'type' } })
+    expect(screen.queryByRole('columnheader', { name: 'Type' })).toBeNull()
     tap('Side')
     expect(order(names)).toEqual(['Everyday', 'Rainy day', 'Car loan'])
     tap('Side')
-    expect(order(names)).toEqual(['Car loan', 'Everyday', 'Rainy day'])
+    expect(header('Side')).toHaveAttribute('aria-sort', 'descending')
   })
 
   it('keeps an account with an unknown type last in both directions', async () => {
@@ -104,10 +110,11 @@ describe('Accounts sort', () => {
     render(<Accounts pickerDate="2026-10-03" />)
     await screen.findByText('Mystery')
     const all = [...names, 'Mystery']
-    tap('Type')
+    fireEvent.change(screen.getByLabelText('Group by'), { target: { value: 'type' } })
+    tap('Side')
     expect(order(all).at(-1)).toBe('Mystery')
-    tap('Type')
-    expect(header('Type')).toHaveAttribute('aria-sort', 'descending')
+    tap('Side')
+    expect(header('Side')).toHaveAttribute('aria-sort', 'descending')
     expect(order(all).at(-1)).toBe('Mystery')
   })
 
