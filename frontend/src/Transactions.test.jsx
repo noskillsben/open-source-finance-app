@@ -31,6 +31,7 @@ const ACCOUNTS = [
   { id: 5, name: 'Car loan', linked_category_ids: [], on_budget: false, boundary_category_id: 12 },
   { id: 6, name: 'Credit line', linked_category_ids: [], on_budget: false, boundary_category_id: null },
   { id: 7, name: 'Friend', linked_category_ids: [13], on_budget: true },
+  { id: 8, name: 'Pool', linked_category_ids: [11, 13], on_budget: true },
 ]
 const SPLITS = [
   {
@@ -1601,6 +1602,13 @@ describe('Ledger form: the envelope step is pre-filled from the balance before t
     fireEvent.change(screen.getAllByPlaceholderText('0.00')[0], { target: { value: '60' } })
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(envelopeAmount()).toHaveValue('20')
+  })
+
+  it('drops the pre-filled row when the transaction stops qualifying', async () => {
+    renderLedger(quick('50'))
+    await waitFor(() => expect(screen.getByLabelText('Envelope')).toHaveValue('Owed to me'))
+    fireEvent.change(screen.getAllByLabelText('Account')[0], { target: { value: 'Pool' } })
+    await waitFor(() => expect(screen.queryByLabelText('Envelope')).not.toBeInTheDocument())
   })
 
   it('shows the stored items on an edit and never pre-fills', async () => {

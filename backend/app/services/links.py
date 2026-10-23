@@ -173,7 +173,8 @@ def link_group(session: Session, account_id: int) -> tuple[list[int], list[int]]
 def drift_cents(session: Session, account_id: int, *, as_of: date | None) -> int | None:
     """The link group's account balances minus its category balances (totals only), or None
     when the account has no links. Positive: money nobody has claimed. Negative: the envelopes
-    hold more than the accounts. An account below zero counts as holding 0. A reminder only — nothing reads it to block or correct anything.
+    hold more than the accounts. An account below zero counts as holding 0. A reminder only —
+    nothing reads it to block or correct anything.
     """
     account_ids, category_ids = link_group(session, account_id)
     if not category_ids:

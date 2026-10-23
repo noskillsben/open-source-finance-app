@@ -749,7 +749,8 @@ export default function Transactions({ pickerDate }) {
   const prefillCategoryId = prefillAccount?.linked_category_ids.length === 1 ? prefillAccount.linked_category_ids[0] : null
   const prefillCents = prefillCategoryId != null ? parseCents(linkedLines[0].cents) : null
   useEffect(() => {
-    if (editingId != null || depositsTouched.current || prefillCategoryId == null || !date) return
+    if (editingId != null || depositsTouched.current || !date) return
+    if (prefillCategoryId == null) return setDeposits([]) // no longer qualifies: drop the pre-filled row
     if (!prefillCents) return setDeposits([])
     let stale = false
     api.accounts
