@@ -3,14 +3,17 @@ import { fireEvent } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings.jsx'
 
-const { latest, downloadLatest, takeNow, exportDownload } = vi.hoisted(() => ({
-  latest: vi.fn(), downloadLatest: vi.fn(), takeNow: vi.fn(), exportDownload: vi.fn(),
+const { latest, list, restore, downloadLatest, takeNow, exportDownload } = vi.hoisted(() => ({
+  latest: vi.fn(), list: vi.fn(), restore: vi.fn(), downloadLatest: vi.fn(), takeNow: vi.fn(), exportDownload: vi.fn(),
 }))
 
-vi.mock('./api.js', () => ({ api: { backups: { latest, downloadLatest, takeNow }, exportData: { download: exportDownload } } }))
+vi.mock('./api.js', () => ({ api: { backups: { latest, list, restore, downloadLatest, takeNow }, exportData: { download: exportDownload } } }))
 
 beforeEach(() => {
   latest.mockReset()
+  list.mockReset()
+  list.mockResolvedValue([])
+  restore.mockReset()
   downloadLatest.mockReset()
   takeNow.mockReset()
   exportDownload.mockReset()
@@ -103,5 +106,70 @@ describe('Back up now', () => {
     render(<Settings />)
     fireEvent.click(await screen.findByRole('button', { name: 'Back up now' }))
     expect(await screen.findByText('A backup is already being taken')).toBeInTheDocument()
+  })
+})
+
+describe('Restore', () => {
+  const files = [
+    { name: 'pre-restore-20261022T100000Z.sql', taken_at: '2026-10-22T10:00:00Z' },
+    { name: 'nightly-20261019T030000Z.sql', taken_at: '2026-10-19T03:00:00Z' },
+  ]
+  beforeEach(() => {
+    latest.mockResolvedValue({ name: 'nightly-20261019T030000Z.sql', taken_at: '2026-10-19T03:00:00Z' })
+    list.mockResolvedValue(files)
+  })
+
+  it('lists every backup with its date and a Restore button', async () => {
+    render(<Settings />)
+    expect(await screen.findAllByRole('button', { name: 'Restore' })).toHaveLength(2)
+    expect(screen.getByText('pre-restore-20261022T100000Z.sql')).toBeInTheDocument()
+  })
+
+  it('asks once, naming the date, with Replace my data and Cancel', async () => {
+    render(<Settings />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Restore' }))[1])
+    const dialog = screen.getByRole('alertdialog')
+    expect(dialog).toHaveTextContent(/Oct 19, 2026/)
+    expect(dialog).toHaveTextContent(/Everything you have recorded since then is replaced/)
+    expect(dialog).toHaveTextContent(/backup of your current data is taken first/)
+    expect(screen.getByRole('button', { name: 'Replace my data' })).toBeEnabled()
+    expect(restore).not.toHaveBeenCalled()
+  })
+
+  it('does nothing on Cancel', async () => {
+    render(<Settings />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Restore' }))[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(restore).not.toHaveBeenCalled()
+  })
+
+  it('reads Restoring… with the page disabled, then reloads on success', async () => {
+    let resolve
+    restore.mockReturnValue(new Promise((r) => { resolve = r }))
+    const reload = vi.fn()
+    Object.defineProperty(window, 'location', { configurable: true, value: { ...window.location, reload } })
+    render(<Settings />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Restore' }))[1])
+    fireEvent.click(screen.getByRole('button', { name: 'Replace my data' }))
+    const busy = await screen.findByRole('button', { name: 'Restoring…' })
+    expect(busy).toBeDisabled()
+    for (const name of ['Back up now', 'Download latest backup', 'Export data', 'Cancel']) {
+      expect(screen.getByRole('button', { name })).toBeDisabled()
+    }
+    screen.getAllByRole('button', { name: 'Restore' }).forEach((b) => expect(b).toBeDisabled())
+    expect(restore).toHaveBeenCalledWith('nightly-20261019T030000Z.sql')
+    resolve({ restored: 'x', undo: 'y' })
+    await waitFor(() => expect(reload).toHaveBeenCalled())
+  })
+
+  it('shows the message and re-enables the page when the restore fails', async () => {
+    restore.mockRejectedValue(new Error('Refusing: x holds a newer schema'))
+    render(<Settings />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Restore' }))[0])
+    fireEvent.click(screen.getByRole('button', { name: 'Replace my data' }))
+    expect(await screen.findByText('Refusing: x holds a newer schema')).toBeInTheDocument()
+    expect(screen.queryByRole('alertdialog')).toBeNull()
+    expect(screen.getAllByRole('button', { name: 'Restore' })[0]).toBeEnabled()
   })
 })

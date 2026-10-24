@@ -96,3 +96,34 @@ def take_backup_now() -> Backup | None:
         reason = f" ({lines[-1]})" if lines else ""
         raise BackupFailed(f"Backup failed{reason}. Earlier backups were left alone.")
     return latest_backup(directory)
+
+
+_STAMP = re.compile(r"(\d{8}T\d{6}Z)")
+
+
+def list_backups(directory: Path | None = None) -> list[Backup]:
+    """Every `.sql` file in the backups folder (nightly, pre-migrate, pre-restore, uploaded), newest first.
+
+    The date is the stamp in the name; a file without one falls back to its modified time. Temp files
+    (`.tmp`), dot-files and the lock file are not listed.
+    """
+    directory = directory if directory is not None else backup_dir()
+    try:
+        entries = list(directory.iterdir())
+    except OSError:
+        return []
+    found = []
+    for entry in entries:
+        if entry.name.startswith(".") or not entry.name.endswith(".sql") or not entry.is_file():
+            continue
+        taken_at = None
+        match = _STAMP.search(entry.name)
+        if match:
+            try:
+                taken_at = datetime.strptime(match.group(1), "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+            except ValueError:
+                taken_at = None
+        if taken_at is None:
+            taken_at = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)  # provenance only
+        found.append(Backup(name=entry.name, taken_at=taken_at, path=entry))
+    return sorted(found, key=lambda b: (b.taken_at, b.name), reverse=True)
