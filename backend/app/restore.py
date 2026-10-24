@@ -26,7 +26,7 @@ from app.startup_check import known_revisions
 MARKER = "-- PostgreSQL database dump complete"
 _COPY_START = re.compile(r"^COPY\s.*\sFROM stdin;\s*$")
 _VERSION_COPY = re.compile(r"^COPY\s+(public\.)?alembic_version\s")
-_ALLOWED_META = re.compile(r"^\\(restrict|unrestrict)(\s+\S+)?\s*$")  # pg_dump's own
+_ALLOWED_META = re.compile(r"^\\(restrict|unrestrict) [A-Za-z0-9]+$")  # pg_dump's own
 _DROPPED = "SET transaction_timeout"  # older dumps carry it; the database refuses it
 
 
@@ -49,8 +49,9 @@ _DOLLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$")
 
 class _SqlScan:
     """Tracks, across lines, whether we are inside a quoted string, quoted identifier, dollar-quoted
-    body or comment, so a backslash (a psql meta-command) can be told apart from one in data.
-    `mode` is None (plain SQL), "'" , "E'" (backslash escapes), '"', "/*", or the closing "$tag$".
+    body or comment. It only decides where a COPY block may start: a file with no backslash outside
+    COPY data has no escape for the quote rules to disagree with psql about (even under
+    `standard_conforming_strings = off`). `mode` is None (plain SQL), "'", '"', "/*", or the closing "$tag$".
     """
 
     def __init__(self) -> None:
@@ -61,25 +62,20 @@ class _SqlScan:
     def normal(self) -> bool:
         return self.mode is None
 
-    def has_meta_command(self, line: str) -> bool:
+    def advance(self, line: str) -> None:
         i, n = 0, len(line)
         while i < n:
             c = line[i]
             mode = self.mode
             if mode is None:
-                if c == "\\":
-                    return True
                 if c == "-" and line.startswith("--", i):
-                    return False  # line comment: the rest of the line is inert
+                    return  # line comment: the rest of the line is inert
                 if c == "/" and line.startswith("/*", i):
                     self.mode, self.depth = "/*", 1
                     i += 2
                     continue
                 if c == "'":
-                    prev = line[i - 1] if i else " "
-                    before = line[i - 2] if i > 1 else " "
-                    escape = prev in "eE" and not (before.isalnum() or before == "_")
-                    self.mode = "E'" if escape else "'"
+                    self.mode = "'"
                 elif c == '"':
                     self.mode = '"'
                 elif c == "$" and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] == "_")):
@@ -91,12 +87,6 @@ class _SqlScan:
             elif mode == "'" or mode == '"':
                 if c == mode:
                     self.mode = None  # a doubled quote closes and reopens on the next character
-            elif mode == "E'":
-                if c == "\\":
-                    i += 2
-                    continue
-                if c == "'":
-                    self.mode = None
             elif mode == "/*":
                 if line.startswith("*/", i):
                     self.depth -= 1
@@ -113,7 +103,6 @@ class _SqlScan:
                 self.mode = None
                 continue
             i += 1
-        return False
 
 
 def inspect_dump(path: Path) -> set[str]:
@@ -132,17 +121,19 @@ def inspect_dump(path: Path) -> set[str]:
                 elif in_version:
                     revisions.add(line.split("\t")[0])
                 continue
-            if _COPY_START.match(line):
+            if scan.normal and _COPY_START.match(line):
                 in_copy = True
                 in_version = bool(_VERSION_COPY.match(line))
                 continue
             if scan.normal and line.startswith(MARKER):
                 complete = True
-            if scan.normal and _ALLOWED_META.match(line):
-                continue
-            if scan.has_meta_command(line):
-                raise RestoreRefused("Refusing: the file holds a psql command (a backslash outside a quoted "
-                                     "string or comment), which a backup never does.")
+            if "\\" in line and not (scan.normal and _ALLOWED_META.match(line)):
+                raise RestoreRefused("Refusing: the file holds a backslash outside COPY data (a possible psql "
+                                     "command), which a backup never does.")
+            scan.advance(line)
+    if in_copy or not scan.normal:
+        raise RestoreRefused(f"Refusing: {path.name} ends inside a string, comment or data block; "
+                             "it was cut short or altered.")
     if not complete:
         raise RestoreRefused(f"Refusing: {path.name} does not end with '{MARKER}'; it was cut short.")
     if not revisions:

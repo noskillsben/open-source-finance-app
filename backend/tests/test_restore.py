@@ -142,7 +142,7 @@ def test_shell_escape_is_refused_but_copy_data_starting_with_backslash_is_not(th
     restore.inspect_dump(backups / name)  # accepted
     bad = "nightly-20261020T030000Z.sql"
     (backups / bad).write_text(content.replace("SET statement_timeout = 0;", "SET statement_timeout = 0;\n\\! echo hi", 1))
-    _assert_refused(throwaway_database, backups, bad, capsys, "psql command")
+    _assert_refused(throwaway_database, backups, bad, capsys, "backslash")
 
 
 def test_newer_schema_is_refused(throwaway_database, backups, capsys):
@@ -185,9 +185,20 @@ def test_restore_command_names_the_file(monkeypatch):
     monkeypatch.setenv("APP_ENV", "production")
     assert "-f docker-compose.prod.yml run" in restore_command("x.sql")
 
+def _inspect_text(tmp_path, body):
+    path = tmp_path / "crafted.sql"
+    path.write_text(body)
+    return path
 
-def _scan(sql):
-    return restore._SqlScan().has_meta_command(sql)
+
+COMPLETE_LINE = "-- PostgreSQL database dump complete\n"
+VERSION_COPY = "COPY public.alembic_version (version_num) FROM stdin;\nb7d2f4a96c18\n\\.\n"
+
+
+def _refused(tmp_path, body):
+    with pytest.raises(restore.RestoreRefused) as info:
+        restore.inspect_dump(_inspect_text(tmp_path, body))
+    return str(info.value)
 
 
 @pytest.mark.parametrize("sql", [
@@ -195,32 +206,55 @@ def _scan(sql):
     "\\o |cmd",
     "SELECT 1 \\gexec",
     "SELECT 'a' \\! echo",
-    "SELECT 'it''s' \\! echo",
-    "SELECT $$x$$ \\! echo",
-    "/* c */ \\! echo",
-])
-def test_meta_commands_outside_quotes_are_found(sql):
-    assert _scan(sql)
-
-
-@pytest.mark.parametrize("sql", [
     "SELECT 'a\\b';",
-    "SELECT E'a\\'b\\\\' ;",
+    "SELECT E'a\\'b';",
     'SELECT "a\\b";',
     "SELECT 1; -- \\! not run",
     "SELECT 1 /* \\! not run */;",
-    "SELECT 'it''s \\ fine';",
+    "SELECT $$x\\y$$;",
+    "\\restrict abc def",
+    "\\restrict",
+    " \\restrict abc",
 ])
-def test_backslashes_inside_quotes_and_comments_are_accepted(sql):
-    assert not _scan(sql)
+def test_any_backslash_outside_copy_data_is_refused(tmp_path, sql):
+    assert "backslash" in _refused(tmp_path, sql + "\n" + VERSION_COPY + COMPLETE_LINE)
 
 
-def test_backslash_in_dollar_quoted_body_spanning_lines_is_accepted():
+def test_pg_dump_restrict_lines_alone_on_a_line_are_allowed(tmp_path):
+    body = "\\restrict AbC123\nSELECT 1;\n" + VERSION_COPY + COMPLETE_LINE + "\\unrestrict AbC123\n"
+    restore_revs = restore.known_revisions()
+    path = _inspect_text(tmp_path, body.replace("b7d2f4a96c18", next(iter(restore_revs))))
+    assert restore.inspect_dump(path)
+
+
+def test_copy_line_inside_a_multiline_string_is_not_a_copy_block(tmp_path):
+    body = ("SELECT 'text\n"
+            "COPY t (a) FROM stdin;\n"
+            "';\n"
+            "\\! echo pwned\n"
+            "\\.\n" + VERSION_COPY + COMPLETE_LINE)
+    assert "backslash" in _refused(tmp_path, body)
+
+
+def test_standard_conforming_strings_off_cannot_desync_the_scanner(tmp_path):
+    body = ("SET standard_conforming_strings = off;\n"
+            "SELECT 'a\\'b';\n"
+            "COPY t (a) FROM stdin;\n"
+            "\\.\n" + VERSION_COPY + COMPLETE_LINE)
+    assert "backslash" in _refused(tmp_path, body)
+
+
+@pytest.mark.parametrize("opening", ["SELECT 'open string;", "/* open comment", "SELECT $q$ open body"])
+def test_file_ending_inside_a_string_comment_or_dollar_quote_is_refused(tmp_path, opening):
+    assert "ends inside" in _refused(tmp_path, VERSION_COPY + COMPLETE_LINE + opening + "\n")
+
+
+def test_copy_start_only_counts_in_plain_sql(tmp_path):
     scan = restore._SqlScan()
-    assert not scan.has_meta_command("CREATE FUNCTION f() RETURNS text AS $body$")
-    assert not scan.has_meta_command("  SELECT 'x\\y' || E'\\n';")
-    assert not scan.has_meta_command("$body$ LANGUAGE sql;")
-    assert scan.has_meta_command("\\! echo hi")  # back in plain SQL
+    scan.advance("SELECT $tag$")
+    assert not scan.normal
+    scan.advance("$tag$;")
+    assert scan.normal
 
 
 def test_mid_line_meta_commands_make_a_dump_refused(throwaway_database, backups, capsys):
@@ -229,7 +263,7 @@ def test_mid_line_meta_commands_make_a_dump_refused(throwaway_database, backups,
     for i, payload in enumerate(["SET statement_timeout = 0; \\! echo hi", "\\o |cmd"]):
         bad = f"nightly-2026102{i}T030000Z.sql"
         (backups / bad).write_text(content.replace("SET statement_timeout = 0;", payload, 1))
-        _assert_refused(throwaway_database, backups, bad, capsys, "psql command")
+        _assert_refused(throwaway_database, backups, bad, capsys, "backslash")
 
 
 def test_a_real_dump_of_a_migrated_database_passes(throwaway_database, backups):
