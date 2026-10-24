@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor, within } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings.jsx'
@@ -135,6 +135,19 @@ describe('Restore', () => {
     expect(dialog).toHaveTextContent(/backup of your current data is taken first/)
     expect(screen.getByRole('button', { name: 'Replace my data' })).toBeEnabled()
     expect(restore).not.toHaveBeenCalled()
+  })
+
+  it('opens the confirmation inside the list item of the file pressed', async () => {
+    list.mockResolvedValue([
+      ...files,
+      { name: 'nightly-20261018T030000Z.sql', taken_at: '2026-10-18T03:00:00Z' },
+    ])
+    render(<Settings />)
+    fireEvent.click((await screen.findAllByRole('button', { name: 'Restore' }))[0])
+    const item = screen.getByText('pre-restore-20261022T100000Z.sql').closest('li')
+    expect(within(item).getByRole('alertdialog')).toBeInTheDocument()
+    const other = screen.getByText('nightly-20261018T030000Z.sql').closest('li')
+    expect(within(other).queryByRole('alertdialog')).toBeNull()
   })
 
   it('does nothing on Cancel', async () => {
