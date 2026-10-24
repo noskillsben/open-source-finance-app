@@ -327,3 +327,31 @@ def test_control_bytes_outside_copy_data_are_refused(tmp_path, control):
 def test_tab_is_fine_outside_copy_data(tmp_path):
     body = ("SELECT 1;\t-- tab\n" + _known_version_copy() + COMPLETE_LINE).encode()
     assert restore.inspect_dump(_bytes_file(tmp_path, body))
+
+
+def test_transaction_timeout_filter_cannot_hide_a_closing_quote(tmp_path):
+    body = ("SELECT '\nSET transaction_timeout ';\nCOPY x FROM stdin;\n';\n\\! cmd\n\\.\n"
+            + _known_version_copy() + COMPLETE_LINE).encode()
+    with pytest.raises(restore.RestoreRefused, match="backslash"):
+        restore.inspect_dump(_bytes_file(tmp_path, body))
+
+
+def test_copy_row_starting_with_transaction_timeout_text_survives_a_restore(throwaway_database, backups):
+    name = _head_dump(throwaway_database, backups)
+    _sql(throwaway_database, "INSERT INTO payee (name, created_on, owner_id) "
+                             "VALUES ('SET transaction_timeout = 0;', '2026-01-01', 1)")
+    _dump_to(throwaway_database, backups / name)
+    assert _run(throwaway_database, name) == 0
+    assert _scalar(throwaway_database,
+                   "SELECT count(*) FROM payee WHERE name = 'SET transaction_timeout = 0;'") == 1
+
+
+def test_old_dump_with_a_real_transaction_timeout_line_still_restores(throwaway_database, backups):
+    name = _head_dump(throwaway_database, backups)
+    path = backups / name
+    path.write_text(path.read_text().replace("SET statement_timeout = 0;",
+                                             "SET statement_timeout = 0;\nSET transaction_timeout = 0;", 1))
+    assert "\nSET transaction_timeout = 0;\n" in path.read_text()
+    _sql(throwaway_database, "DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+    assert _run(throwaway_database, name) == 0
+    assert _scalar(throwaway_database, "SELECT count(*) FROM payee WHERE name = 'Corner Shop'") == 1

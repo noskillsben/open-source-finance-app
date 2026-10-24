@@ -107,7 +107,27 @@ class _SqlScan:
 
 def inspect_dump(path: Path) -> set[str]:
     """Check the file and return the alembic revision(s) it holds. Raises RestoreRefused."""
-    return inspect_bytes(path.read_bytes(), path.name)
+    return inspect_bytes(filter_dump(path.read_bytes()), path.name)
+
+
+def filter_dump(data: bytes) -> bytes:
+    """Drop `SET transaction_timeout` lines (older dumps carry one the database refuses), but never a
+    COPY data row. Applied once, before inspection; the result is what is inspected and what is loaded,
+    so a COPY block this simple tracking gets wrong can only make the inspection refuse, never skip it.
+    """
+    kept = []
+    in_copy = False
+    for raw in data.split(b"\n"):
+        if in_copy:
+            in_copy = raw.removesuffix(b"\r") != b"\\."
+        else:
+            line = raw.removesuffix(b"\r").decode("utf-8", errors="replace")
+            if _COPY_START.match(line):
+                in_copy = True
+            elif line.startswith(_DROPPED):
+                continue
+        kept.append(raw)
+    return b"\n".join(kept)
 
 
 def inspect_bytes(data: bytes, name: str) -> set[str]:
@@ -189,8 +209,7 @@ def _load(data: bytes) -> None:
     err = b""
     try:
         proc.stdin.write(b"DROP SCHEMA IF EXISTS public CASCADE;\nCREATE SCHEMA public;\n")
-        lines = data.split(b"\n")  # \n only, as inspect_bytes did
-        proc.stdin.write(b"\n".join(line for line in lines if not line.startswith(_DROPPED.encode())))
+        proc.stdin.write(data)  # exactly the bytes inspect_bytes checked
         proc.stdin.close()
     except BrokenPipeError:
         pass
@@ -202,7 +221,7 @@ def _load(data: bytes) -> None:
 
 def restore(name: str) -> Path:
     path = _resolve(name)
-    data = path.read_bytes()
+    data = filter_dump(path.read_bytes())
     inspect_bytes(data, path.name)
     directory = backup_dir()
     try:
