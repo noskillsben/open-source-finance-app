@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
-from app import restore as restore_script
+from app import held, restore as restore_script
 from app.db import engine
 from app.schemas import BackupFileOut, LatestBackupOut, RestoredOut
 from app.services.backups import (
@@ -78,4 +78,5 @@ def restore_backup(name: str) -> RestoredOut:
         raise HTTPException(status_code=500, detail=str(exc) or "Restore failed")
     finally:
         engine.dispose()  # no pooled connection may survive into the replaced database
+    held.set_held(False)  # data is loaded: the rest of the app answers again, no restart
     return RestoredOut(restored=name, undo=undo.name)

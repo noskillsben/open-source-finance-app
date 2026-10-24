@@ -13,7 +13,7 @@ from contextlib import contextmanager
 import pytest
 from sqlalchemy import text
 
-from app.startup_check import main
+from app.startup_check import HELD_CODE, is_held, main
 from conftest import override_database_url
 
 
@@ -91,35 +91,45 @@ def test_empty_database_without_nightly_backup_returns_0(test_engine, test_datab
         assert main() == 0
 
 
-def test_empty_database_with_nightly_backup_returns_1_naming_newest(
+def test_empty_database_with_nightly_backup_is_held_naming_newest(
         test_engine, test_database_url, backup_dir, capsys):
     _touch(backup_dir, "nightly-20261018T030000Z.sql", "nightly-20261019T030000Z.sql")
     with override_database_url(test_database_url):
-        assert main() == 1
+        assert main() == HELD_CODE
     err = capsys.readouterr().err
     assert "nightly-20261019T030000Z.sql" in err
     assert "nightly-20261018T030000Z.sql" not in err
     assert "Backups" in err
 
 
-def test_never_seeded_database_with_nightly_backup_returns_1(test_engine, test_database_url, backup_dir):
+def test_never_seeded_database_with_nightly_backup_is_held(test_engine, test_database_url, backup_dir):
     """No alembic_version at all (a wiped volume) is empty too."""
     _touch(backup_dir, "nightly-20261019T030000Z.sql")
     with test_engine.begin() as conn:
         conn.execute(text("ALTER TABLE alembic_version RENAME TO alembic_version_backup"))
     try:
         with override_database_url(test_database_url):
-            assert main() == 1
+            assert main() == HELD_CODE
     finally:
         with test_engine.begin() as conn:
             conn.execute(text("ALTER TABLE alembic_version_backup RENAME TO alembic_version"))
 
 
-def test_refusal_prints_the_restore_command_with_the_newest_name(test_engine, test_database_url, backup_dir, capsys):
+def test_held_start_prints_the_restore_command_with_the_newest_name(test_engine, test_database_url, backup_dir, capsys):
     _touch(backup_dir, "nightly-20261018T030000Z.sql", "nightly-20261019T030000Z.sql",
            "pre-restore-20261020T030000Z.sql")
     with override_database_url(test_database_url):
-        assert main() == 1
+        assert main() == HELD_CODE
     err = capsys.readouterr().err
     assert "-m app.restore nightly-20261019T030000Z.sql" in err
     assert "pre-restore" not in err
+
+
+def test_held_rule_is_shared_with_the_server(test_engine, test_database_url, backup_dir):
+    """is_held() is the rule the running server asks; unknown revision is never held (main() exits first)."""
+    with override_database_url(test_database_url):
+        assert is_held() is False
+        _touch(backup_dir, "nightly-20261019T030000Z.sql")
+        assert is_held() is True
+    with _ledger_has_a_row(test_engine), override_database_url(test_database_url):
+        assert is_held() is False

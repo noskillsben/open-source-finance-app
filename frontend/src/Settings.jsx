@@ -8,7 +8,11 @@ import { formatDateTime } from './utils/format.js'
 
 export const NO_BACKUP = 'No backup yet — the first one is taken at 03:00 UTC.'
 
-export default function Settings() {
+export const HELD_LINE =
+  'This database is empty but backups exist. Restore one to carry on. To start over with no data, move the nightly backups out of the backups folder and restart.'
+
+// `held`: the app is on the restore screen (health says held). Same section, minus what the backend refuses while held.
+export default function Settings({ held = false }) {
   const [latest, setLatest] = useState(null)
   const [error, setError] = useState(null)
   const [downloading, setDownloading] = useState(false)
@@ -120,12 +124,13 @@ export default function Settings() {
 
       <section className="card space-y-3">
         <h3 className="text-lg font-medium">Backup</h3>
+        {held && <p className="text-text-2">{HELD_LINE}</p>}
         {error && <WarningNote>{error}</WarningNote>}
         {!latest && !error && <LoadingRows />}
         {latest && !latest.name && (
           <div className="flex flex-col items-start gap-3">
             <EmptyState>{NO_BACKUP}</EmptyState>
-            {backUpButton}
+            {!held && backUpButton}
           </div>
         )}
         {latest?.name && (
@@ -134,7 +139,7 @@ export default function Settings() {
             <Button variant="secondary" disabled={downloading || restoring} onClick={download}>
               Download latest backup
             </Button>
-            {backUpButton}
+            {!held && backUpButton}
           </div>
         )}
         <div className="flex flex-col items-start gap-3">
@@ -177,12 +182,12 @@ export default function Settings() {
             </div>
           </div>
         )}
-        <div className="flex flex-col items-start gap-3">
+        {!held && <div className="flex flex-col items-start gap-3">
           <p className="text-text-2">Every table as a spreadsheet file, in one zip. You can't import it back.</p>
           <Button variant="secondary" disabled={exporting || restoring} onClick={exportData}>
             Export data
           </Button>
-        </div>
+        </div>}
       </section>
     </div>
   )

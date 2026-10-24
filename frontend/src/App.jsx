@@ -89,6 +89,15 @@ export default function App() {
     api.health().then(setHealth).catch((e) => setError(e.message))
   }, [])
 
+  // Held: the database is empty but backups exist. Only the Backups section answers; no nav, no routes.
+  if (health?.held) {
+    return (
+      <main className="px-4 pb-8 md:px-8">
+        <Settings held />
+      </main>
+    )
+  }
+
   return (
     <BrowserRouter>
       <FormOpenProvider>

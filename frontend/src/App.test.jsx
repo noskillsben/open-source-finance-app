@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, within } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { todayIso } from './utils/format.js'
 import App from './App.jsx'
@@ -8,7 +8,7 @@ vi.mock('./api.js', () => {
   const list = () => Promise.resolve([])
   return {
     api: {
-      health: () => Promise.resolve({ status: 'ok' }),
+      health: () => Promise.resolve(globalThis.__health ?? { status: 'ok' }),
       accounts: { list },
       categories: { list },
       goals: { list },
@@ -160,5 +160,19 @@ describe('+ Add transaction', () => {
     expect(screen.queryByRole('navigation', { name: 'Bottom bar' })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Transactions' }))
     expect(await screen.findByRole('navigation', { name: 'Bottom bar' })).toBeInTheDocument()
+  })
+})
+
+describe('held start', () => {
+  afterEach(() => { delete globalThis.__health })
+
+  it('renders only the Backups section under the held line, with no nav', async () => {
+    globalThis.__health = { status: 'ok', held: true, latest_backup: 'nightly-20261019T030000Z.sql' }
+    renderAt('/transactions')
+    expect(await screen.findByText(/This database is empty but backups exist\. Restore one to carry on\./)).toBeInTheDocument()
+    await waitFor(() => expect(screen.queryByRole('navigation', { name: 'Main' })).toBeNull())
+    expect(screen.getByRole('heading', { name: 'Backup' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
+    expect(screen.queryByRole('button', { name: '+ Add transaction' })).toBeNull()
   })
 })
