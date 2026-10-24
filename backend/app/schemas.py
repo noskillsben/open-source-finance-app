@@ -722,3 +722,15 @@ class LatestBackupOut(BaseModel):
 
     name: str | None
     taken_at: datetime | None
+
+
+class BackupFileOut(BaseModel):
+    """One file in the backups folder, for the Settings restore list. No filesystem path."""
+
+    name: str
+    taken_at: datetime
+
+
+class RestoredOut(BaseModel):
+    restored: str
+    undo: str  # the pre-restore file taken first

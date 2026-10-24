@@ -139,6 +139,8 @@ export const api = {
   },
   backups: {
     latest: () => request('/api/backups/latest'),
+    list: () => request('/api/backups'),
+    restore: (name) => request(`/api/backups/${encodeURIComponent(name)}/restore`, { method: 'POST' }),
     takeNow: () => request('/api/backups', { method: 'POST' }),
     downloadLatest: () => request('/api/backups/latest/download', { as: 'blob' }),
   },

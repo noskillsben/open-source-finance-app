@@ -355,3 +355,81 @@ def test_old_dump_with_a_real_transaction_timeout_line_still_restores(throwaway_
     _sql(throwaway_database, "DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
     assert _run(throwaway_database, name) == 0
     assert _scalar(throwaway_database, "SELECT count(*) FROM payee WHERE name = 'Corner Shop'") == 1
+
+
+# --- the Settings endpoints (issue #371): the same restore(), through the API, with no DB session ---
+
+from fastapi.testclient import TestClient  # noqa: E402
+
+from app.main import app  # noqa: E402
+
+api = TestClient(app)
+
+
+def _api_restore(url, name):
+    with override_database_url(url):
+        return api.post(f"/api/backups/{name}/restore")
+
+
+def test_list_is_every_sql_file_newest_first_and_hides_temp_and_lock(backups):
+    for name in ("nightly-20261018T030000Z.sql", "pre-migrate-20261020T010000Z.sql",
+                 "pre-restore-20261019T120000Z.sql", "uploaded-20261017T010000Z.sql"):
+        (backups / name).write_text("-- x\n")
+    (backups / ".nightly-20261021T030000Z.tmp").write_text("x")
+    (backups / ".pre-restore-20261021T030000Z.tmp").write_text("x")
+    (backups / LOCK_NAME).write_text("")
+    res = api.get("/api/backups")
+    assert res.status_code == 200
+    assert [b["name"] for b in res.json()] == [
+        "pre-migrate-20261020T010000Z.sql", "pre-restore-20261019T120000Z.sql",
+        "nightly-20261018T030000Z.sql", "uploaded-20261017T010000Z.sql"]
+    assert res.json()[0]["taken_at"] == "2026-10-20T01:00:00Z"
+    assert str(backups) not in res.text
+
+
+def test_restore_replaces_data_and_the_new_undo_file_restores_it_back(throwaway_database, backups):
+    name = _head_dump(throwaway_database, backups)
+    _sql(throwaway_database, "INSERT INTO payee (name, created_on, owner_id) VALUES ('Later Payee', '2026-02-01', 1)")
+    res = _api_restore(throwaway_database, name)
+    assert res.status_code == 200, res.text
+    assert _scalar(throwaway_database, "SELECT count(*) FROM payee WHERE name = 'Later Payee'") == 0
+    (undo,) = _pre_restore(backups)
+    assert res.json() == {"restored": name, "undo": undo}
+    assert undo in [b["name"] for b in api.get("/api/backups").json()]
+    assert _api_restore(throwaway_database, undo).status_code == 200
+    assert _scalar(throwaway_database, "SELECT count(*) FROM payee WHERE name = 'Later Payee'") == 1
+
+
+def test_refusals_are_409_with_the_scripts_message(throwaway_database, backups):
+    name = _head_dump(throwaway_database, backups)
+    missing = _api_restore(throwaway_database, "nightly-20200101T000000Z.sql")
+    assert missing.status_code == 409 and "no file" in missing.json()["detail"]
+
+    (backups / "cut.sql").write_text((backups / name).read_text().replace("-- PostgreSQL database dump complete", ""))
+    cut = _api_restore(throwaway_database, "cut.sql")
+    assert cut.status_code == 409 and "cut short" in cut.json()["detail"]
+
+    (backups / "escape.sql").write_text((backups / name).read_text() + "\n\\! echo hi\n")
+    escape = _api_restore(throwaway_database, "escape.sql")
+    assert escape.status_code == 409 and "backslash" in escape.json()["detail"]
+
+    assert _pre_restore(backups) == []
+
+
+def test_busy_while_the_lock_is_held_is_409(throwaway_database, backups):
+    name = _head_dump(throwaway_database, backups)
+    with open(backups / LOCK_NAME, "a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        res = _api_restore(throwaway_database, name)
+    assert res.status_code == 409
+    assert "already running" in res.json()["detail"]
+    assert _pre_restore(backups) == []
+
+
+def test_other_failures_are_500_with_the_message(backups, monkeypatch):
+    def boom(name):
+        raise RuntimeError("disk on fire")
+    monkeypatch.setattr(restore, "restore", boom)
+    res = api.post("/api/backups/x.sql/restore")
+    assert res.status_code == 500
+    assert res.json()["detail"] == "disk on fire"

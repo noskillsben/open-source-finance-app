@@ -19,7 +19,7 @@ vi.mock('./api.js', () => {
       incomeStreams: { list },
       transactions: { list },
       integrityCheck: { list },
-      backups: { latest: () => Promise.resolve({ name: null, taken_at: null }) },
+      backups: { list: () => Promise.resolve([]), latest: () => Promise.resolve({ name: null, taken_at: null }) },
     },
   }
 })
