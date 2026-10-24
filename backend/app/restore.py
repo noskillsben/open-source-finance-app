@@ -107,19 +107,24 @@ class _SqlScan:
 
 def inspect_dump(path: Path) -> set[str]:
     """Check the file and return the alembic revision(s) it holds. Raises RestoreRefused."""
+    return inspect_bytes(path.read_bytes(), path.name)
+
+
+def inspect_bytes(data: bytes, name: str) -> set[str]:
+    """The check itself, on bytes read once, so what is checked is what is loaded."""
     complete = False
     in_copy = False
     in_version = False
     revisions: set[str] = set()
     scan = _SqlScan()
     # Bytes, split on \n only (as psql does): a lone \r is not a line break, so it is refused outside COPY data.
-    with open(path, "rb") as handle:
-        for raw in handle:
-            raw = raw.removesuffix(b"\n").removesuffix(b"\r")
+    if True:
+        for raw in data.split(b"\n"):
+            raw = raw.removesuffix(b"\r")
             line = raw.decode("utf-8", errors="replace")
-            if not in_copy and (b"\r" in raw or any(byte >= 0x80 for byte in raw)):
-                raise RestoreRefused("Refusing: the file holds a carriage return or non-ASCII byte outside "
-                                     "COPY data, which a backup never does.")
+            if not in_copy and any(byte >= 0x80 or (byte < 0x20 and byte != 9) for byte in raw):
+                raise RestoreRefused("Refusing: the file holds a control character (a carriage return or NUL) "
+                                     "or a non-ASCII byte outside COPY data, which a backup never does.")
             if in_copy:
                 if line == "\\.":
                     in_copy = in_version = False
@@ -137,15 +142,15 @@ def inspect_dump(path: Path) -> set[str]:
                                      "command), which a backup never does.")
             scan.advance(line)
     if in_copy or not scan.normal:
-        raise RestoreRefused(f"Refusing: {path.name} ends inside a string, comment or data block; "
+        raise RestoreRefused(f"Refusing: {name} ends inside a string, comment or data block; "
                              "it was cut short or altered.")
     if not complete:
-        raise RestoreRefused(f"Refusing: {path.name} does not end with '{MARKER}'; it was cut short.")
+        raise RestoreRefused(f"Refusing: {name} does not end with '{MARKER}'; it was cut short.")
     if not revisions:
-        raise RestoreRefused(f"Refusing: {path.name} holds no alembic_version, so it is not a backup of this app.")
+        raise RestoreRefused(f"Refusing: {name} holds no alembic_version, so it is not a backup of this app.")
     unknown = revisions - known_revisions()
     if unknown:
-        raise RestoreRefused(f"Refusing: {path.name} holds a newer schema (revision {sorted(unknown)}) than "
+        raise RestoreRefused(f"Refusing: {name} holds a newer schema (revision {sorted(unknown)}) than "
                              "this app knows. Update the app first, then restore.")
     return revisions
 
@@ -176,7 +181,7 @@ def _dump_current(directory: Path) -> Path:
     return final
 
 
-def _load(path: Path) -> None:
+def _load(data: bytes) -> None:
     args, database, env = _conn()
     proc = subprocess.Popen(
         ["psql", "-v", "ON_ERROR_STOP=1", "-q", "--single-transaction", *args, database],
@@ -184,10 +189,8 @@ def _load(path: Path) -> None:
     err = b""
     try:
         proc.stdin.write(b"DROP SCHEMA IF EXISTS public CASCADE;\nCREATE SCHEMA public;\n")
-        with open(path, "rb") as handle:
-            for line in handle:
-                if not line.startswith(_DROPPED.encode()):
-                    proc.stdin.write(line)
+        lines = data.split(b"\n")  # \n only, as inspect_bytes did
+        proc.stdin.write(b"\n".join(line for line in lines if not line.startswith(_DROPPED.encode())))
         proc.stdin.close()
     except BrokenPipeError:
         pass
@@ -199,7 +202,8 @@ def _load(path: Path) -> None:
 
 def restore(name: str) -> Path:
     path = _resolve(name)
-    inspect_dump(path)
+    data = path.read_bytes()
+    inspect_bytes(data, path.name)
     directory = backup_dir()
     try:
         lock = open(directory / LOCK_NAME, "a")
@@ -212,13 +216,13 @@ def restore(name: str) -> Path:
             raise RestoreRefused("Refusing: a backup or restore is already running. Nothing was changed.")
         undo = _dump_current(directory)
         print(f"saved the current data as {undo.name} (restore that file to undo)")
-        _load(path)
-        print(f"loaded {path.name}")
+        _load(data)
+        print(f"loaded {name}")
         try:
             upgrade.run()
         except Exception as exc:
             raise RestoreRefused(
-                f"The data from {path.name} is loaded, but the migrations, seed or data steps failed: {exc}\n"
+                f"The data from {name} is loaded, but the migrations, seed or data steps failed: {exc}\n"
                 f"Do not start the app. To undo, restore {undo.name} with the same command.")
     return undo
 

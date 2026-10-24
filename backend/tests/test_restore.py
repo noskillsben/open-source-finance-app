@@ -313,3 +313,17 @@ def test_crlf_dump_with_accents_in_copy_data_passes(tmp_path):
             "COPY public.payee (name) FROM stdin;\nCafé Français\n\\.\n"
             + _known_version_copy() + COMPLETE_LINE).replace("\n", "\r\n").encode()
     assert restore.inspect_dump(_bytes_file(tmp_path, body))
+
+
+@pytest.mark.parametrize("control", [0, 1, 11, 27])
+def test_control_bytes_outside_copy_data_are_refused(tmp_path, control):
+    # psql truncates a line at NUL, hiding the closing quote from a scanner that does not.
+    body = (b"SELECT '" + bytes([control]) + b"\nCOPY x FROM stdin;\n';\n\\! echo pwned\n\\.\n"
+            + _known_version_copy().encode() + COMPLETE_LINE.encode())
+    with pytest.raises(restore.RestoreRefused, match="control character"):
+        restore.inspect_dump(_bytes_file(tmp_path, body))
+
+
+def test_tab_is_fine_outside_copy_data(tmp_path):
+    body = ("SELECT 1;\t-- tab\n" + _known_version_copy() + COMPLETE_LINE).encode()
+    assert restore.inspect_dump(_bytes_file(tmp_path, body))
