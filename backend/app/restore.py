@@ -112,9 +112,14 @@ def inspect_dump(path: Path) -> set[str]:
     in_version = False
     revisions: set[str] = set()
     scan = _SqlScan()
-    with open(path, encoding="utf-8", errors="replace") as handle:
+    # Bytes, split on \n only (as psql does): a lone \r is not a line break, so it is refused outside COPY data.
+    with open(path, "rb") as handle:
         for raw in handle:
-            line = raw.rstrip("\r\n")
+            raw = raw.removesuffix(b"\n").removesuffix(b"\r")
+            line = raw.decode("utf-8", errors="replace")
+            if not in_copy and (b"\r" in raw or any(byte >= 0x80 for byte in raw)):
+                raise RestoreRefused("Refusing: the file holds a carriage return or non-ASCII byte outside "
+                                     "COPY data, which a backup never does.")
             if in_copy:
                 if line == "\\.":
                     in_copy = in_version = False

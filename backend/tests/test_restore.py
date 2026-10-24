@@ -281,3 +281,35 @@ def test_failed_upgrade_after_load_is_reported_plainly(throwaway_database, backu
     err = capsys.readouterr().err
     assert "is loaded, but the migrations, seed or data steps failed: migration exploded" in err
     assert _pre_restore(backups)[0] in err
+
+
+def _bytes_file(tmp_path, data: bytes):
+    path = tmp_path / "crafted.sql"
+    path.write_bytes(data)
+    return path
+
+
+def _known_version_copy():
+    return ("COPY public.alembic_version (version_num) FROM stdin;\n"
+            f"{next(iter(restore.known_revisions()))}\n\\.\n")
+
+
+def test_lone_carriage_return_outside_copy_data_is_refused(tmp_path):
+    # psql sees one comment line here; a universal-newlines reader would see a COPY block start.
+    body = (b"-- x\rCOPY t (a) FROM stdin;\n\\! echo pwned\n\\.\n"
+            + _known_version_copy().encode() + COMPLETE_LINE.encode())
+    with pytest.raises(restore.RestoreRefused, match="carriage return"):
+        restore.inspect_dump(_bytes_file(tmp_path, body))
+
+
+def test_non_ascii_outside_copy_data_is_refused(tmp_path):
+    body = ("SELECT $é$ x\n\\! echo pwned\n$é$;\n" + _known_version_copy() + COMPLETE_LINE).encode()
+    with pytest.raises(restore.RestoreRefused, match="non-ASCII"):
+        restore.inspect_dump(_bytes_file(tmp_path, body))
+
+
+def test_crlf_dump_with_accents_in_copy_data_passes(tmp_path):
+    body = ("SET statement_timeout = 0;\n"
+            "COPY public.payee (name) FROM stdin;\nCafé Français\n\\.\n"
+            + _known_version_copy() + COMPLETE_LINE).replace("\n", "\r\n").encode()
+    assert restore.inspect_dump(_bytes_file(tmp_path, body))
