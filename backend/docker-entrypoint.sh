@@ -8,9 +8,7 @@ if [ -n "$BACKUP_DIR" ]; then
   STAMP=$(date -u +%Y%m%dT%H%M%SZ)
   PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "${POSTGRES_HOST:-db}" -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BACKUP_DIR/pre-migrate-$STAMP.sql" || echo "pg_dump failed (empty database?) — continuing"
 fi
-alembic upgrade head
-python -m app.seed
-python -m app.data_steps
+python -m app.upgrade
 # Dev reloads on source changes; production (APP_ENV=production, set by docker-compose.prod.yml) does not.
 if [ "$APP_ENV" = "production" ]; then
   exec uvicorn app.main:app --host 0.0.0.0 --port 8000

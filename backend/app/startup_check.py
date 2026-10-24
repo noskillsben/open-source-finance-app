@@ -10,7 +10,11 @@ from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, inspect, text
 
 from app.config import settings
-from app.services.backups import latest_backup
+from app.services.backups import latest_backup, restore_command
+
+
+def known_revisions() -> set[str]:
+    return {rev.revision for rev in ScriptDirectory.from_config(Config("alembic.ini")).walk_revisions()}
 
 
 def _has_ledger_data(conn) -> bool:
@@ -28,15 +32,14 @@ def _refuse_if_empty_with_backups(conn) -> bool:
     if backup is None:
         return False
     print(f"startup_check: the database holds no transactions, but a backup exists: {backup.name}. "
-          "Refusing to start as a fresh install. Restore that backup (see the Backups section of "
-          "docs/user/README.md), or, to start over on purpose, move the nightly backup files out of "
-          "the backups folder.", file=sys.stderr)
+          "Refusing to start as a fresh install. Restore that backup by running this command "
+          f"(see the Backups section of docs/user/README.md): {restore_command(backup.name)}  "
+          "To start over on purpose, move the nightly backup files out of the backups folder.", file=sys.stderr)
     return True
 
 
 def main() -> int:
-    cfg = Config("alembic.ini")
-    known = {rev.revision for rev in ScriptDirectory.from_config(cfg).walk_revisions()}
+    known = known_revisions()
     engine = create_engine(settings.database_url)
     with engine.connect() as conn:
         if "alembic_version" not in inspect(conn).get_table_names():
