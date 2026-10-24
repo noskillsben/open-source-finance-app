@@ -127,3 +127,46 @@ def list_backups(directory: Path | None = None) -> list[Backup]:
             taken_at = datetime.fromtimestamp(entry.stat().st_mtime, tz=timezone.utc)  # provenance only
         found.append(Backup(name=entry.name, taken_at=taken_at, path=entry))
     return sorted(found, key=lambda b: (b.taken_at, b.name), reverse=True)
+
+
+class UploadRefused(Exception):
+    """The uploaded file cannot be added to the list. Message is shown to the user."""
+
+
+async def add_uploaded_backup(chunks) -> Backup:
+    """Add an uploaded file to the backups list as `uploaded-<UTC stamp>.sql`; it never restores anything.
+
+    `chunks` is an async iterator of bytes (the raw request body). It is streamed to a dot-prefixed temp file,
+    kept only if it carries the dump-complete marker, and linked into place without ever overwriting a file.
+    The restore's own checks (shell escapes, schema) still run at restore time.
+    """
+    from app.restore import MARKER  # restore imports this module, so import it late
+
+    directory = backup_dir()
+    try:
+        directory.mkdir(parents=True, exist_ok=True)
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")  # file-name stamp, not business logic
+        tmp = directory / f".uploaded-{stamp}-{os.getpid()}.tmp"
+        final = directory / f"uploaded-{stamp}.sql"
+        try:
+            with open(tmp, "wb") as out:
+                async for chunk in chunks:
+                    out.write(chunk)
+            complete = False
+            with open(tmp, "rb") as check:
+                marker = MARKER.encode()
+                for line in check:
+                    if line.startswith(marker):
+                        complete = True
+                        break
+            if not complete:
+                raise UploadRefused(f"That file was not added: it does not end with '{MARKER}', so it looks cut short.")
+            try:
+                os.link(tmp, final)  # fails rather than overwrite
+            except FileExistsError:
+                raise UploadRefused("That file was not added: another file was added in the same second. Try again.")
+        finally:
+            tmp.unlink(missing_ok=True)
+    except OSError as exc:
+        raise UploadRefused(f"That file was not added: {exc}")
+    return Backup(name=final.name, taken_at=datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc), path=final)

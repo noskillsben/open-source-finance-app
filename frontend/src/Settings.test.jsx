@@ -3,11 +3,11 @@ import { fireEvent } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings.jsx'
 
-const { latest, list, restore, downloadLatest, takeNow, exportDownload } = vi.hoisted(() => ({
-  latest: vi.fn(), list: vi.fn(), restore: vi.fn(), downloadLatest: vi.fn(), takeNow: vi.fn(), exportDownload: vi.fn(),
+const { latest, list, restore, downloadLatest, takeNow, exportDownload, upload } = vi.hoisted(() => ({
+  upload: vi.fn(), latest: vi.fn(), list: vi.fn(), restore: vi.fn(), downloadLatest: vi.fn(), takeNow: vi.fn(), exportDownload: vi.fn(),
 }))
 
-vi.mock('./api.js', () => ({ api: { backups: { latest, list, restore, downloadLatest, takeNow }, exportData: { download: exportDownload } } }))
+vi.mock('./api.js', () => ({ api: { backups: { latest, list, restore, downloadLatest, takeNow, upload }, exportData: { download: exportDownload } } }))
 
 beforeEach(() => {
   latest.mockReset()
@@ -16,6 +16,7 @@ beforeEach(() => {
   restore.mockReset()
   downloadLatest.mockReset()
   takeNow.mockReset()
+  upload.mockReset()
   exportDownload.mockReset()
 })
 
@@ -171,5 +172,35 @@ describe('Restore', () => {
     expect(await screen.findByText('Refusing: x holds a newer schema')).toBeInTheDocument()
     expect(screen.queryByRole('alertdialog')).toBeNull()
     expect(screen.getAllByRole('button', { name: 'Restore' })[0]).toBeEnabled()
+  })
+})
+
+describe('Add a backup file', () => {
+  const file = new File(['-- dump'], 'mine.sql', { type: 'application/sql' })
+  beforeEach(() => {
+    latest.mockResolvedValue({ name: 'nightly-20261019T030000Z.sql', taken_at: '2026-10-19T03:00:00Z' })
+  })
+
+  it('uploads the picked file, reads Adding… meanwhile, then refreshes the list', async () => {
+    let resolve
+    upload.mockReturnValue(new Promise((r) => { resolve = r }))
+    render(<Settings />)
+    await screen.findByRole('button', { name: 'Add a backup file' })
+    fireEvent.change(screen.getByLabelText('Backup file'), { target: { files: [file] } })
+    expect(await screen.findByRole('button', { name: 'Adding…' })).toBeDisabled()
+    expect(upload).toHaveBeenCalledWith(file)
+    list.mockResolvedValue([{ name: 'uploaded-20261024T120000Z.sql', taken_at: '2026-10-24T12:00:00Z' }])
+    resolve({ name: 'uploaded-20261024T120000Z.sql', taken_at: '2026-10-24T12:00:00Z' })
+    expect(await screen.findByText('uploaded-20261024T120000Z.sql')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add a backup file' })).toBeEnabled()
+  })
+
+  it('shows the backend message when the file is refused', async () => {
+    upload.mockRejectedValue(new Error('That file was not added: it looks cut short.'))
+    render(<Settings />)
+    await screen.findByRole('button', { name: 'Add a backup file' })
+    fireEvent.change(screen.getByLabelText('Backup file'), { target: { files: [file] } })
+    expect(await screen.findByText('That file was not added: it looks cut short.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Add a backup file' })).toBeEnabled()
   })
 })
