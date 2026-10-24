@@ -357,6 +357,25 @@ def test_old_dump_with_a_real_transaction_timeout_line_still_restores(throwaway_
     assert _scalar(throwaway_database, "SELECT count(*) FROM payee WHERE name = 'Corner Shop'") == 1
 
 
+def test_dump_owned_by_a_role_that_does_not_exist_restores(throwaway_database, backups):
+    name = _head_dump(throwaway_database, backups)
+    path = backups / name
+    text = path.read_text()
+    text = text.replace("\nCREATE TABLE public.payee", "\nALTER SCHEMA public OWNER TO appuser;\nCREATE TABLE public.payee", 1)
+    text += "\nALTER TABLE public.payee OWNER TO appuser;\nALTER SEQUENCE public.payee_id_seq OWNER TO appuser;\n"
+    path.write_text(text)
+    assert "OWNER TO appuser;" in path.read_text()
+    _sql(throwaway_database, "DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+    assert _run(throwaway_database, name) == 0
+    assert _scalar(throwaway_database, "SELECT count(*) FROM payee WHERE name = 'Corner Shop'") == 1
+
+
+def test_copy_row_containing_owner_to_text_is_kept_byte_for_byte():
+    row = b"ALTER TABLE public.payee OWNER TO appuser;"
+    data = b"ALTER TABLE public.payee OWNER TO appuser;\nCOPY public.payee (name) FROM stdin;\n" + row + b"\n\\.\n"
+    assert restore.filter_dump(data) == data.split(b"\n", 1)[1]
+
+
 # --- the Settings endpoints (issue #371): the same restore(), through the API, with no DB session ---
 
 from fastapi.testclient import TestClient  # noqa: E402

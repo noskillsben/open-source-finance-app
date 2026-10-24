@@ -27,7 +27,10 @@ MARKER = "-- PostgreSQL database dump complete"
 _COPY_START = re.compile(r"^COPY\s.*\sFROM stdin;\s*$")
 _VERSION_COPY = re.compile(r"^COPY\s+(public\.)?alembic_version\s")
 _ALLOWED_META = re.compile(r"^\\(restrict|unrestrict) [A-Za-z0-9]+$")  # pg_dump's own
-_DROPPED = "SET transaction_timeout"  # older dumps carry it; the database refuses it
+_OWNER = re.compile(  # pg_dump's one-line ownership statements; the equivalent of pg_restore --no-owner
+    r'^ALTER\s+(TABLE|SEQUENCE|SCHEMA|FUNCTION|PROCEDURE|TYPE|DOMAIN|VIEW|MATERIALIZED VIEW|FOREIGN TABLE)\s'
+    r'[^;]*?\sOWNER TO\s+("([^"]|"")+"|[A-Za-z0-9_$]+);\s*$')
+_DROPPED = "SET transaction_timeout"  # one of filter_dump's two filters (the other is _OWNER): older dumps carry it; the database refuses it
 
 
 class RestoreRefused(Exception):
@@ -111,8 +114,10 @@ def inspect_dump(path: Path) -> set[str]:
 
 
 def filter_dump(data: bytes) -> bytes:
-    """Drop `SET transaction_timeout` lines (older dumps carry one the database refuses), but never a
-    COPY data row. Applied once, before inspection; the result is what is inspected and what is loaded,
+    """Drop two kinds of line, outside COPY data only: `SET transaction_timeout` (older dumps carry one the
+    database refuses) and `ALTER <object> ... OWNER TO <role>;` (a dump taken under another database user
+    names a role this database lacks; same as pg_restore --no-owner). Never a COPY data row.
+    Applied once, before inspection; the result is what is inspected and what is loaded,
     so a COPY block this simple tracking gets wrong can only make the inspection refuse, never skip it.
     """
     kept = []
@@ -124,7 +129,7 @@ def filter_dump(data: bytes) -> bytes:
             line = raw.removesuffix(b"\r").decode("utf-8", errors="replace")
             if _COPY_START.match(line):
                 in_copy = True
-            elif line.startswith(_DROPPED):
+            elif line.startswith(_DROPPED) or _OWNER.match(line):
                 continue
         kept.append(raw)
     return b"\n".join(kept)
