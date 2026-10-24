@@ -1,7 +1,7 @@
 """Refuse to start if the database is newer than the code.
 
 Run before `alembic upgrade head`. If the database's current revision is not one this code knows,
-the code is older than the data â€” stop, rather than run migrations backwards or guess.
+the code is older than the data — stop, rather than run migrations backwards or guess.
 """
 import sys
 

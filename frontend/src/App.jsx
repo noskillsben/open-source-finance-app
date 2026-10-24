@@ -14,6 +14,7 @@ import QuickAdd from './QuickAdd.jsx'
 import Splits from './Splits.jsx'
 import Transactions from './Transactions.jsx'
 import Button from './components/Button.jsx'
+import LoadingRows from './components/LoadingRows.jsx'
 import { WarningNote } from './components/Notes.jsx'
 import { FormOpenProvider } from './components/SidePanel.jsx'
 import { api } from './api.js'
@@ -88,6 +89,15 @@ export default function App() {
   useEffect(() => {
     api.health().then(setHealth).catch((e) => setError(e.message))
   }, [])
+
+  // Nothing of the shell mounts until health answers (or fails): no nav, no routed page, no stray fetches.
+  if (!health && !error) {
+    return (
+      <main className="px-4 py-4 md:px-8">
+        <LoadingRows />
+      </main>
+    )
+  }
 
   // Held: the database is empty but backups exist. Only the Backups section answers; no nav, no routes.
   if (health?.held) {
