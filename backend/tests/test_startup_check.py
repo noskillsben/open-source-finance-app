@@ -113,3 +113,13 @@ def test_never_seeded_database_with_nightly_backup_returns_1(test_engine, test_d
     finally:
         with test_engine.begin() as conn:
             conn.execute(text("ALTER TABLE alembic_version_backup RENAME TO alembic_version"))
+
+
+def test_refusal_prints_the_restore_command_with_the_newest_name(test_engine, test_database_url, backup_dir, capsys):
+    _touch(backup_dir, "nightly-20261018T030000Z.sql", "nightly-20261019T030000Z.sql",
+           "pre-restore-20261020T030000Z.sql")
+    with override_database_url(test_database_url):
+        assert main() == 1
+    err = capsys.readouterr().err
+    assert "-m app.restore nightly-20261019T030000Z.sql" in err
+    assert "pre-restore" not in err

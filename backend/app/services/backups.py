@@ -26,6 +26,12 @@ def backup_dir() -> Path:
     return Path(os.environ.get("BACKUP_DIR", "/backups"))
 
 
+def restore_command(name: str) -> str:
+    """The one command that restores `name` (a file in the backups folder) with the app down."""
+    prod = " -f docker-compose.prod.yml" if os.environ.get("APP_ENV") == "production" else ""
+    return f"docker compose{prod} run --rm --entrypoint python backend -m app.restore {name}"
+
+
 def latest_backup(directory: Path | None = None) -> Backup | None:
     """The newest nightly backup, or None when the directory is missing, empty or holds none."""
     directory = directory if directory is not None else backup_dir()

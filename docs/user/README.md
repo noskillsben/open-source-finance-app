@@ -86,7 +86,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 These steps are for the Raspberry Pi running the production stack. In every command below, `dc` means `docker compose -f docker-compose.prod.yml`, run from the app folder (the one holding `docker-compose.prod.yml` and `.env`). If you like, type `alias dc='docker compose -f docker-compose.prod.yml'` first.
 
 - A backup is one plain file holding a full copy of your data. The `backup` service in the production stack takes one every night at 03:00 UTC and saves it in the `backups` folder inside the app folder, named `nightly-<date and time>.sql` (for example `nightly-20261019T030000Z.sql`). It keeps the newest 14 and deletes older `nightly-` files. If a night's backup fails, it says so in `dc logs backup` and leaves the earlier files alone. The `pre-migrate-` files the app saves before an update are separate and are never deleted for you.
-- Download the newest backup from the app: open Settings and press "Download latest backup". It shows when that backup was taken ("Last backup: ...") and saves the file to your phone or computer, so you can keep a copy off the Pi. Before the first nightly backup exists it says "No backup yet" and offers no download button. Restoring is still done by hand with the steps below; there is no restore or upload button.
+- Download the newest backup from the app: open Settings and press "Download latest backup". It shows when that backup was taken ("Last backup: ...") and saves the file to your phone or computer, so you can keep a copy off the Pi. Before the first nightly backup exists it says "No backup yet" and offers no download button. Restoring is done with one command, below; there is no restore or upload button yet.
 - Export your data as spreadsheet files: open Settings and press "Export data". You get one zip, named `export-YYYYMMDD.zip` for the day it was made so exports kept side by side do not overwrite each other, with one file per table (accounts, categories, transactions and so on), each a CSV that opens in any spreadsheet. Everything is in it, including archived items and transactions dated in the future, whatever date "Show as of" is on. Amounts are plain dollars (`-12.34`) in a column named without `_cents`, dates are `YYYY-MM-DD`, an empty cell means nothing was entered, and each reference (a category, an account, a payee) has its name beside its id. This is a one-way copy for your own use; there is no import, and it is not a backup to restore from.
 - Take a backup right now from the app: open Settings and press "Back up now". It makes the same kind of `nightly-` file as the nightly job (it counts toward the newest 14), then "Last backup" shows the new time, so "Download latest backup" includes what you just recorded. It works the same before the first nightly backup exists. If it fails, the message says so and your earlier backups are untouched.
 - Copy backups off the Pi yourself from time to time (for example to your computer or a USB stick); a backup that only lives on the Pi is lost if the Pi is.
@@ -97,26 +97,18 @@ These steps are for the Raspberry Pi running the production stack. In every comm
 dc exec backup /app/backup-nightly.sh once
 ```
 
-- Restore a backup onto a Pi that was wiped and rebuilt (or any fresh stack). This replaces everything in the app with what the file holds. You need the app folder with its `.env` file, and Docker installed.
-  1. Put the backup file in the `backups` folder inside the app folder (create the folder if it is missing). Below it is called `nightly-20261019T030000Z.sql`; use your file's real name in step 6.
-  2. Start only the database and wait a few seconds: `dc up -d db`
-  3. Build the app image so the restore has the tools it needs: `dc build backend`
-  4. Make sure the app is not running: `dc stop backend` (on a fresh stack it may say there is nothing to stop; that is fine).
-  5. Empty the database and create it again:
+- Restore a backup, on the Pi that was wiped and rebuilt or any fresh stack. This replaces everything in the app with what the file holds. You need the app folder with its `.env` file, and Docker installed.
+  1. Put the backup file in the `backups` folder inside the app folder (create the folder if it is missing). Below it is called `nightly-20261019T030000Z.sql`; use your file's real name.
+  2. Stop the app if it is running: `dc stop backend` (on a fresh stack it may say there is nothing to stop; that is fine). Then run the restore with the file's name only, not a path:
 
 ```bash
-dc exec db sh -c 'dropdb --force --if-exists -U "$POSTGRES_USER" "$POSTGRES_DB" && createdb -U "$POSTGRES_USER" "$POSTGRES_DB"'
+dc run --rm --entrypoint python backend -m app.restore nightly-20261019T030000Z.sql
 ```
 
-  6. Load the file (change the file name to yours). The `grep -v` part drops one line, `SET transaction_timeout`, that appears in backups made before this fix and that the database refuses; it does nothing to newer files, so keep it either way. The load stops at the first error instead of carrying on half-done:
-
-```bash
-dc run --rm --no-deps --entrypoint sh backend -c 'grep -v "^SET transaction_timeout" /backups/nightly-20261019T030000Z.sql | PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -q -h db -U "$POSTGRES_USER" "$POSTGRES_DB"'
-```
-
-  7. Start the whole app: `dc up -d`
-  8. Check it came back. Open the app, set "Show as of" to a date you know, and compare account balances and category available amounts with what you expect (a past screenshot or the old app). Then open Settings, Data check: it should report nothing wrong. If a balance or the data check is off, don't record anything; repeat the restore with an earlier backup.
-- If the app won't start and `dc logs backend` says "the database holds no transactions, but a backup exists", it is protecting you: the database is empty (for instance a wiped Pi) while nightly backups of your data sit in the `backups` folder, and starting would have quietly begun a blank app. Restore the newest backup with the steps above. To start over on purpose, move the `nightly-` files out of the `backups` folder first.
+  The command refuses, before changing anything, if the file is missing, was cut short (no `-- PostgreSQL database dump complete` line), contains a command meant for the database tool rather than data, or comes from a newer version of the app than the one you are running (update the app first, then restore). If another backup or restore is running it refuses too. Otherwise it first saves your current data as `pre-restore-<date and time>.sql` in the `backups` folder, then replaces the data with the file's, and brings an older backup up to date for the current app. If the load fails, your data is as it was. To undo a restore, restore the `pre-restore-` file the same way. `pre-restore-` files are never deleted for you.
+  3. Start the whole app: `dc up -d`
+  4. Check it came back. Open the app, set "Show as of" to a date you know, and compare account balances and category available amounts with what you expect (a past screenshot or the old app). Then open Settings, Data check: it should report nothing wrong. If a balance or the data check is off, don't record anything; repeat the restore with an earlier backup.
+- If the app won't start and `dc logs backend` says "the database holds no transactions, but a backup exists", it is protecting you: the database is empty (for instance a wiped Pi) while nightly backups of your data sit in the `backups` folder, and starting would have quietly begun a blank app. The message prints the exact restore command with the newest backup's name filled in; run it (steps above). To start over on purpose, move the `nightly-` files out of the `backups` folder first.
 - There is no restore button and no upload in the app, on purpose: a restore overwrites everything and is needed exactly when the app may not be running.
 
 ## Reports
