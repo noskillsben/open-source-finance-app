@@ -13,6 +13,8 @@ class Health(BaseModel):
     status: str
     database: str
     app_mode: str
+    held: bool = False
+    latest_backup: str | None = None  # set while held: the newest nightly file's name
 
 
 class DebtTerms(BaseModel):
