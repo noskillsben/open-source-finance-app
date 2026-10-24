@@ -2,7 +2,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import FileResponse
 
 from app.schemas import LatestBackupOut
-from app.services.backups import BackupBusy, BackupFailed, latest_backup, take_backup_now
+from app.services.backups import BackupBusy, BackupFailed, BackupSkipped, latest_backup, take_backup_now
 
 router = APIRouter()
 
@@ -27,6 +27,8 @@ def take_backup() -> LatestBackupOut:
         backup = take_backup_now()
     except BackupBusy:
         raise HTTPException(status_code=409, detail="A backup is already being taken")
+    except BackupSkipped as exc:
+        raise HTTPException(status_code=409, detail=str(exc))
     except BackupFailed as exc:
         raise HTTPException(status_code=500, detail=str(exc))
     if backup is None:
