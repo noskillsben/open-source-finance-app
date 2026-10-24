@@ -83,6 +83,9 @@ def stub_dump(tmp_path_factory, backup_dir, monkeypatch):
         stub.write_text("#!/bin/sh\necho 'CREATE TABLE t();'\n" + (f"echo '{COMPLETE}'\n" if ok else ""))
         stub.chmod(0o755)
 
+    psql = bin_dir / "psql"
+    psql.write_text('#!/bin/sh\necho "${STUB_DB:-t}"\n')
+    psql.chmod(0o755)
     monkeypatch.setenv("PATH", f"{bin_dir}:{os.environ['PATH']}")
     for key in ("POSTGRES_USER", "POSTGRES_PASSWORD", "POSTGRES_DB"):
         monkeypatch.setenv(key, "x")
@@ -119,3 +122,15 @@ def test_back_up_now_while_one_is_running_is_409_and_runs_nothing(backup_dir, st
     assert res.status_code == 409
     assert res.json()["detail"] == "A backup is already being taken"
     assert not list(backup_dir.glob("nightly-*.sql"))
+
+
+def test_back_up_now_skips_an_empty_database_while_backups_exist(backup_dir, stub_dump, monkeypatch):
+    old = touch(backup_dir, "nightly-20200101T030000Z.sql", COMPLETE)
+    stub_dump()
+    monkeypatch.setenv("STUB_DB", "f")
+    res = client.post("/api/backups")
+    assert res.status_code == 409
+    assert res.json()["detail"].startswith("No backup taken: the database is empty while backups exist")
+    assert "Backup failed" not in res.json()["detail"]
+    assert sorted(p.name for p in backup_dir.iterdir() if not p.name.startswith(".")) == [old.name]
+    assert old.read_text() == COMPLETE

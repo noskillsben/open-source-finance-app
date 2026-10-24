@@ -64,6 +64,13 @@ class BackupFailed(Exception):
     pass
 
 
+class BackupSkipped(Exception):
+    """The script declined to dump: the database is empty while nightly backups exist. Message is the script's."""
+
+
+SKIP_CODE = 3  # matches SKIP_CODE in backup-nightly.sh
+
+
 def take_backup_now() -> Backup | None:
     """Run `backup-nightly.sh once` and wait; the script does the dump, the completeness check and pruning.
 
@@ -82,6 +89,8 @@ def take_backup_now() -> Backup | None:
         except OSError:
             raise BackupBusy("A backup is already being taken.")
         result = subprocess.run(["sh", str(SCRIPT), "once"], capture_output=True, text=True, env=os.environ.copy())
+    if result.returncode == SKIP_CODE:
+        raise BackupSkipped(result.stderr.strip() or "No backup taken: the database is empty while backups exist.")
     if result.returncode != 0:
         lines = [line for line in result.stderr.strip().splitlines() if line.strip()]
         reason = f" ({lines[-1]})" if lines else ""
