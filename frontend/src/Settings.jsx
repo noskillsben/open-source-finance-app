@@ -117,6 +117,23 @@ export default function Settings({ held = false }) {
     }
   }
 
+  const confirmBox = confirming && (
+    <div role="alertdialog" aria-label="Restore backup" className="note note-warning space-y-3">
+      <p>
+        Restore the backup from {formatDateTime(confirming.taken_at)}? Everything you have recorded since then
+        is replaced. A backup of your current data is taken first.
+      </p>
+      <div className="flex flex-wrap gap-3">
+        <Button variant="primary" disabled={restoring} onClick={restore}>
+          {restoring ? 'Restoring…' : 'Replace my data'}
+        </Button>
+        <Button variant="quiet" disabled={restoring} onClick={() => setConfirming(null)}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+
   return (
     <div className="space-y-6 py-4">
       {restoring && <div className="fixed inset-0 z-50 cursor-wait" aria-hidden="true" />}
@@ -153,33 +170,21 @@ export default function Settings({ held = false }) {
             <h4 className="text-label uppercase text-text-3">Restore a backup</h4>
             <ul className="divide-y divide-line">
               {files.map((file) => (
-                <li key={file.name} className="flex flex-wrap items-center justify-between gap-2 py-2">
-                  <span className="min-w-0">
-                    <span className="block">{formatDateTime(file.taken_at)}</span>
-                    <span className="block break-all text-sm text-text-3">{file.name}</span>
-                  </span>
-                  <Button variant="secondary" disabled={restoring} onClick={() => setConfirming(file)}>
-                    Restore
-                  </Button>
+                <li key={file.name} className="space-y-3 py-2">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="min-w-0">
+                      <span className="block">{formatDateTime(file.taken_at)}</span>
+                      <span className="block break-all text-sm text-text-3">{file.name}</span>
+                    </span>
+                    <Button variant="secondary" disabled={restoring} onClick={() => setConfirming(file)}>
+                      Restore
+                    </Button>
+                  </div>
+                  {/* Under the row pressed, not after the list: a long list put it off screen. */}
+                  {confirming?.name === file.name && confirmBox}
                 </li>
               ))}
             </ul>
-          </div>
-        )}
-        {confirming && (
-          <div role="alertdialog" aria-label="Restore backup" className="note note-warning space-y-3">
-            <p>
-              Restore the backup from {formatDateTime(confirming.taken_at)}? Everything you have recorded since then
-              is replaced. A backup of your current data is taken first.
-            </p>
-            <div className="flex flex-wrap gap-3">
-              <Button variant="primary" disabled={restoring} onClick={restore}>
-                {restoring ? 'Restoring…' : 'Replace my data'}
-              </Button>
-              <Button variant="quiet" disabled={restoring} onClick={() => setConfirming(null)}>
-                Cancel
-              </Button>
-            </div>
           </div>
         )}
         {!held && <div className="flex flex-col items-start gap-3">
