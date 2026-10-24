@@ -7,11 +7,12 @@ export function filenameFromDisposition(header) {
 
 // Every fetch in the app goes through request(). It surfaces the backend's `detail` on any non-OK response,
 // so a carefully worded 4xx message actually reaches the screen.
-export async function request(path, { as, ...options } = {}) {
+export async function request(path, { as, raw, ...options } = {}) {
+  // raw: send options.body as is (a File) with the given content type, instead of JSON
   const res = await fetch(path, {
-    headers: { 'Content-Type': 'application/json', ...(options.headers || {}) },
+    headers: { 'Content-Type': raw || 'application/json', ...(options.headers || {}) },
     ...options,
-    body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+    body: options.body === undefined ? undefined : raw ? options.body : JSON.stringify(options.body),
   })
   if (!res.ok) {
     let detail = res.statusText
@@ -141,6 +142,7 @@ export const api = {
     latest: () => request('/api/backups/latest'),
     list: () => request('/api/backups'),
     restore: (name) => request(`/api/backups/${encodeURIComponent(name)}/restore`, { method: 'POST' }),
+    upload: (file) => request('/api/backups/upload', { method: 'POST', body: file, raw: 'application/octet-stream' }),
     takeNow: () => request('/api/backups', { method: 'POST' }),
     downloadLatest: () => request('/api/backups/latest/download', { as: 'blob' }),
   },

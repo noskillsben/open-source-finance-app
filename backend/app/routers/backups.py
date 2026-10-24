@@ -1,10 +1,12 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse
 
 from app import restore as restore_script
 from app.db import engine
 from app.schemas import BackupFileOut, LatestBackupOut, RestoredOut
-from app.services.backups import BackupBusy, BackupFailed, BackupSkipped, latest_backup, list_backups, take_backup_now
+from app.services.backups import (
+    BackupBusy, BackupFailed, BackupSkipped, UploadRefused, add_uploaded_backup, latest_backup, list_backups, take_backup_now,
+)
 
 router = APIRouter()
 
@@ -50,6 +52,16 @@ def download_latest_backup() -> FileResponse:
 def list_backup_files() -> list[BackupFileOut]:
     """Every backup file, newest first, for the Settings restore list. Names and dates only."""
     return [BackupFileOut(name=b.name, taken_at=b.taken_at) for b in list_backups()]
+
+
+@router.post("/api/backups/upload", response_model=BackupFileOut)
+async def upload_backup(request: Request) -> BackupFileOut:
+    """Add a backup file to the list. The body is the raw file (no multipart). Adds only; restoring is separate."""
+    try:
+        backup = await add_uploaded_backup(request.stream())
+    except UploadRefused as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    return BackupFileOut(name=backup.name, taken_at=backup.taken_at)
 
 
 @router.post("/api/backups/{name}/restore", response_model=RestoredOut)

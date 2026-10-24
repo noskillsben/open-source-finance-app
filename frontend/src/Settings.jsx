@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { api } from './api.js'
 import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
@@ -17,6 +17,8 @@ export default function Settings() {
   const [files, setFiles] = useState([])
   const [confirming, setConfirming] = useState(null) // the file whose Restore was pressed
   const [restoring, setRestoring] = useState(false)
+  const [adding, setAdding] = useState(false)
+  const fileInput = useRef(null)
 
   function loadFiles() {
     return api.backups.list().then(setFiles).catch((e) => setError(e.message))
@@ -37,6 +39,22 @@ export default function Settings() {
       setError(err.message)
       setConfirming(null)
       setRestoring(false)
+    }
+  }
+
+  async function addFile(event) {
+    const file = event.target.files?.[0]
+    event.target.value = '' // so the same file can be picked again
+    if (!file) return
+    setAdding(true)
+    setError(null)
+    try {
+      await api.backups.upload(file)
+      await loadFiles()
+    } catch (err) {
+      setError(err.message)
+    } finally {
+      setAdding(false)
     }
   }
 
@@ -119,6 +137,12 @@ export default function Settings() {
             {backUpButton}
           </div>
         )}
+        <div className="flex flex-col items-start gap-3">
+          <input ref={fileInput} type="file" accept=".sql" className="hidden" aria-label="Backup file" onChange={addFile} />
+          <Button variant="secondary" disabled={adding || restoring} onClick={() => fileInput.current?.click()}>
+            {adding ? 'Adding…' : 'Add a backup file'}
+          </Button>
+        </div>
         {files.length > 0 && (
           <div className="space-y-2">
             <h4 className="text-label uppercase text-text-3">Restore a backup</h4>
