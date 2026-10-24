@@ -44,12 +44,85 @@ def _resolve(name: str) -> Path:
     return path
 
 
+_DOLLAR = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)?\$")
+
+
+class _SqlScan:
+    """Tracks, across lines, whether we are inside a quoted string, quoted identifier, dollar-quoted
+    body or comment, so a backslash (a psql meta-command) can be told apart from one in data.
+    `mode` is None (plain SQL), "'" , "E'" (backslash escapes), '"', "/*", or the closing "$tag$".
+    """
+
+    def __init__(self) -> None:
+        self.mode: str | None = None
+        self.depth = 0  # block-comment nesting
+
+    @property
+    def normal(self) -> bool:
+        return self.mode is None
+
+    def has_meta_command(self, line: str) -> bool:
+        i, n = 0, len(line)
+        while i < n:
+            c = line[i]
+            mode = self.mode
+            if mode is None:
+                if c == "\\":
+                    return True
+                if c == "-" and line.startswith("--", i):
+                    return False  # line comment: the rest of the line is inert
+                if c == "/" and line.startswith("/*", i):
+                    self.mode, self.depth = "/*", 1
+                    i += 2
+                    continue
+                if c == "'":
+                    prev = line[i - 1] if i else " "
+                    before = line[i - 2] if i > 1 else " "
+                    escape = prev in "eE" and not (before.isalnum() or before == "_")
+                    self.mode = "E'" if escape else "'"
+                elif c == '"':
+                    self.mode = '"'
+                elif c == "$" and (i == 0 or not (line[i - 1].isalnum() or line[i - 1] == "_")):
+                    m = _DOLLAR.match(line, i)
+                    if m:
+                        self.mode = m.group(0)
+                        i = m.end()
+                        continue
+            elif mode == "'" or mode == '"':
+                if c == mode:
+                    self.mode = None  # a doubled quote closes and reopens on the next character
+            elif mode == "E'":
+                if c == "\\":
+                    i += 2
+                    continue
+                if c == "'":
+                    self.mode = None
+            elif mode == "/*":
+                if line.startswith("*/", i):
+                    self.depth -= 1
+                    if self.depth == 0:
+                        self.mode = None
+                    i += 2
+                    continue
+                if line.startswith("/*", i):
+                    self.depth += 1
+                    i += 2
+                    continue
+            elif line.startswith(mode, i):  # dollar-quoted body ends at its own tag
+                i += len(mode)
+                self.mode = None
+                continue
+            i += 1
+        return False
+
+
 def inspect_dump(path: Path) -> set[str]:
     """Check the file and return the alembic revision(s) it holds. Raises RestoreRefused."""
     complete = False
     in_copy = False
     in_version = False
     revisions: set[str] = set()
+    scan = _SqlScan()
     with open(path, encoding="utf-8", errors="replace") as handle:
         for raw in handle:
             line = raw.rstrip("\r\n")
@@ -63,12 +136,13 @@ def inspect_dump(path: Path) -> set[str]:
                 in_copy = True
                 in_version = bool(_VERSION_COPY.match(line))
                 continue
-            if line.startswith(MARKER):
+            if scan.normal and line.startswith(MARKER):
                 complete = True
-            stripped = line.lstrip()
-            if stripped.startswith("\\") and not _ALLOWED_META.match(stripped):
-                raise RestoreRefused("Refusing: the file holds a psql command (a line starting with a "
-                                     "backslash), which a backup never does.")
+            if scan.normal and _ALLOWED_META.match(line):
+                continue
+            if scan.has_meta_command(line):
+                raise RestoreRefused("Refusing: the file holds a psql command (a backslash outside a quoted "
+                                     "string or comment), which a backup never does.")
     if not complete:
         raise RestoreRefused(f"Refusing: {path.name} does not end with '{MARKER}'; it was cut short.")
     if not revisions:
@@ -144,7 +218,12 @@ def restore(name: str) -> Path:
         print(f"saved the current data as {undo.name} (restore that file to undo)")
         _load(path)
         print(f"loaded {path.name}")
-        upgrade.run()
+        try:
+            upgrade.run()
+        except Exception as exc:
+            raise RestoreRefused(
+                f"The data from {path.name} is loaded, but the migrations, seed or data steps failed: {exc}\n"
+                f"Do not start the app. To undo, restore {undo.name} with the same command.")
     return undo
 
 

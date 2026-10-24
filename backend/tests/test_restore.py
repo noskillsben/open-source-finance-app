@@ -184,3 +184,66 @@ def test_restore_command_names_the_file(monkeypatch):
         "docker compose run --rm --entrypoint python backend -m app.restore nightly-20261019T030000Z.sql")
     monkeypatch.setenv("APP_ENV", "production")
     assert "-f docker-compose.prod.yml run" in restore_command("x.sql")
+
+
+def _scan(sql):
+    return restore._SqlScan().has_meta_command(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT 1; \\! echo hi",
+    "\\o |cmd",
+    "SELECT 1 \\gexec",
+    "SELECT 'a' \\! echo",
+    "SELECT 'it''s' \\! echo",
+    "SELECT $$x$$ \\! echo",
+    "/* c */ \\! echo",
+])
+def test_meta_commands_outside_quotes_are_found(sql):
+    assert _scan(sql)
+
+
+@pytest.mark.parametrize("sql", [
+    "SELECT 'a\\b';",
+    "SELECT E'a\\'b\\\\' ;",
+    'SELECT "a\\b";',
+    "SELECT 1; -- \\! not run",
+    "SELECT 1 /* \\! not run */;",
+    "SELECT 'it''s \\ fine';",
+])
+def test_backslashes_inside_quotes_and_comments_are_accepted(sql):
+    assert not _scan(sql)
+
+
+def test_backslash_in_dollar_quoted_body_spanning_lines_is_accepted():
+    scan = restore._SqlScan()
+    assert not scan.has_meta_command("CREATE FUNCTION f() RETURNS text AS $body$")
+    assert not scan.has_meta_command("  SELECT 'x\\y' || E'\\n';")
+    assert not scan.has_meta_command("$body$ LANGUAGE sql;")
+    assert scan.has_meta_command("\\! echo hi")  # back in plain SQL
+
+
+def test_mid_line_meta_commands_make_a_dump_refused(throwaway_database, backups, capsys):
+    name = _head_dump(throwaway_database, backups)
+    content = (backups / name).read_text()
+    for i, payload in enumerate(["SET statement_timeout = 0; \\! echo hi", "\\o |cmd"]):
+        bad = f"nightly-2026102{i}T030000Z.sql"
+        (backups / bad).write_text(content.replace("SET statement_timeout = 0;", payload, 1))
+        _assert_refused(throwaway_database, backups, bad, capsys, "psql command")
+
+
+def test_a_real_dump_of_a_migrated_database_passes(throwaway_database, backups):
+    name = _head_dump(throwaway_database, backups)
+    assert restore.inspect_dump(backups / name)
+
+
+def test_failed_upgrade_after_load_is_reported_plainly(throwaway_database, backups, capsys, monkeypatch):
+    name = _head_dump(throwaway_database, backups)
+
+    def boom():
+        raise RuntimeError("migration exploded")
+    monkeypatch.setattr(restore.upgrade, "run", boom)
+    assert _run(throwaway_database, name) == 1
+    err = capsys.readouterr().err
+    assert "is loaded, but the migrations, seed or data steps failed: migration exploded" in err
+    assert _pre_restore(backups)[0] in err
