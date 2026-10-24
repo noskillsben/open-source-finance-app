@@ -2,6 +2,7 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import { fireEvent } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Settings from './Settings.jsx'
+import { formatDateTime } from './utils/format.js'
 
 const { latest, list, restore, downloadLatest, takeNow, exportDownload, upload } = vi.hoisted(() => ({
   upload: vi.fn(), latest: vi.fn(), list: vi.fn(), restore: vi.fn(), downloadLatest: vi.fn(), takeNow: vi.fn(), exportDownload: vi.fn(),
@@ -130,7 +131,7 @@ describe('Restore', () => {
     render(<Settings />)
     fireEvent.click((await screen.findAllByRole('button', { name: 'Restore' }))[1])
     const dialog = screen.getByRole('alertdialog')
-    expect(dialog).toHaveTextContent(/Oct 19, 2026/)
+    expect(dialog).toHaveTextContent(formatDateTime(files[1].taken_at))
     expect(dialog).toHaveTextContent(/Everything you have recorded since then is replaced/)
     expect(dialog).toHaveTextContent(/backup of your current data is taken first/)
     expect(screen.getByRole('button', { name: 'Replace my data' })).toBeEnabled()
