@@ -361,6 +361,24 @@ describe('PayRecord re-opens a recorded pay', () => {
     expect(leftOver()).toHaveTextContent('$1,500.00')
   })
 
+  it('keeps a running Left over in view that goes red when assigned exceeds net and follows edits', async () => {
+    renderSalary()
+    await screen.findByText('Vacation (archived)')
+    const running = () => screen.getByTestId('running-leftover')
+
+    fireEvent.change(screen.getByLabelText(/Gross/), { target: { value: '4100.00' } })
+    expect(running()).toHaveTextContent('$1,500.00')
+    expect(running()).not.toHaveClass('text-negative')
+
+    fireEvent.change(screen.getByLabelText(/Gross/), { target: { value: '1000.00' } })
+    expect(running()).toHaveTextContent('−$1,600.00')
+    expect(running()).toHaveClass('text-negative')
+
+    fireEvent.change(screen.getByLabelText(/Gross/), { target: { value: '4100.00' } })
+    expect(running()).toHaveTextContent('$1,500.00')
+    expect(running()).not.toHaveClass('text-negative')
+  })
+
   it('Record edits the same transaction, then saves the batch with the bookkeeping recomputed', async () => {
     const order = []
     writes.updateTransaction.mockImplementation(async () => { order.push('transaction'); return { id: 42 } })
