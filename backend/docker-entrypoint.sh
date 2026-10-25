@@ -6,10 +6,14 @@ cd /app
 # the server opens on the restore screen. Any other non-zero exit stops the container.
 HELD=0
 python -m app.startup_check || { rc=$?; if [ "$rc" -eq 10 ]; then HELD=1; else exit "$rc"; fi; }
+# The pre-migrate dump is taken only when a migration is pending; a restart with nothing to migrate writes nothing.
 if [ "$HELD" -eq 0 ] && [ -n "$BACKUP_DIR" ]; then
   mkdir -p "$BACKUP_DIR"
-  STAMP=$(date -u +%Y%m%dT%H%M%SZ)
-  PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "${POSTGRES_HOST:-db}" -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BACKUP_DIR/pre-migrate-$STAMP.sql" || echo "pg_dump failed (empty database?) — continuing"
+  if [ "$(python -m app.pre_migrate pending)" = "pending" ]; then
+    STAMP=$(date -u +%Y%m%dT%H%M%SZ)
+    PGPASSWORD="$POSTGRES_PASSWORD" pg_dump -h "${POSTGRES_HOST:-db}" -U "$POSTGRES_USER" "$POSTGRES_DB" > "$BACKUP_DIR/pre-migrate-$STAMP.sql" || echo "pg_dump failed (empty database?) — continuing"
+    python -m app.pre_migrate prune
+  fi
 fi
 if [ "$HELD" -eq 0 ]; then
   python -m app.upgrade

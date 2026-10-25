@@ -121,6 +121,25 @@ describe('Restore', () => {
     list.mockResolvedValue(files)
   })
 
+  it('shows the five newest with Show all, which expands and collapses', async () => {
+    const many = Array.from({ length: 8 }, (_, i) => ({
+      name: `nightly-2026101${i}T030000Z.sql`, taken_at: `2026-10-1${i}T03:00:00Z`,
+    }))
+    list.mockResolvedValue(many)
+    render(<Settings />)
+    expect(await screen.findAllByRole('button', { name: 'Restore' })).toHaveLength(5)
+    fireEvent.click(screen.getByRole('button', { name: /Show all/ }))
+    expect(screen.getAllByRole('button', { name: 'Restore' })).toHaveLength(8)
+    fireEvent.click(screen.getByRole('button', { name: 'Show fewer' }))
+    expect(screen.getAllByRole('button', { name: 'Restore' })).toHaveLength(5)
+  })
+
+  it('hides Show all when there are five or fewer', async () => {
+    render(<Settings />)
+    await screen.findAllByRole('button', { name: 'Restore' })
+    expect(screen.queryByRole('button', { name: /Show all/ })).toBeNull()
+  })
+
   it('lists every backup with its date and a Restore button', async () => {
     render(<Settings />)
     expect(await screen.findAllByRole('button', { name: 'Restore' })).toHaveLength(2)
