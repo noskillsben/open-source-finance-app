@@ -30,6 +30,11 @@ export function useLedgerNames(pickerDate) {
   return names
 }
 
+// A name that has not arrived yet: a placeholder shape, never an id.
+function Pending() {
+  return <span aria-busy="true" className="inline-block h-4 w-24 animate-pulse rounded bg-raised align-middle" />
+}
+
 // Positive amounts are plain text; only a negative one is coloured, and it prints its minus sign.
 function Amount({ cents }) {
   return <span className={`tabular ${cents < 0 ? 'text-negative' : ''}`}>{formatCents(cents)}</span>
@@ -75,12 +80,12 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId,
   const { accounts, categories, payees, goals, splits } = names
   function splitLabel(id) {
     const match = splits?.find((s) => s.id === id)
-    if (!match) return `split #${id}`
+    if (!match) return splits ? 'a split' : <Pending />
     return match.archived_on ? `${match.name} (archived)` : match.name
   }
   function billLabel(goalId) {
     const match = goals?.find((g) => g.goal.id === goalId)
-    if (!match) return `bill #${goalId}`
+    if (!match) return goals ? 'a bill' : <Pending />
     return match.goal.archived_on ? `${match.goal.name} (archived)` : match.goal.name
   }
 
