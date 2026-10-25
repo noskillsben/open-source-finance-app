@@ -6,6 +6,7 @@ import LoadingRows from './components/LoadingRows.jsx'
 import MoneyInput from './components/MoneyInput.jsx'
 import { RefusalNote, WarningNote } from './components/Notes.jsx'
 import NamePicker from './NamePicker.jsx'
+import { useRegisterFormOpen } from './components/SidePanel.jsx'
 import { centsToFieldText, optionalCentsToFieldText, formatCents, formatDate, parseCents } from './utils/format.js'
 
 const emptyRow = () => ({ category: {}, amount: '' })
@@ -75,6 +76,8 @@ function rowsToMoves(rows) {
 }
 
 export default function PayRecord({ pickerDate }) {
+  // The pay screen is a form: hide the shell's bottom bar so the pinned Left over bar owns the edge.
+  useRegisterFormOpen(true)
   const { id } = useParams()
   const isOneOff = id === undefined
   const streamId = Number(id)
@@ -615,14 +618,14 @@ export default function PayRecord({ pickerDate }) {
   }
 
   return (
-    <form onSubmit={record} className="space-y-6 py-4 pb-24 md:pb-4">
+    <form onSubmit={record} className="space-y-6 py-4 pb-24 lg:pb-4 lg:pr-56">
       {/* Running Left over (#399): pinned so it stays in view the whole way down. A bar at the
           bottom on a phone (the app's bottom bar is hidden on this screen), a small card on the
           right edge on desktop. Same value as block 11. */}
       <div
         role="status"
         aria-label="Running left over"
-        className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between border-t border-line bg-surface px-4 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] md:inset-x-auto md:bottom-auto md:right-4 md:top-24 md:w-52 md:flex-col md:items-start md:gap-1 md:rounded-xl md:border"
+        className="fixed inset-x-0 bottom-0 z-30 flex items-center justify-between border-t border-line bg-surface px-4 pt-3 md:left-60 pb-[max(0.75rem,env(safe-area-inset-bottom))] lg:left-auto lg:inset-x-auto lg:bottom-auto lg:right-4 lg:top-24 lg:w-52 lg:flex-col lg:items-start lg:gap-1 lg:rounded-xl lg:border"
       >
         <span className="text-text-2">Left over so far</span>
         <span data-testid="running-leftover" className={`tabular text-section ${leftover < 0 ? 'text-negative' : ''}`}>{formatCents(leftover)}</span>

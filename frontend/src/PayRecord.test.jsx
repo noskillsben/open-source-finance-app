@@ -1,6 +1,8 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { FormOpenProvider } from './components/SidePanel.jsx'
+import { BottomBar } from './Nav.jsx'
 import PayRecord from './PayRecord.jsx'
 
 // What the mocked backend already holds; a test sets these before rendering.
@@ -377,6 +379,21 @@ describe('PayRecord re-opens a recorded pay', () => {
     fireEvent.change(screen.getByLabelText(/Gross/), { target: { value: '4100.00' } })
     expect(running()).toHaveTextContent('$1,500.00')
     expect(running()).not.toHaveClass('text-negative')
+  })
+
+  it('hides the shell bottom bar while the pay screen is open', async () => {
+    render(
+      <MemoryRouter initialEntries={['/income/one-off']}>
+        <FormOpenProvider>
+          <BottomBar onAdd={() => {}} />
+          <Routes>
+            <Route path="/income/one-off" element={<PayRecord pickerDate="2026-09-23" />} />
+          </Routes>
+        </FormOpenProvider>
+      </MemoryRouter>
+    )
+    await screen.findByRole('heading', { level: 2, name: 'One-off income' })
+    expect(screen.queryByRole('navigation', { name: 'Bottom bar' })).not.toBeInTheDocument()
   })
 
   it('Record edits the same transaction, then saves the batch with the bookkeeping recomputed', async () => {
