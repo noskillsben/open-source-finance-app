@@ -12,6 +12,15 @@ const KIND_LABELS = {
   not_netted: "Dated before the account's opening but not absorbed into it",
 }
 
+function issueLabel(f) {
+  if (f.kind === 'stale_cover') {
+    const category = f.category_name ? ` for ${f.category_name}` : ''
+    const pool = f.pool_name ? ` (pool: ${f.pool_name})` : ''
+    return `Pool cover is out of date${category}${pool}: an earlier spend was added after this one was saved, so saving it again would draw a different amount`
+  }
+  return KIND_LABELS[f.kind] ?? f.kind
+}
+
 export default function IntegrityCheck() {
   const [payees, setPayees] = useState(null)
   const [findings, setFindings] = useState(null)
@@ -67,7 +76,7 @@ export default function IntegrityCheck() {
                   <td className="py-1 align-top">
                     {payees?.find((p) => p.id === f.payee_id)?.name ?? (f.payee_id ? `#${f.payee_id}` : '—')}
                   </td>
-                  <td className="py-1 align-top">{KIND_LABELS[f.kind] ?? f.kind}</td>
+                  <td className="py-1 align-top">{issueLabel(f)}</td>
                   <td className="tabular py-1 align-top">{formatCents(f.expected_cents)}</td>
                   <td className="tabular py-1 align-top">{formatCents(f.stored_cents)}</td>
                   <td className="py-1 align-top">

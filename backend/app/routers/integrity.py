@@ -19,6 +19,7 @@ def integrity_check(session: Session = Depends(get_session)) -> list[IntegrityFi
         IntegrityFindingOut(
             transaction_id=f.transaction_id, date=f.date, payee_id=f.payee_id,
             kind=f.kind, expected_cents=f.expected_cents, stored_cents=f.stored_cents,
+            category_name=f.category_name, pool_name=f.pool_name,
         )
         for f in find_integrity_issues(session)
     ]
