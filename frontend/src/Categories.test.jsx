@@ -596,3 +596,15 @@ describe('set aside whole (#360)', () => {
     expect(setGoal.mock.calls[0][1]).toMatchObject({ income_stream_id: null, set_aside_whole: false })
   })
 })
+
+describe('the help under "Money lives in" (#392)', () => {
+  it('shows the help text in the category form, even with no on-budget accounts', async () => {
+    renderCategories()
+    await openRent()
+    const help = await screen.findByText(
+      "Only for accounts this envelope's money sits in and you can't spend from directly — a savings or investment account, or someone who owes you. Not the card a bill is charged to."
+    )
+    expect(screen.getByText('No on-budget accounts yet.')).toBeInTheDocument()
+    expect(screen.getByRole('group', { name: /Money lives in/ })).toHaveAttribute('aria-describedby', help.id)
+  })
+})
