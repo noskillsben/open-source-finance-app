@@ -6,6 +6,8 @@ import LoadingRows from './components/LoadingRows.jsx'
 import { WarningNote } from './components/Notes.jsx'
 import { formatDateTime } from './utils/format.js'
 
+const SHOWN = 5 // the list shows this many newest files; Show all reveals the rest
+
 export const NO_BACKUP = 'No backup yet — the first one is taken at 03:00 UTC.'
 
 export const HELD_LINE =
@@ -22,6 +24,7 @@ export default function Settings({ held = false }) {
   const [confirming, setConfirming] = useState(null) // the file whose Restore was pressed
   const [restoring, setRestoring] = useState(false)
   const [adding, setAdding] = useState(false)
+  const [showAll, setShowAll] = useState(false)
   const fileInput = useRef(null)
 
   function loadFiles() {
@@ -169,7 +172,7 @@ export default function Settings({ held = false }) {
           <div className="space-y-2">
             <h4 className="text-label uppercase text-text-3">Restore a backup</h4>
             <ul className="divide-y divide-line">
-              {files.map((file) => (
+              {(showAll ? files : files.slice(0, SHOWN)).map((file) => (
                 <li key={file.name} className="space-y-3 py-2">
                   <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="min-w-0">
@@ -185,6 +188,11 @@ export default function Settings({ held = false }) {
                 </li>
               ))}
             </ul>
+            {files.length > SHOWN && (
+              <Button variant="secondary" onClick={() => setShowAll((v) => !v)}>
+                {showAll ? 'Show fewer' : `Show all (${files.length})`}
+              </Button>
+            )}
           </div>
         )}
         {!held && <div className="flex flex-col items-start gap-3">
