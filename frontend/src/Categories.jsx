@@ -135,6 +135,10 @@ function shortHorizonDate(goal, pickerDate) {
   return goal.date <= limit ? goal.date : null
 }
 
+// DESIGN.md § Accounts → Linked categories: the help under "Money lives in", verbatim.
+export const LINK_HELP =
+  "Only for accounts this envelope's money sits in and you can't spend from directly — a savings or investment account, or someone who owes you. Not the card a bill is charged to."
+
 // The link section of the category's settings form: the on-budget accounts this category's
 // money lives in (many-to-many). Searchable once there are more than five to choose from.
 function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizonGoalDate }) {
@@ -143,8 +147,9 @@ function LinkFields({ accounts, linkIds, onChange, filter, onFilter, shortHorizo
   const toggle = (id) => onChange(linkIds.includes(id) ? linkIds.filter((x) => x !== id) : [...linkIds, id])
   const investment = eligible.some((a) => linkIds.includes(a.id) && a.type === 'Investment')
   return (
-    <fieldset className="space-y-1 text-sm">
+    <fieldset className="space-y-1 text-sm" aria-describedby="link-help">
       <legend className="text-text-2">Money lives in (on-budget accounts)</legend>
+      <p id="link-help" className="text-text-2">{LINK_HELP}</p>
       {eligible.length === 0 && <p className="text-text-2">No on-budget accounts yet.</p>}
       {eligible.length > 5 && (
         <input
