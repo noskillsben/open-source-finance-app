@@ -106,7 +106,8 @@ describe('the Split expenses page', () => {
     balances[3] = { account_id: 3, balance_cents: 8021, unheld: true, owed_to_me_category_id: 9, transactions: [] }
     renderSplits()
 
-    expect(await screen.findByText(/Sam's \$80\.21 isn't held in an envelope, so Ready to assign still counts it/)).toBeInTheDocument()
+    const note = await screen.findByText(/isn't held in an envelope/)
+    expect(note).toHaveTextContent("Sam's $80.21 isn't held in an envelope, so Ready to assign still counts it — link their account to Owed to me")
     expect(screen.getByRole('link', { name: 'Owed to me' })).toHaveAttribute('href', '/categories')
   })
 
