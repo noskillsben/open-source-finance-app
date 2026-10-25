@@ -5,6 +5,7 @@ import Categories from './Categories.jsx'
 
 let goals = []
 let streams = []
+let summaryGate = null // a pending promise holds the ready-to-assign summary back
 let summaryRows = [{ category_id: 11, available_cents: 0, pool_available_cents: 0, pool_absorber: null }]
 const { setGoal, updateCategory, createCategory } = vi.hoisted(() => ({
   createCategory: vi.fn(),
@@ -22,7 +23,7 @@ vi.mock('./api.js', () => ({
       create: createCategory,
     },
     domains: { list: () => Promise.resolve([]) },
-    readyToAssign: () => Promise.resolve({
+    readyToAssign: () => summaryGate ?? Promise.resolve({
       ready_to_assign_cents: 0, overspent_cents: 0,
       categories: summaryRows,
     }),
@@ -606,5 +607,20 @@ describe('the help under "Money lives in" (#392)', () => {
     )
     expect(screen.getByText('No on-budget accounts yet.')).toBeInTheDocument()
     expect(screen.getByRole('group', { name: /Money lives in/ })).toHaveAttribute('aria-describedby', help.id)
+  })
+})
+
+describe('while the summary is loading (#400)', () => {
+  it('shows placeholders, never $0.00, until the real numbers arrive', async () => {
+    let release
+    summaryGate = new Promise((resolve) => { release = resolve })
+    renderCategories()
+    await screen.findByRole('status')
+    expect(screen.queryByText(/\$0\.00/)).toBeNull()
+    expect(screen.queryByText('Rent')).toBeNull()
+    release({ ready_to_assign_cents: 5000, overspent_cents: 0, categories: [{ category_id: 11, available_cents: 2500, pool_available_cents: 0, pool_absorber: null }] })
+    expect(await screen.findByText('$50.00')).toBeTruthy()
+    expect(screen.getByText('$25.00')).toBeTruthy()
+    summaryGate = null
   })
 })

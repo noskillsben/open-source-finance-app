@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from './api.js'
@@ -258,16 +258,27 @@ export default function Categories({ pickerDate }) {
   const [linkFilter, setLinkFilter] = useState('')
   const [linkedWarning, setLinkedWarning] = useState(null) // shown after money leaves a linked category
 
+  const summaryRequest = useRef(0) // only the newest ready-to-assign response may land
+
   function refresh() {
     api.categories.list(pickerDate, showArchived).then(setCategories).catch((e) => setError(e.message))
     api.domains.list(pickerDate).then(setDomains).catch((e) => setError(e.message))
-    api.readyToAssign(pickerDate).then(setSummary).catch((e) => setError(e.message))
+    const request = ++summaryRequest.current
+    api.readyToAssign(pickerDate)
+      .then((result) => {
+        if (request === summaryRequest.current) setSummary(result)
+      })
+      .catch((e) => setError(e.message))
     api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
     api.accounts.list(pickerDate).then(setAccounts).catch((e) => setError(e.message))
     api.incomeStreams.list(pickerDate).then(setStreams).catch((e) => setError(e.message))
   }
 
-  useEffect(refresh, [pickerDate, showArchived])
+  // A new date or archive view starts from "not loaded", so no stale or zero number is shown meanwhile.
+  useEffect(() => {
+    setSummary(null)
+    refresh()
+  }, [pickerDate, showArchived])
 
   function startAdd() {
     setSavedNote(null)
@@ -468,7 +479,8 @@ export default function Categories({ pickerDate }) {
     (!filters.overspent || available(c.id) < 0) &&
     (filters.goal === '' || (filters.goal === 'none' ? !goalOf(c.id) : goalOf(c.id)?.goal.kind === filters.goal))
   passes.faceted = filters.need !== '' || filters.goal !== '' || filters.overspent
-  const rows = categories ? viewRows(categories, available, collapsed, search, passes, sort) : []
+  const loaded = Boolean(categories && summary) // a number is shown only when the real one has arrived
+  const rows = loaded ? viewRows(categories, available, collapsed, search, passes, sort) : []
   const parentIds = rows.filter((r) => r.isParent).map((r) => r.category.id)
   const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
@@ -605,6 +617,7 @@ export default function Categories({ pickerDate }) {
         <Button className="ml-auto" onClick={startAdd}>Add a category</Button>
       </div>
 
+      {!summary && !error && <div aria-busy="true" className="h-12 w-48 animate-pulse rounded-lg bg-raised" />}
       {summary && (
         <p className="text-text-2">
           Ready to assign <span className="tabular block text-headline text-text">{formatCents(summary.ready_to_assign_cents)}</span>
@@ -649,13 +662,13 @@ export default function Categories({ pickerDate }) {
               </div>
             )}
           </ListFilters>
-          {!error && !categories && <LoadingRows />}
-          {categories && categories.length === 0 && (
+          {!error && !loaded && <LoadingRows />}
+          {loaded && categories.length === 0 && (
             <EmptyState action={<Button variant="secondary" onClick={startAdd}>Add a category</Button>}>
               No categories yet.
             </EmptyState>
           )}
-          {categories && categories.length > 0 && rows.length === 0 && (
+          {loaded && categories.length > 0 && rows.length === 0 && (
             <p className="text-text-2">No categories match these filters.</p>
           )}
           {rows.length > 0 && (

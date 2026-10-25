@@ -1095,7 +1095,14 @@ export default function Transactions({ pickerDate }) {
             <div className="rounded-lg bg-raised p-3 space-y-2 text-sm">
               <p>
                 {billLink ? 'Marked as paying ' : 'This pays '}
-                <strong>{offeredBill?.goal.name ?? `bill #${billLink.goal_id}`}</strong>, due{' '}
+                {offeredBill ? (
+                  <strong>{offeredBill.goal.name}</strong>
+                ) : goals === null ? (
+                  <span aria-busy="true" className="inline-block h-4 w-28 animate-pulse rounded bg-raised align-middle" />
+                ) : (
+                  <strong>this bill</strong>
+                )}
+                , due{' '}
                 {offeredDue ? formatDate(offeredDue) : '…'}.
               </p>
               <div className="flex flex-wrap items-center gap-2">
