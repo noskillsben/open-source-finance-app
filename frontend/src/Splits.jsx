@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from './api.js'
 import LedgerTable, { useLedgerNames } from './LedgerTable.jsx'
 import Button from './components/Button.jsx'
@@ -325,6 +325,14 @@ function MemberBalance({ member, balance, names, onSettle }) {
           <Button variant="quiet" onClick={onSettle}>Settle up</Button>
         )}
       </div>
+      {balance.unheld && (
+        <p className="text-sm text-text-2">
+          {member.payee_name}'s {formatCents(cents)} isn't held in an envelope, so Ready to assign still counts it — link their account to{' '}
+          {balance.owed_to_me_category_id != null ? (
+            <Link className="underline" to="/categories" state={{ highlightId: balance.owed_to_me_category_id }}>Owed to me</Link>
+          ) : 'Owed to me'}
+        </p>
+      )}
       {balance.transactions.length > 0 && (
         <div className="overflow-x-auto">
           <LedgerTable transactions={balance.transactions} names={names} />

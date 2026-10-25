@@ -653,3 +653,81 @@ def test_the_leaving_note_still_appears_for_someone_with_a_past_membership(db_se
         app.dependency_overrides.clear()
 
     assert leaving.json()["warnings"] == ["Sam still owes you $60.00; their balance stays on Accounts."]
+
+
+# --- A balance nothing holds says so (DESIGN.md § Splits; #391) ------------------------------------
+
+def _unheld_account(db_session, cents):
+    from app.models import Category, CategoryAccountLink  # noqa: F401
+    return create_account_with_opening_valuation(
+        db_session, name="Steffen", created_on=DAY, type="Money owed to me", on_budget=True,
+        on_budget_floor_cents=0, opening_balance_cents=cents,
+    )
+
+
+def _balance(db_session, account, as_of=None):
+    client = _client(db_session)
+    try:
+        params = {"as_of": as_of.isoformat()} if as_of else {}
+        return client.get(f"/api/splits/accounts/{account.id}/balance", params=params).json()
+    finally:
+        app.dependency_overrides.clear()
+
+
+def _owed_category(db_session, **kw):
+    from app.models import Category
+    from app.seed import OWED_TO_ME_KEY
+    category = Category(name="Owed to me", created_on=DAY, seeded_key=OWED_TO_ME_KEY, **kw)
+    db_session.add(category)
+    db_session.flush()
+    return category
+
+
+def test_an_unlinked_positive_balance_is_flagged_with_the_owed_to_me_category(db_session):
+    owed = _owed_category(db_session)
+    body = _balance(db_session, _unheld_account(db_session, 80_21), DAY)
+    assert body["unheld"] is True and body["owed_to_me_category_id"] == owed.id
+
+
+def test_zero_and_negative_balances_are_not_flagged(db_session):
+    _owed_category(db_session)
+    assert _balance(db_session, _unheld_account(db_session, 0), DAY)["unheld"] is False
+    db_session.rollback()
+    negative = create_account_with_opening_valuation(
+        db_session, name="Kit", created_on=DAY, type="Money owed to me", on_budget=True,
+        on_budget_floor_cents=0, opening_balance_cents=-5_00,
+    )
+    assert _balance(db_session, negative, DAY)["unheld"] is False
+
+
+def test_an_account_linked_to_any_category_is_not_flagged(db_session):
+    from app.models import Category, CategoryAccountLink
+    _owed_category(db_session)
+    other = Category(name="Savings pot", created_on=DAY)
+    db_session.add(other)
+    db_session.flush()
+    account = _unheld_account(db_session, 80_21)
+    db_session.add(CategoryAccountLink(category_id=other.id, account_id=account.id))
+    db_session.flush()
+    assert _balance(db_session, account, DAY)["unheld"] is False
+
+
+def test_the_note_still_comes_without_a_link_target_when_owed_to_me_is_not_live(db_session):
+    _owed_category(db_session, archived_on=DAY)
+    body = _balance(db_session, _unheld_account(db_session, 80_21), datetime.date(2026, 4, 1))
+    assert body["unheld"] is True and body["owed_to_me_category_id"] is None
+
+
+def test_the_picker_date_decides_whether_the_balance_is_above_zero(db_session):
+    _owed_category(db_session)
+    account = _unheld_account(db_session, 0)
+    from app.services.accounts import account_balance_cents  # noqa: F401
+    from app.models import AccountLine, Transaction
+    later = datetime.date(2026, 3, 10)
+    txn = Transaction(date=later, memo="Rent")
+    db_session.add(txn)
+    db_session.flush()
+    db_session.add(AccountLine(transaction_id=txn.id, account_id=account.id, cents=50_00, budget_cents=50_00))
+    db_session.flush()
+    assert _balance(db_session, account, datetime.date(2026, 3, 5))["unheld"] is False
+    assert _balance(db_session, account, later)["unheld"] is True

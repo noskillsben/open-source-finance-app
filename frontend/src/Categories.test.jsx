@@ -64,6 +64,20 @@ function renderCategories() {
   )
 }
 
+describe('arriving from another page', () => {
+  it('highlights the row named in the router state', async () => {
+    render(
+      <MemoryRouter initialEntries={[{ pathname: '/categories', state: { highlightId: 11 } }]}>
+        <Routes>
+          <Route path="/categories" element={<Categories pickerDate="2026-10-03" />} />
+        </Routes>
+      </MemoryRouter>
+    )
+    const row = await screen.findByRole('row', { name: /Rent/ })
+    expect(row).toHaveClass('bg-raised')
+  })
+})
+
 describe('a recurring bill\'s row: Record', () => {
   it('names the earliest unpaid due date and opens Transactions with the bill to record', async () => {
     goals = [rentRow()]

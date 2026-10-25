@@ -701,6 +701,8 @@ class MemberBalanceOut(BaseModel):
     account_id: int
     balance_cents: int
     touched: bool  # any real line, any date, has hit the account (not its opening-balance line)
+    unheld: bool = False  # they owe me and the account has no linked category: the page says so
+    owed_to_me_category_id: int | None = None  # the live Owed to me category, for the note's link
     transactions: list[TransactionOut]
 
 
