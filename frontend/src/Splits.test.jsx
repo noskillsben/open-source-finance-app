@@ -101,6 +101,29 @@ describe('the Split expenses page', () => {
     expect(screen.getAllByText('Heating')[0].closest('tr')).not.toHaveClass('cursor-pointer')
   })
 
+  it('says a balance nobody holds is counted in Ready to assign, with a link to Owed to me', async () => {
+    balances.splits = household().slice(0, 1)
+    balances[3] = { account_id: 3, balance_cents: 8021, unheld: true, owed_to_me_category_id: 9, transactions: [] }
+    renderSplits()
+
+    expect(await screen.findByText(/Sam's \$80\.21 isn't held in an envelope, so Ready to assign still counts it/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Owed to me' })).toHaveAttribute('href', '/categories')
+  })
+
+  it('says the note without a link when Owed to me is not live, and not at all when held', async () => {
+    balances.splits = household().slice(0, 1)
+    balances[3] = { account_id: 3, balance_cents: 8021, unheld: true, owed_to_me_category_id: null, transactions: [] }
+    renderSplits()
+    expect(await screen.findByText(/isn't held in an envelope/)).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Owed to me' })).toBeNull()
+    cleanup()
+
+    balances[3] = { account_id: 3, balance_cents: 8021, unheld: false, transactions: [] }
+    renderSplits()
+    expect(await screen.findByText('Sam owes you $80.21')).toBeInTheDocument()
+    expect(screen.queryByText(/isn't held in an envelope/)).toBeNull()
+  })
+
   it('says so when I owe them, and shows no Settle up when nothing is owed', async () => {
     balances.splits = household().slice(0, 1)
     balances[3] = { account_id: 3, balance_cents: -2050, transactions: [HEAT] }

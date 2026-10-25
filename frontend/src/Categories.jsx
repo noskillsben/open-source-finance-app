@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from './api.js'
 import Button from './components/Button.jsx'
@@ -239,7 +240,7 @@ export default function Categories({ pickerDate }) {
   const [moveNote, setMoveNote] = useState(null)
   // The row just saved is highlighted; an add also says Recorded. Both clear when another form opens.
   const [savedNote, setSavedNote] = useState(null)
-  const [highlightId, setHighlightId] = useState(null)
+  const [highlightId, setHighlightId] = useState(useLocation().state?.highlightId ?? null) // a link from another page can name a row
   const [collapsed, setCollapsed] = useState(loadCollapsed) // ids of collapsed groups, per device
   const { filters, setFilter, clear: clearFilters, active: clearShows, filtered: filtersActive, sort, toggleSort } = useFilters('categories.filters', { search: '', need: '', goal: '', overspent: false }, DEFAULT_SORT)
   const search = filters.search

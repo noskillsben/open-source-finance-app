@@ -8,6 +8,7 @@ from app.db import get_session
 from app.models import Account, Split
 from app.routers.shapes import _transaction_shape
 from app.schemas import ArchiveIn, ArchiveOut, MemberBalanceOut, SplitCreate, SplitMemberOut, SplitOut, SplitUpdate
+from app.services.links import linked_category_ids, seeded_owed_to_me
 from app.services.archiving import ArchiveError, _visible
 from app.services.splits import (
     SplitError, account_touched, archive_split, balance_since_zero, create_split, my_share_percent, shown_members, unarchive_split_checked, update_split,
@@ -54,8 +55,11 @@ def member_balance(account_id: int, as_of: date | None = None, session: Session 
     if session.get(Account, account_id) is None:
         raise HTTPException(status_code=404, detail=f"No account with id {account_id}.")
     balance, transactions = balance_since_zero(session, account_id, as_of)
+    unheld = balance > 0 and not linked_category_ids(session, account_id)
+    owed = seeded_owed_to_me(session, on=as_of) if unheld and as_of is not None else None
     return MemberBalanceOut(
         account_id=account_id, balance_cents=balance, touched=account_touched(session, account_id),
+        unheld=unheld, owed_to_me_category_id=owed.id if owed else None,
         transactions=[_transaction_shape(t, []) for t in transactions],
     )
 
