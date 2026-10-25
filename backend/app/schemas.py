@@ -471,6 +471,8 @@ class IntegrityFindingOut(BaseModel):
     kind: str
     expected_cents: int
     stored_cents: int
+    category_name: str | None = None
+    pool_name: str | None = None
 
     model_config = {"from_attributes": True}
 

@@ -79,7 +79,7 @@ One bullet per thing you can do, in the order you'd meet it. Kept current as the
 
 ## Integrity check
 
-- Open the integrity check page any time to see any transaction whose category lines don't add up, or whose on-budget amount would come out differently if it were saved again under an account's current on-budget/tracking side, or that were saved before the opening balance's date but weren't absorbed into it (older rows from before backfills could be entered in any order). Nothing runs in the background and nothing is dev-only — it's a page like any other. Fix one row at a time with its "Re-save" button, which writes the transaction again through the normal save path; there's no "fix everything" button on purpose.
+- Open the integrity check page any time to see any transaction whose category lines don't add up, or whose on-budget amount would come out differently if it were saved again under an account's current on-budget/tracking side, or that were saved before the opening balance's date but weren't absorbed into it (older rows from before backfills could be entered in any order), or whose pool cover is out of date (you added an earlier spend in the same category after saving it, so the pool would now cover a different amount; the row names the category and the pool, and its Re-save fixes it without touching any other row). Nothing runs in the background and nothing is dev-only — it's a page like any other. Fix one row at a time with its "Re-save" button, which writes the transaction again through the normal save path; there's no "fix everything" button on purpose.
 
 ## Backups
 

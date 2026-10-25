@@ -177,26 +177,56 @@ def read_deposits_for(session: Session, transactions: list[Transaction]) -> dict
 
 
 def _write_pool_draws(session: Session, transaction: Transaction) -> None:
+    """Write the draws `plan_pool_draws` works out (the earlier ones were cleared first)."""
+    for pool, category_id, cents in plan_pool_draws(session, transaction):
+        _write_draw_pair(session, transaction, pool, category_id, cents)
+
+
+def plan_pool_draws(session: Session, transaction: Transaction) -> list[tuple[Category, int, int]]:
     """DESIGN.md § Pools: a category this transaction takes negative draws on its pool chain
-    instead. For each such category, walk the chain writing a pair per hop (pool −X, category
+    instead. For each such category, walk the chain planning a pair per hop (pool −X, category
     +X) dated with the transaction — X is what is still uncovered, capped by what that pool
     holds, so a pool never goes negative from a draw. Only the part of the shortfall this
     transaction added is drawn (a category already negative before it isn't this spend's to
     cover). What no pool can cover stays negative. The pair nets to zero, so ready to assign
-    doesn't move. Computed here, at write time, from the pool links as they stand now.
+    doesn't move. Computed from the pool links as they stand now.
 
     A pool set to absorb overspending (DESIGN.md § Pools) changes only the end of the walk:
     what the whole chain could not cover goes to the first absorbing pool the walk passed, as
     one more pair, taking that pool negative. Idle money up the chain is always used first.
+
+    Pure: returns (pool, category_id, cents) and writes nothing. The write path and the
+    integrity check's stale-cover finding both call it. Balances are read as of the
+    transaction date *without* this transaction's own stored `pool_draw` lines, so a correct
+    row plans the draws it already has; pairs planned earlier in the walk count against the
+    balances later hops see, as they do once written.
     """
+    own: dict[int, int] = {}
+    for line in session.scalars(
+        select(EarmarkLine).where(EarmarkLine.transaction_id == transaction.id, EarmarkLine.source == "pool_draw")
+    ):
+        own[line.category_id] = own.get(line.category_id, 0) + line.cents
+    planned: dict[int, int] = {}
+    plan: list[tuple[Category, int, int]] = []
+
+    def balance(category_id: int) -> int:
+        return (
+            category_balance_cents(session, category_id, as_of=transaction.date)
+            - own.get(category_id, 0) + planned.get(category_id, 0)
+        )
+
+    def add(pool: Category, category_id: int, cents: int) -> None:
+        plan.append((pool, category_id, cents))
+        planned[pool.id] = planned.get(pool.id, 0) - cents
+        planned[category_id] = planned.get(category_id, 0) + cents
+
     spent: dict[int, int] = {}
     for line in transaction.category_lines:
         spent[line.category_id] = spent.get(line.category_id, 0) + line.cents
     for category_id, cents in spent.items():
         if cents >= 0:
             continue
-        balance = category_balance_cents(session, category_id, as_of=transaction.date)
-        uncovered = min(-balance, -cents)
+        uncovered = min(-balance(category_id), -cents)
         absorber = None
         for pool in pool_chain(session, category_id):
             if uncovered <= 0:
@@ -205,13 +235,14 @@ def _write_pool_draws(session: Session, transaction: Transaction) -> None:
                 continue
             if absorber is None and pool.absorb_overspending:
                 absorber = pool
-            covered = min(uncovered, max(category_balance_cents(session, pool.id, as_of=transaction.date), 0))
+            covered = min(uncovered, max(balance(pool.id), 0))
             if covered == 0:
                 continue
-            _write_draw_pair(session, transaction, pool, category_id, covered)
+            add(pool, category_id, covered)
             uncovered -= covered
         if uncovered > 0 and absorber is not None:
-            _write_draw_pair(session, transaction, absorber, category_id, uncovered)
+            add(absorber, category_id, uncovered)
+    return plan
 
 
 def _write_draw_pair(session: Session, transaction: Transaction, pool: Category, category_id: int, cents: int) -> None:
