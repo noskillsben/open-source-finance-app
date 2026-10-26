@@ -117,6 +117,19 @@ describe('LedgerTable adjustments and the phone list', () => {
     expect(screen.getByText('Balance check')).toBeInTheDocument()
   })
 
+  it('reads a later check alone as Balance check when the opening is only in the full ledger', () => {
+    setWidth(true)
+    render(<MemoryRouter><LedgerTable transactions={[ledger[1]]} allTransactions={ledger} names={NAMES} /></MemoryRouter>)
+    expect(screen.getByText('Balance check')).toBeInTheDocument()
+    expect(screen.queryByText('Opening balance')).toBeNull()
+  })
+
+  it('takes the earlier valuation date as the opening even with a higher id', () => {
+    setWidth(true)
+    renderLedger([{ ...adj(1, 20), date: '2026-09-01' }, adj(2, 12)])
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('Opening balance')
+  })
+
   it('draws no table on a phone: payee and date first, account lines, then category names', () => {
     setWidth(false)
     const { container } = render(<MemoryRouter><LedgerTable transactions={[T]} names={NAMES} /></MemoryRouter>)

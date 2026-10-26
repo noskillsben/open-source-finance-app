@@ -36,6 +36,11 @@ export default function Splits({ pickerDate }) {
   const nextKey = useRef(1)
   const navigate = useNavigate()
   const names = useLedgerNames(pickerDate)
+  // The whole ledger, only so the table can tell an opening balance from a balance check.
+  const [ledger, setLedger] = useState(undefined)
+  useEffect(() => {
+    api.transactions.list().then(setLedger).catch(() => setLedger(undefined))
+  }, [])
   // Each member account's balance and what built it, by account id: a person in two splits shows
   // the same balance under each (DESIGN.md § Splits).
   const [balances, setBalances] = useState({})
@@ -335,7 +340,7 @@ function MemberBalance({ member, balance, names, onSettle }) {
       )}
       {balance.transactions.length > 0 && (
         <div className="overflow-x-auto">
-          <LedgerTable transactions={balance.transactions} names={names} />
+          <LedgerTable transactions={balance.transactions} allTransactions={ledger} names={names} />
         </div>
       )}
     </div>

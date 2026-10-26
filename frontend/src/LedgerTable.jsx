@@ -77,20 +77,22 @@ export function groupByMonth(transactions, sort, payeeName, accountId = null) {
 }
 
 /** The transactions a balance check or an opening balance produced, by id: `valuation_id` marks both, and
- * the opening is the one with the account's lowest valuation id (an account's opening valuation is
- * written first, with the account; DESIGN.md § Opening balance and backfilling history). Judged over
- * the list it is given, so the Transactions page passes the whole ledger. */
+ * the opening is the account's earliest valuation by date, then id (as the backend picks it; DESIGN.md § Opening balance and backfilling history). Judged over
+ * the list it is given, so the Transactions and Splits pages pass the whole ledger. */
 export function adjustmentLabels(transactions) {
-  const lowest = new Map()
+  // The backend's definition of the opening: the account's earliest valuation by date, then id. An
+  // adjustment is dated its valuation's date, so the transaction's date stands in for the valuation's.
+  const first = new Map()
+  const before = (a, b) => a.date < b.date || (a.date === b.date && a.valuation_id < b.valuation_id)
   for (const t of transactions) {
     if (t.valuation_id == null || t.account_lines.length === 0) continue
     const account = t.account_lines[0].account_id
-    if (!lowest.has(account) || t.valuation_id < lowest.get(account)) lowest.set(account, t.valuation_id)
+    if (!first.has(account) || before(t, first.get(account))) first.set(account, t)
   }
   const labels = new Map()
   for (const t of transactions) {
     if (t.valuation_id == null || t.account_lines.length === 0) continue
-    labels.set(t.id, lowest.get(t.account_lines[0].account_id) === t.valuation_id ? 'Opening balance' : 'Balance check')
+    labels.set(t.id, first.get(t.account_lines[0].account_id).valuation_id === t.valuation_id ? 'Opening balance' : 'Balance check')
   }
   return labels
 }

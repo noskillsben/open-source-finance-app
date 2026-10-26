@@ -85,6 +85,7 @@ describe('the Split expenses page', () => {
     updateSplit.mockReset()
     archiveSplit.mockReset()
     transactionsList.mockReset()
+    transactionsList.mockResolvedValue([]) // the whole ledger, loaded only to label opening balances
     for (const key of Object.keys(balances)) delete balances[key]
   })
 
@@ -94,7 +95,6 @@ describe('the Split expenses page', () => {
     renderSplits()
 
     expect(await screen.findAllByText('Sam owes you $50.00')).toHaveLength(2)
-    expect(transactionsList).not.toHaveBeenCalled()
     expect(screen.getAllByText('Heating')).toHaveLength(2)
     expect(screen.getAllByRole('button', { name: 'Settle up' })).toHaveLength(2)
     // read-only: no row is clickable
