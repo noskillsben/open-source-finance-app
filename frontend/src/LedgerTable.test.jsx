@@ -1,6 +1,6 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { fireEvent, render, screen } from '@testing-library/react'
 import { MemoryRouter } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
 import LedgerTable from './LedgerTable.jsx'
 
 const NAMES = {
@@ -89,5 +89,82 @@ describe('LedgerTable', () => {
       expect(label([[0, 0], [2000, 2000]])).toBe('unassigned')
       expect(label([[5000, 5000]])).toBe('unassigned')
     })
+  })
+})
+
+function setWidth(desktop) {
+  window.matchMedia = (query) => ({
+    matches: desktop, media: query, addEventListener: () => {}, removeEventListener: () => {},
+  })
+}
+
+describe('LedgerTable adjustments and the phone list', () => {
+  const adj = (id, valuation_id, accountId = 1) => ({
+    id, date: '2026-10-0' + id, memo: null, payee_id: null, valuation_id, income_stream_id: null, goal_id: null, goal_due_on: null, split_id: null,
+    account_lines: [{ id: id * 10, account_id: accountId, cents: 1000, budget_cents: 1000 }],
+    category_lines: [],
+  })
+  const ledger = [adj(1, 11), adj(2, 12)]
+  const renderLedger = (list = ledger) => render(<MemoryRouter><LedgerTable transactions={list} allTransactions={list} names={NAMES} /></MemoryRouter>)
+
+  afterEach(() => { delete window.matchMedia })
+
+  it('labels the earliest valuation Opening balance and a later one Balance check on a desktop', () => {
+    setWidth(true)
+    renderLedger()
+    expect(screen.getByRole('table')).toBeInTheDocument()
+    expect(screen.getByText('Opening balance')).toBeInTheDocument()
+    expect(screen.getByText('Balance check')).toBeInTheDocument()
+  })
+
+  it('reads a later check alone as Balance check when the opening is only in the full ledger', () => {
+    setWidth(true)
+    render(<MemoryRouter><LedgerTable transactions={[ledger[1]]} allTransactions={ledger} names={NAMES} /></MemoryRouter>)
+    expect(screen.getByText('Balance check')).toBeInTheDocument()
+    expect(screen.queryByText('Opening balance')).toBeNull()
+  })
+
+  it('never labels from a partial list: without the whole ledger an adjustment is a Balance adjustment', () => {
+    setWidth(true)
+    render(<MemoryRouter><LedgerTable transactions={[ledger[1]]} names={NAMES} /></MemoryRouter>)
+    expect(screen.getByText('Balance adjustment')).toBeInTheDocument()
+    expect(screen.queryByText('Opening balance')).toBeNull()
+  })
+
+  it('takes the earlier valuation date as the opening even with a higher id', () => {
+    setWidth(true)
+    renderLedger([{ ...adj(1, 20), date: '2026-09-01' }, adj(2, 12)])
+    expect(screen.getAllByRole('row')[1]).toHaveTextContent('Opening balance')
+  })
+
+  it('draws no table on a phone: payee and date first, account lines, then category names', () => {
+    setWidth(false)
+    const { container } = render(<MemoryRouter><LedgerTable transactions={[T]} names={NAMES} /></MemoryRouter>)
+    expect(container.querySelector('table')).toBeNull()
+    const row = screen.getByText('Corner shop').closest('li')
+    expect(row.firstChild.textContent).toBe('Corner shopOct 1, 2026')
+    expect(row).toHaveTextContent('Weekly shop')
+    expect(row).toHaveTextContent('Chequing−$50.00')
+    expect(row).toHaveTextContent('Old card (archived)$25.00')
+    expect(row).toHaveTextContent('Groceries')
+    expect(screen.getAllByText('−$50.00')[0]).toHaveClass('whitespace-nowrap')
+  })
+
+  it('reads the adjustment labels on a phone too, and falls back to the memo before them', () => {
+    setWidth(false)
+    renderLedger([...ledger, { ...adj(3, null), memo: 'Cash' }])
+    expect(screen.getByText('Opening balance')).toBeInTheDocument()
+    expect(screen.getByText('Balance check')).toBeInTheDocument()
+    expect(screen.getByText('Cash')).toBeInTheDocument()
+  })
+
+  it('keeps month headers on a phone, collapsible with the total', () => {
+    setWidth(false)
+    const onToggle = vi.fn()
+    const byMonth = { sort: { key: 'date', dir: 'desc' }, onSort: () => {}, collapsed: [], onToggle }
+    render(<MemoryRouter><LedgerTable transactions={[T]} names={NAMES} byMonth={byMonth} /></MemoryRouter>)
+    fireEvent.click(screen.getByRole('button', { name: 'October 2026' }))
+    expect(onToggle).toHaveBeenCalledWith('2026-10')
+    expect(screen.getByText('−$25.00')).toBeInTheDocument()
   })
 })

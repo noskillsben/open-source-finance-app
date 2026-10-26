@@ -36,6 +36,11 @@ export default function Splits({ pickerDate }) {
   const nextKey = useRef(1)
   const navigate = useNavigate()
   const names = useLedgerNames(pickerDate)
+  // The whole ledger, only so the table can tell an opening balance from a balance check.
+  const [ledger, setLedger] = useState(undefined)
+  useEffect(() => {
+    api.transactions.list().then(setLedger).catch((e) => setError(`Could not load the ledger, so balance adjustments are labelled only as adjustments: ${e.message}`))
+  }, [])
   // Each member account's balance and what built it, by account id: a person in two splits shows
   // the same balance under each (DESIGN.md § Splits).
   const [balances, setBalances] = useState({})
@@ -293,6 +298,7 @@ export default function Splits({ pickerDate }) {
                             member={m}
                             balance={balances[m.account_id]}
                             names={names}
+                            ledger={ledger}
                             onSettle={() => settleUp(m, balances[m.account_id])}
                           />
                         )}
@@ -311,7 +317,7 @@ export default function Splits({ pickerDate }) {
 }
 
 // What a member owes, a Settle up button, and the transactions since the balance last stood at zero.
-function MemberBalance({ member, balance, names, onSettle }) {
+function MemberBalance({ member, balance, names, ledger, onSettle }) {
   const cents = balance.balance_cents
   const text =
     cents > 0 ? `${member.payee_name} owes you ${formatCents(cents)}`
@@ -335,7 +341,7 @@ function MemberBalance({ member, balance, names, onSettle }) {
       )}
       {balance.transactions.length > 0 && (
         <div className="overflow-x-auto">
-          <LedgerTable transactions={balance.transactions} names={names} />
+          <LedgerTable transactions={balance.transactions} allTransactions={ledger} names={names} />
         </div>
       )}
     </div>

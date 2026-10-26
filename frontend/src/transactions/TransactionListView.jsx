@@ -58,6 +58,7 @@ export default function TransactionListView({ data, list, form }) {
         {transactions && shown.length > 0 && (
           <div className="overflow-x-auto">
             <LedgerTable
+              allTransactions={transactions}
               transactions={shown}
               names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll, failed: namesFailed }}
               onSelect={editTransaction}
