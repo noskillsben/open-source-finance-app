@@ -66,7 +66,7 @@ describe('routing', () => {
     ['/payees', 2, 'Payees'],
     ['/split-expenses', 2, 'Split expenses'],
     ['/domains', 2, 'Domains'],
-    ['/settings/data-check', 2, 'Integrity check'],
+    ['/settings/data-check', 2, 'Data check'],
   ])('mounts the right page at %s', async (path, level, expectedHeading) => {
     await renderAt(path)
     expect(await screen.findByRole('heading', { level, name: expectedHeading })).toBeInTheDocument()
