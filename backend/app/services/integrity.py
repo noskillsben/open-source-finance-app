@@ -91,9 +91,7 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
             )
 
         if txn.category_lines:
-            stale = _stale_cover(session, txn)
-            if stale is not None:
-                findings.append(stale)
+            findings.extend(_stale_cover(session, txn))
 
         recomputed_movement = sum(line_budget_cents(line.account, line.cents) for line in txn.account_lines)
         if recomputed_movement != stored_movement:
@@ -107,32 +105,49 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
     return findings
 
 
-def _stale_cover(session: Session, txn: Transaction) -> IntegrityFinding | None:
-    """Compare the draws a save would write now with the stored ones, per category involved."""
+def _stale_cover(session: Session, txn: Transaction) -> list[IntegrityFinding]:
+    """Compare the draws a save would write now with the stored ones. One finding per spent
+    category whose draw differs, each with its own pool and its own expected/stored draw cents;
+    a differing pool with no differing spent category still yields one finding naming the pool."""
     expected: dict[int, int] = {}
-    expected_total = 0
+    pool_of: dict[int, int] = {}  # spent category -> the pool the planner draws it from
     for pool, category_id, cents in plan_pool_draws(session, txn):
         expected[pool.id] = expected.get(pool.id, 0) - cents
         expected[category_id] = expected.get(category_id, 0) + cents
-        expected_total += cents
+        pool_of.setdefault(category_id, pool.id)
     stored: dict[int, int] = {}
-    stored_total = 0
     for line in session.scalars(
         select(EarmarkLine).where(EarmarkLine.transaction_id == txn.id, EarmarkLine.source == "pool_draw")
     ):
         stored[line.category_id] = stored.get(line.category_id, 0) + line.cents
-        if line.cents > 0:
-            stored_total += line.cents
     differing = {c for c in expected.keys() | stored.keys() if expected.get(c, 0) != stored.get(c, 0)}
     if not differing:
-        return None
+        return []
     spent_ids = {line.category_id for line in txn.category_lines}
-    category_id = min(differing & spent_ids, default=None)
-    pool_id = min(differing - spent_ids, default=None)
-    wanted = [i for i in (category_id, pool_id) if i is not None]
-    names = {c.id: c.name for c in session.scalars(select(Category).where(Category.id.in_(wanted)))}
-    return IntegrityFinding(
-        transaction_id=txn.id, date=txn.date, payee_id=txn.payee_id, kind="stale_cover",
-        expected_cents=expected_total, stored_cents=stored_total,
-        category_name=names.get(category_id), pool_name=names.get(pool_id),
-    )
+    stored_pools = sorted(c for c, cents in stored.items() if cents < 0 and c not in spent_ids)
+    categories = {
+        c.id: c for c in session.scalars(
+            select(Category).where(Category.id.in_(differing | set(pool_of.values()) | set(stored_pools)))
+        )
+    }
+
+    def finding(category_id, pool_id, expected_cents, stored_cents):
+        return IntegrityFinding(
+            transaction_id=txn.id, date=txn.date, payee_id=txn.payee_id, kind="stale_cover",
+            expected_cents=expected_cents, stored_cents=stored_cents,
+            category_name=categories[category_id].name if category_id is not None else None,
+            pool_name=categories[pool_id].name if pool_id is not None else None,
+        )
+
+    results = []
+    for category_id in sorted(differing & spent_ids):
+        pool_id = pool_of.get(category_id)
+        if pool_id is None:  # draw no longer planned: fall back to the stored lines' pool
+            own_pool = categories[category_id].pool_id
+            pool_id = own_pool if own_pool in stored_pools else next(iter(stored_pools), None)
+        results.append(finding(category_id, pool_id, expected.get(category_id, 0), stored.get(category_id, 0)))
+    if not results:
+        pool_id = min(differing - spent_ids)
+        results.append(finding(None, pool_id, sum(c for c in expected.values() if c > 0),
+                               sum(c for c in stored.values() if c > 0)))
+    return results
