@@ -32,7 +32,9 @@ const components = {
 }
 
 // react-markdown passes the syntax-tree node as a prop; keep it off the DOM element.
-function strip({ node: _node, ...rest }) {
+function strip(props) {
+  const rest = { ...props }
+  delete rest.node
   return rest
 }
 
