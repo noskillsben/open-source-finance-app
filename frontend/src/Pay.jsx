@@ -236,6 +236,7 @@ export default function Pay({ pickerDate }) {
     try {
       const result = await api.incomeStreams.archive(stream.id, pickerDate)
       setWarnings(result.warnings.map((w) => `${stream.name}: ${w}`))
+      closePanel()
       refresh()
     } catch (err) {
       setRowError(err.message)
@@ -247,6 +248,7 @@ export default function Pay({ pickerDate }) {
     setWarnings([])
     try {
       await api.incomeStreams.unarchive(stream.id)
+      closePanel()
       refresh()
     } catch (err) {
       setRowError(err.message)
@@ -263,6 +265,9 @@ export default function Pay({ pickerDate }) {
 
   const formPanel = panelOpen && (
     <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a named pay'} onClose={closePanel} focusKey={focusKey}>
+      {editing?.archived_on ? (
+        <p className="text-text-2">Archived {formatDate(editing.archived_on)}. Unarchive it to edit or record it.</p>
+      ) : (
       <form key={formKey} onSubmit={submit} className="space-y-4">
           <p className="text-sm text-text-2">
             Lumpy income? You can always set it monthly and estimate the least and most you receive in a month.
@@ -348,32 +353,30 @@ export default function Pay({ pickerDate }) {
             <Button variant="secondary" onClick={closePanel}>Cancel</Button>
           </div>
       </form>
+      )}
+      {editing && (
+        <div className="mt-6 border-t border-line pt-3">
+          {/* Archive, quiet negative, at the panel's foot (DESIGN.md § Row actions). */}
+          <Button
+            variant="destructive"
+            onClick={() => (editing.archived_on ? unarchiveStream(editing) : archiveStream(editing))}
+          >
+            {editing.archived_on ? 'Unarchive' : 'Archive'}
+          </Button>
+        </div>
+      )}
     </SidePanel>
   )
 
   const archivedNote = (s) =>
     s.archived_on && <div className="text-sm text-text-3">archived {formatDate(s.archived_on)}</div>
-  const streamActions = (s) => (
-    <>
-      {!s.archived_on && (
-        <Link className="btn btn-quiet" to={`/income/${s.id}/record`}>
-          {s.next_payday_recorded ? 'Re-open' : 'Record'}
-        </Link>
-      )}
-      {!s.archived_on && (
-        <button type="button" className="btn btn-quiet" onClick={() => startEdit(s)}>
-          Edit
-        </button>
-      )}
-      <button
-        type="button"
-        className="btn btn-quiet"
-        onClick={() => (s.archived_on ? unarchiveStream(s) : archiveStream(s))}
-      >
-        {s.archived_on ? 'Unarchive' : 'Archive'}
-      </button>
-    </>
-  )
+  // The row's one control; it must not also open the row.
+  const streamActions = (s) =>
+    !s.archived_on && (
+      <Link className="btn btn-quiet" to={`/income/${s.id}/record`} onClick={(e) => e.stopPropagation()}>
+        {s.next_payday_recorded ? 'Re-open' : 'Record'}
+      </Link>
+    )
 
   return (
     <div className="space-y-6 py-4">
@@ -427,13 +430,20 @@ export default function Pay({ pickerDate }) {
             rows={shown}
             rowId={(s) => s.id}
             selectedId={editing?.id ?? highlightId}
+            onSelect={startEdit}
+            rowProps={(s) => ({
+              tabIndex: 0,
+              onKeyDown: (e) => {
+                if (e.target === e.currentTarget && e.key === 'Enter') startEdit(s)
+              },
+            })}
             sort={sort}
             onSort={toggleSort}
             columns={[
               { key: 'name', header: 'Name', sortKey: 'name', cell: (s) => <>{s.name}{archivedNote(s)}</> },
               { key: 'cadence', header: 'Cadence', cell: (s) => cadenceText(s) },
               { key: 'next_payday', header: 'Next payday', sortKey: 'next_payday', cell: (s) => formatDate(s.next_payday) },
-              { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right space-x-3 whitespace-nowrap', cell: streamActions },
+              { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right whitespace-nowrap', cell: streamActions },
             ]}
             phoneRow={(s) => (
               <>
@@ -443,7 +453,7 @@ export default function Pay({ pickerDate }) {
                 </div>
                 <div className="break-words text-sm text-text-2">{cadenceText(s)}</div>
                 {archivedNote(s)}
-                <div className="space-x-3">{streamActions(s)}</div>
+                <div>{streamActions(s)}</div>
               </>
             )}
           />

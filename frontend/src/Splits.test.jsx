@@ -234,21 +234,36 @@ describe('the Split expenses page', () => {
     balances.splits = household().slice(0, 1)
     updateSplit.mockResolvedValue({ ...household()[0], members: [], warnings: ['Sam still owes you $60.00; their balance stays on Accounts.'] })
     renderSplits()
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.click(await screen.findByText('Household'))
     fireEvent.click(screen.getByRole('button', { name: 'Remove' }))
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     expect(await screen.findByText('Sam still owes you $60.00; their balance stays on Accounts.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Save' })).not.toBeInTheDocument() // the panel closed, the note stayed
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.click(await screen.findByText('Household'))
     expect(screen.queryByText(/still owes you/)).not.toBeInTheDocument()
+  })
+
+  it('opens on a tap or Enter, and Settle up does not also open the row (#398)', async () => {
+    balances.splits = household().slice(0, 1)
+    balances[3] = { account_id: 3, balance_cents: 5000, transactions: [] }
+    renderSplits()
+    const row = (await screen.findByText('Household')).closest('li.rounded-lg')
+    expect(row).toHaveAttribute('tabindex', '0')
+    expect(screen.queryByRole('button', { name: 'Edit' })).toBeNull()
+    fireEvent.click(await screen.findByRole('button', { name: 'Settle up' }))
+    expect(screen.queryByRole('button', { name: 'Save' })).toBeNull()
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(await screen.findByRole('button', { name: 'Save' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Archive' })).toBeInTheDocument()
   })
 
   it('shows the notes the archive returns', async () => {
     balances.splits = household().slice(0, 1)
     archiveSplit.mockResolvedValue({ id: 5, archived_on: '2026-10-05', warnings: ['You still owe Sam $5.00; their balance stays on Accounts.'] })
     renderSplits()
+    fireEvent.click(await screen.findByText('Household'))
     fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
 
     expect(await screen.findByText('You still owe Sam $5.00; their balance stays on Accounts.')).toBeInTheDocument()
@@ -272,7 +287,7 @@ describe('the Split expenses page', () => {
     expect(rowOf('Trips')).toHaveClass('bg-raised')
     expect(rowOf('Household')).not.toHaveClass('bg-raised')
 
-    fireEvent.click(within(rowOf('Household')).getByRole('button', { name: 'Edit' }))
+    fireEvent.click(within(rowOf('Household')).getByText('Household'))
     expect(screen.queryByText('Recorded.')).toBeNull()
     expect(rowOf('Trips')).not.toHaveClass('bg-raised')
     fireEvent.click(screen.getByRole('button', { name: 'Save' }))

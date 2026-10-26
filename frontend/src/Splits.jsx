@@ -175,6 +175,9 @@ export default function Splits({ pickerDate }) {
 
   const formPanel = panelOpen && (
     <SidePanel title={editing ? `Edit · ${editing.name}` : 'Add a split'} onClose={closePanel} focusKey={focusKey}>
+        {editing?.archived_on ? (
+          <p className="text-text-2">Archived {formatDate(editing.archived_on)}. Unarchive it to edit it.</p>
+        ) : (
         <form key={formKey} onSubmit={submit} className="space-y-4">
           {error && <RefusalNote>{error}</RefusalNote>}
           <label className="block space-y-1">
@@ -241,6 +244,15 @@ export default function Splits({ pickerDate }) {
             <Button variant="secondary" onClick={closePanel}>Cancel</Button>
           </div>
         </form>
+        )}
+        {editing && (
+          <div className="mt-6 border-t border-line pt-3">
+            {/* Archive, quiet negative, at the panel's foot (DESIGN.md § Row actions). */}
+            <Button variant="destructive" onClick={() => toggleArchive(editing)}>
+              {editing.archived_on ? 'Unarchive' : 'Archive'}
+            </Button>
+          </div>
+        )}
     </SidePanel>
   )
 
@@ -275,18 +287,20 @@ export default function Splits({ pickerDate }) {
           {splits && splits.length > 0 && (
             <ul className="space-y-3">
               {splits.map((s) => (
-                <li key={s.id} className={`rounded-lg px-2 py-1 ${editing?.id === s.id || highlightId === s.id ? 'bg-raised' : ''}`}>
+                <li
+                  key={s.id}
+                  className={`cursor-pointer rounded-lg px-2 py-1 hover:bg-raised ${editing?.id === s.id || highlightId === s.id ? 'bg-raised' : ''}`}
+                  tabIndex={0}
+                  onClick={() => startEdit(s)}
+                  onKeyDown={(e) => {
+                    if (e.target === e.currentTarget && e.key === 'Enter') startEdit(s)
+                  }}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <span className="font-medium">
                       {s.name}
                       {s.description && <span className="font-normal text-text-2"> — {s.description}</span>}
                       {s.archived_on && <span className="block text-sm font-normal text-text-3">archived {formatDate(s.archived_on)}</span>}
-                    </span>
-                    <span className="whitespace-nowrap">
-                      {!s.archived_on && <Button variant="quiet" onClick={() => startEdit(s)}>Edit</Button>}
-                      <Button variant="quiet" onClick={() => toggleArchive(s)}>
-                        {s.archived_on ? 'Unarchive' : 'Archive'}
-                      </Button>
                     </span>
                   </div>
                   <ul className="mt-1 space-y-0.5 text-text-2">
@@ -324,7 +338,8 @@ function MemberBalance({ member, balance, names, ledger, onSettle }) {
     : cents < 0 ? `You owe ${member.payee_name} ${formatCents(-cents)}`
     : balance.touched ? 'Settled up' : 'Nothing owed'
   return (
-    <div className="mt-1 space-y-2 text-text">
+    // Its own controls and table are not a tap on the split's row.
+    <div className="mt-1 cursor-default space-y-2 text-text" onClick={(e) => e.stopPropagation()}>
       <div className="flex items-center gap-3">
         <span>{text}</span>
         {cents !== 0 && (

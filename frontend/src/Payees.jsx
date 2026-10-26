@@ -5,6 +5,7 @@ import EmptyState from './components/EmptyState.jsx'
 import { ListRow } from './components/ListRow.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
 import { WarningNote } from './components/Notes.jsx'
+import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { formatDate } from './utils/format.js'
 
 export default function Payees({ pickerDate }) {
@@ -13,6 +14,8 @@ export default function Payees({ pickerDate }) {
   const [showArchived, setShowArchived] = useState(false)
   const [rowError, setRowError] = useState(null)
   const [warnings, setWarnings] = useState([])
+  const [openId, setOpenId] = useState(null) // the payee whose panel is open
+  const [focusKey, setFocusKey] = useState(0)
 
   function refresh() {
     api.payees.list(pickerDate, showArchived).then(setPayees).catch((e) => setError(e.message))
@@ -44,10 +47,34 @@ export default function Payees({ pickerDate }) {
     }
   }
 
+  function openPayee(p) {
+    setOpenId(p.id)
+    setFocusKey((k) => k + 1)
+  }
+
+  const open = payees?.find((p) => p.id === openId)
+  const panel = open && (
+    <SidePanel title={open.name} onClose={() => setOpenId(null)} focusKey={focusKey}>
+      <p className="text-text-2">
+        {open.archived_on
+          ? `Archived ${formatDate(open.archived_on)}. It no longer appears in pickers; what was recorded with it stays.`
+          : 'A payee is added by name from any transaction.'}
+      </p>
+      <div className="mt-6 flex items-center justify-between gap-3 border-t border-line pt-3">
+        {/* Archive, quiet negative, at the panel's foot (DESIGN.md § Row actions). */}
+        <Button variant="destructive" onClick={() => (open.archived_on ? unarchivePayee(open) : archivePayee(open))}>
+          {open.archived_on ? 'Unarchive' : 'Archive'}
+        </Button>
+        <Button variant="secondary" onClick={() => setOpenId(null)}>Close</Button>
+      </div>
+    </SidePanel>
+  )
+
   return (
     <div className="space-y-6 py-4">
       <h2 className="page-title hidden md:block">Payees</h2>
 
+      <PanelLayout panel={panel}>
       <section className="card space-y-3">
         {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
         {rowError && <WarningNote>{rowError}</WarningNote>}
@@ -67,11 +94,14 @@ export default function Payees({ pickerDate }) {
             {payees.map((p) => (
               <ListRow
                 key={p.id}
-                actions={
-                  <Button variant="quiet" onClick={() => (p.archived_on ? unarchivePayee(p) : archivePayee(p))}>
-                    {p.archived_on ? 'Unarchive' : 'Archive'}
-                  </Button>
-                }
+                selected={openId === p.id}
+                onSelect={() => openPayee(p)}
+                rowProps={{
+                  tabIndex: 0,
+                  onKeyDown: (e) => {
+                    if (e.target === e.currentTarget && e.key === 'Enter') openPayee(p)
+                  },
+                }}
               >
                 {p.name}
                 {p.archived_on && <div className="text-sm text-text-3">archived {formatDate(p.archived_on)}</div>}
@@ -80,6 +110,7 @@ export default function Payees({ pickerDate }) {
           </ul>
         )}
       </section>
+      </PanelLayout>
     </div>
   )
 }

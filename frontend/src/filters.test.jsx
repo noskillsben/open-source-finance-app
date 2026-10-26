@@ -116,7 +116,8 @@ describe('Accounts filters', () => {
   it('picks the balance-check difference category by typing, not from a drop-down', async () => {
     categories = [category(11, 'Rent'), category(12, 'Groceries')]
     await load()
-    fireEvent.click(within(screen.getByText('Everyday').closest('tr')).getByRole('button', { name: 'Check balance' }))
+    fireEvent.click(screen.getByText('Everyday'))
+    fireEvent.click(await screen.findByRole('button', { name: 'Check balance' }))
     const box = await screen.findByLabelText('Category for the difference')
     expect(box.tagName).toBe('INPUT')
     fireEvent.change(box, { target: { value: 'gro' } })

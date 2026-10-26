@@ -76,8 +76,7 @@ export function useBalanceCheck({ accounts, pickerDate, refresh }) {
     }
   }
 
-  async function undoCheck(e, account) {
-    e.stopPropagation()
+  async function undoCheck(account) {
     setUndoError(null)
     try {
       await api.valuations.remove(account.checked_valuation_id)

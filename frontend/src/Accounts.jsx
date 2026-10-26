@@ -6,6 +6,7 @@ import LoadingRows from './components/LoadingRows.jsx'
 import { SaveNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { ON_BUDGET_TYPES, TRACKING_TYPES } from './account_types.js'
+import AccountPanelActions from './accounts/AccountPanelActions.jsx'
 import AccountEditForm from './accounts/AccountEditForm.jsx'
 import AccountsTable from './accounts/AccountsTable.jsx'
 import ArchiveForm from './accounts/ArchiveForm.jsx'
@@ -44,6 +45,15 @@ export default function Accounts({ pickerDate }) {
   const sidePanel = panelOpen && (
     <SidePanel title={panelTitle} onClose={closePanel} focusKey={focusKey}>
       {panelForm}
+      {editingId && selectedAccount && (
+        <AccountPanelActions
+          account={selectedAccount}
+          startCheck={startCheck}
+          undoCheck={check.undoCheck}
+          startArchive={startArchive}
+          unarchiveAccount={archive.unarchiveAccount}
+        />
+      )}
     </SidePanel>
   )
 
@@ -107,10 +117,6 @@ export default function Accounts({ pickerDate }) {
               selectedId={selectedId}
               highlightId={highlightId}
               editAccount={editAccount}
-              startCheck={startCheck}
-              startArchive={startArchive}
-              unarchiveAccount={archive.unarchiveAccount}
-              undoCheck={check.undoCheck}
             />
           )}
         </section>

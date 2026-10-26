@@ -2,8 +2,8 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Accounts from './Accounts.jsx'
 
-const { checkBalance, createAccount, updateAccount, createPayee } = vi.hoisted(() => ({
-  checkBalance: vi.fn(), createAccount: vi.fn(), updateAccount: vi.fn(), createPayee: vi.fn(),
+const { checkBalance, createAccount, updateAccount, createPayee, removeValuation, archiveAccount } = vi.hoisted(() => ({
+  checkBalance: vi.fn(), createAccount: vi.fn(), updateAccount: vi.fn(), createPayee: vi.fn(), removeValuation: vi.fn(), archiveAccount: vi.fn(),
 }))
 
 const account = (overrides) => ({
@@ -25,8 +25,10 @@ vi.mock('./api.js', () => ({
       checkBalance,
       create: createAccount,
       update: updateAccount,
+      archive: archiveAccount,
       checkBalancePreview: () => Promise.resolve({ diff_cents: 0, category_lines: previewLines }),
     },
+    valuations: { remove: removeValuation },
     categories: {
       list: () => Promise.resolve([
         { id: 11, name: 'Rent' },
@@ -44,7 +46,16 @@ async function openAdd() {
 }
 const openTerms = () => fireEvent.click(screen.getByRole('button', { name: 'Loan terms' }))
 
-async function saveCheck(statedBalance) {
+const rowCell = (name) => screen.queryAllByText(name).find((el) => el.closest('tr'))
+
+// A row opens its panel; Check balance, Undo check and Archive live in it, never on the row (#398).
+async function openRow(name) {
+  await waitFor(() => expect(rowCell(name)).toBeTruthy())
+  fireEvent.click(rowCell(name))
+}
+
+async function saveCheck(statedBalance, name = 'Chequing') {
+  await openRow(name)
   fireEvent.click(await screen.findByRole('button', { name: 'Check balance' }))
   fireEvent.change(await screen.findByLabelText('Stated balance'), { target: { value: statedBalance } })
   fireEvent.click(screen.getByRole('button', { name: 'Save' }))
@@ -60,7 +71,7 @@ describe('balance check on a tracking account', () => {
     checkBalance.mockResolvedValue({ diff_cents: 1200, transaction: { category_lines: [] } })
     render(<Accounts pickerDate="2026-10-03" />)
 
-    await saveCheck('112')
+    await saveCheck('112', 'Friend loan')
 
     expect(screen.queryByText(/Category for the difference/)).toBeNull()
     expect(await screen.findByText(
@@ -125,7 +136,40 @@ describe('undo check link', () => {
 
     expect(await screen.findAllByText(/balance checked/)).toHaveLength(1)
     expect(screen.getAllByText(/opened Jan 1, 2026/)).toHaveLength(1)
+    // No control on any row; Undo check is in the panel of the account that has one.
+    expect(screen.queryByRole('button', { name: 'Undo check' })).toBeNull()
+    await openRow('Opening only')
+    expect(screen.queryByRole('button', { name: 'Undo check' })).toBeNull()
+    await openRow('Later check')
     expect(screen.getAllByRole('button', { name: 'Undo check' })).toHaveLength(1)
+  })
+
+  it('undoes the last check from the account panel', async () => {
+    removeValuation.mockReset()
+    removeValuation.mockResolvedValue({})
+    accounts = [account({ id: 2, name: 'Later check', checked_on: '2026-02-01', checked_valuation_id: 6, checked_is_opening: false })]
+    render(<Accounts pickerDate="2026-10-03" />)
+    await openRow('Later check')
+    fireEvent.click(await screen.findByRole('button', { name: 'Undo check' }))
+    await waitFor(() => expect(removeValuation).toHaveBeenCalledWith(6))
+  })
+})
+
+describe('a row opens the account panel, which holds Archive (#398)', () => {
+  it('shows no controls on the row, opens on a tap or Enter, and archives from the panel', async () => {
+    archiveAccount.mockReset()
+    archiveAccount.mockResolvedValue({ warnings: [] })
+    accounts = [account()]
+    render(<Accounts pickerDate="2026-10-03" />)
+    await waitFor(() => expect(rowCell('Chequing')).toBeTruthy())
+    const row = rowCell('Chequing').closest('tr')
+    expect(within(row).queryByRole('button')).toBeNull()
+    expect(row).toHaveAttribute('tabindex', '0')
+    fireEvent.keyDown(row, { key: 'Enter' })
+    expect(await screen.findByRole('button', { name: 'Save changes' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Archive' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+    await waitFor(() => expect(archiveAccount).toHaveBeenCalledWith(1, '2026-10-03'))
   })
 })
 
@@ -578,6 +622,7 @@ describe('Owed / Held toggle on balance fields', () => {
     accounts = [account({ id: 1, name: 'Visa', type: 'Credit card' })]
     checkBalance.mockResolvedValue({ diff_cents: 0, transaction: { category_lines: [] } })
     render(<Accounts pickerDate="2026-10-03" />)
+    await openRow('Visa')
     fireEvent.click(await screen.findByRole('button', { name: 'Check balance' }))
     const stated = await screen.findByLabelText('Stated balance')
     fireEvent.change(stated, { target: { value: '120' } })
@@ -592,6 +637,7 @@ describe('Owed / Held toggle on balance fields', () => {
     previewLines = [{ category_id: 11, cents: 3000 }]
     checkBalance.mockResolvedValue({ diff_cents: 3000, transaction: { category_lines: [] } })
     render(<Accounts pickerDate="2026-10-03" />)
+    await openRow('Chequing')
     fireEvent.click(await screen.findByRole('button', { name: 'Check balance' }))
     fireEvent.change(await screen.findByLabelText('Stated balance'), { target: { value: '130' } })
     const line = await screen.findByLabelText('Amount')

@@ -1,4 +1,3 @@
-import Button from '../components/Button.jsx'
 import List from '../components/List.jsx'
 import { formatCents, formatDate } from '../utils/format.js'
 import { termsLine } from '../utils/terms.js'
@@ -6,7 +5,7 @@ import { VALUE_TYPES } from './accountForm.js'
 
 // The accounts list: grouped rows, locked-to-payee clusters, and each row's notes and actions, drawn
 // with the shared List (a table on a desktop, rows on a phone).
-export default function AccountsTable({ list, payeesAll, selectedId, highlightId, editAccount, startCheck, startArchive, unarchiveAccount, undoCheck }) {
+export default function AccountsTable({ list, payeesAll, selectedId, highlightId, editAccount }) {
   const { groupedRows, groupBy, effectiveSort, toggleSort, isOpen, toggleGroup } = list
 
   function accountNotes(a) {
@@ -20,48 +19,11 @@ export default function AccountsTable({ list, payeesAll, selectedId, highlightId
             {formatDate(a.checked_on)}
             {a.entries_added_since_check > 0 &&
               ` — ${a.entries_added_since_check} ${a.entries_added_since_check === 1 ? 'entry' : 'entries'} added since`}
-            {!a.checked_is_opening && (
-              <>
-                {' — '}
-                <button type="button" className="btn btn-quiet underline" onClick={(e) => undoCheck(e, a)}>
-                  Undo check
-                </button>
-              </>
-            )}
           </div>
         )}
         {a.notes.map((note) => (
           <div key={note} className="text-sm text-warning">{note}</div>
         ))}
-      </>
-    )
-  }
-
-  function accountActions(a) {
-    return (
-      <>
-        <Button
-          variant="quiet"
-          onClick={(e) => {
-            e.stopPropagation()
-            startCheck(a)
-          }}
-        >
-          {VALUE_TYPES.includes(a.type) ? 'Update value' : 'Check balance'}
-        </Button>
-        {a.archived_on ? (
-          <Button variant="quiet" onClick={(e) => unarchiveAccount(e, a)}>Unarchive</Button>
-        ) : (
-          <Button
-            variant="quiet"
-            onClick={(e) => {
-              e.stopPropagation()
-              startArchive(a)
-            }}
-          >
-            Archive
-          </Button>
-        )}
       </>
     )
   }
@@ -86,7 +48,6 @@ export default function AccountsTable({ list, payeesAll, selectedId, highlightId
     ...(groupBy !== 'type' ? [{ key: 'type', header: 'Type', sortKey: 'type', cell: ({ account: a }) => a.type }] : []),
     ...(groupBy !== 'side' ? [{ key: 'side', header: 'Side', sortKey: 'side', cell: ({ account: a }) => (a.on_budget ? 'On-budget' : 'Tracking') }] : []),
     { key: 'balance', header: 'Balance', sortKey: 'balance', className: 'text-right', cell: ({ account: a }) => balance(a) },
-    { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right', cell: ({ account: a }) => accountActions(a) },
   ]
   const phoneRow = ({ account: a }) => (
     <>
@@ -96,7 +57,6 @@ export default function AccountsTable({ list, payeesAll, selectedId, highlightId
       </div>
       {groupBy !== 'type' && <div className="break-words text-sm text-text-2">{a.type}</div>}
       {accountNotes(a)}
-      <div>{accountActions(a)}</div>
     </>
   )
 
@@ -105,11 +65,17 @@ export default function AccountsTable({ list, payeesAll, selectedId, highlightId
       groups={groups}
       isOpen={isOpen}
       onToggle={toggleGroup}
-      totalColumn={columns.length - 2}
+      totalColumn={columns.length - 1}
       columns={columns}
       phoneRow={phoneRow}
       rowId={({ account }) => account.id}
       onSelect={({ account }) => editAccount(account)}
+      rowProps={({ account }) => ({
+        tabIndex: 0,
+        onKeyDown: (e) => {
+          if (e.target === e.currentTarget && e.key === 'Enter') editAccount(account)
+        },
+      })}
       selectedId={selectedId ?? highlightId}
       before={({ lockedTo }) => lockedTo && <div className="text-sm text-text-3">Locked to {lockedTo}</div>}
       sort={effectiveSort}
