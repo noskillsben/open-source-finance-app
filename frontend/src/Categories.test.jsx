@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Categories from './Categories.jsx'
 
 let goals = []
@@ -622,5 +622,66 @@ describe('while the summary is loading (#400)', () => {
     expect(await screen.findByText('$50.00')).toBeTruthy()
     expect(screen.getByText('$25.00')).toBeTruthy()
     summaryGate = null
+  })
+})
+
+describe('changing Show as of (#414)', () => {
+  const cat = (name) => ({
+    id: 11, name, parent_id: null, archived_on: null, need_level: null, linked_accounts: [], pool_id: null, absorb_overspending: false,
+  })
+  const summaryOf = (cents) => ({
+    ready_to_assign_cents: 0, overspent_cents: 0,
+    categories: [{ category_id: 11, available_cents: cents, pool_available_cents: 0, pool_absorber: null }],
+  })
+  const view = (date) => (
+    <MemoryRouter initialEntries={['/categories']}>
+      <Routes>
+        <Route path="/categories" element={<Categories pickerDate={date} />} />
+      </Routes>
+    </MemoryRouter>
+  )
+
+  // Earlier describes leave goals and a replaced category list behind, so this one sets its own.
+  beforeEach(async () => {
+    goals = []
+    streams = []
+    summaryRows = [{ category_id: 11, available_cents: 0, pool_available_cents: 0, pool_absorber: null }]
+    const { api } = await import('./api.js')
+    api.categories.list = () => Promise.resolve([cat('Rent')])
+  })
+
+  it('shows placeholders, not old rows beside new amounts, until the new list arrives', async () => {
+    const { rerender } = render(view('2026-10-03'))
+    expect(await screen.findByText('Rent')).toBeTruthy()
+    let release
+    const { api } = await import('./api.js')
+    api.categories.list = () => new Promise((resolve) => { release = resolve })
+    summaryGate = Promise.resolve(summaryOf(9900))
+    rerender(view('2026-11-03'))
+    await screen.findByRole('status')
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByText('Rent')).toBeNull()
+    expect(screen.queryByText('$99.00')).toBeNull()
+    release([cat('Rent')])
+    expect(await screen.findByText('$99.00')).toBeTruthy()
+    expect(screen.getByText('Rent')).toBeTruthy()
+    summaryGate = null
+  })
+
+  it('ignores a slow older list that lands after a newer one', async () => {
+    const { rerender } = render(view('2026-10-03'))
+    await screen.findByText('Rent')
+    const releases = []
+    const { api } = await import('./api.js')
+    api.categories.list = () => new Promise((resolve) => { releases.push(resolve) })
+    rerender(view('2026-11-03'))
+    rerender(view('2026-12-03'))
+    await waitFor(() => expect(releases).toHaveLength(2))
+    releases[1]([cat('Newer')])
+    expect(await screen.findByText('Newer')).toBeTruthy()
+    releases[0]([cat('Older')])
+    await new Promise((r) => setTimeout(r, 0))
+    expect(screen.queryByText('Older')).toBeNull()
+    expect(screen.getByText('Newer')).toBeTruthy()
   })
 })
