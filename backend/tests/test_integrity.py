@@ -266,3 +266,54 @@ def test_no_pool_chain_and_a_correct_draw_are_never_reported(db_session):
     _spend(db_session, chequing, plain, 10_00, datetime.date(2026, 2, 5))
     _spend(db_session, chequing, cat, 20_00, datetime.date(2026, 2, 6))
     assert _stale(db_session) == []
+
+
+# --- #407: one finding per stale category ----------------------------------------------
+
+def _two_pool_setup(db_session):
+    from app.services.earmarks import move_money
+
+    chequing = make_account(db_session, "Chequing", opening_balance=1_000_00)
+    pools, cats = [], []
+    for pool_name, cat_name in (("Buffer", "Fun"), ("Reserve", "Food")):
+        pool = make_category(db_session, pool_name)
+        cat = Category(name=cat_name, created_on=TODAY, pool_id=pool.id)
+        db_session.add(cat)
+        db_session.flush()
+        for target, cents in ((pool.id, 100_00), (cat.id, 30_00)):
+            move_money(db_session, move_date=TODAY - datetime.timedelta(days=30),
+                       from_category_id=None, to_category_id=target, cents=cents)
+        pools.append(pool)
+        cats.append(cat)
+    return chequing, pools, cats
+
+
+def _spend_two(db_session, account, cats, cents, on, transaction=None):
+    return write_transaction(
+        db_session, transaction=transaction, txn_date=on, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": -cents * 2}],
+        category_lines=[{"category_id": c.id, "cents": -cents} for c in cats],
+    )
+
+
+def test_a_transaction_stale_in_two_categories_reports_one_finding_each(db_session):
+    chequing, pools, cats = _two_pool_setup(db_session)
+    both = _spend_two(db_session, chequing, cats, 50_00, datetime.date(2026, 2, 20))
+    assert _stale(db_session) == []
+    _spend_two(db_session, chequing, cats, 30_00, datetime.date(2026, 2, 10))  # backfill
+    stale = _stale(db_session)
+    assert {f.transaction_id for f in stale} == {both.id}
+    assert sorted((f.category_name, f.pool_name) for f in stale) == [("Food", "Reserve"), ("Fun", "Buffer")]
+    for f in stale:
+        assert f.expected_cents != f.stored_cents
+
+    _spend_two(db_session, chequing, cats, 50_00, datetime.date(2026, 2, 20), transaction=both)
+    assert _stale(db_session) == []
+
+
+def test_one_stale_category_reports_exactly_one_finding(db_session):
+    chequing, pools, cats = _two_pool_setup(db_session)
+    both = _spend_two(db_session, chequing, cats, 50_00, datetime.date(2026, 2, 20))
+    _spend(db_session, chequing, cats[0], 30_00, datetime.date(2026, 2, 10))  # backfill Fun only
+    stale = _stale(db_session)
+    assert [(f.transaction_id, f.category_name, f.pool_name) for f in stale] == [(both.id, "Fun", "Buffer")]
