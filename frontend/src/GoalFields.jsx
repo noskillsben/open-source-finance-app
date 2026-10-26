@@ -185,7 +185,7 @@ export function GoalFields({ goal, onChange, streams, kinds, allowNone = true })
                 checked={!!goal.setAsideWhole}
                 onChange={(e) => set({ setAsideWhole: e.target.checked })}
               />
-              <span>Set aside whole on the last payday before it's due</span>
+              <span>Set aside whole on the last payday before it&apos;s due</span>
             </label>
           )}
         </>

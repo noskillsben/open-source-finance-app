@@ -19,6 +19,7 @@ export default function PayeePicker({ payees, payeeId, onSelect, onAdd, onError,
   // while typing, and the form remounts this picker (key) when it resets or loads a transaction.
   useEffect(() => {
     if (selected) setQuery(selected.name)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- follow the selected payee by id only, so typing is never overwritten
   }, [selected?.id])
 
   const trimmed = query.trim()

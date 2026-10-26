@@ -16,6 +16,7 @@ export default function ChoicePicker({ items, value, onChange, placeholder, aria
     if (value !== '' && selected) setText(selected.name)
     else if (value === '' && previous.current !== '' && previous.current !== undefined) setText('')
     previous.current = value
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- follow the value or selected name only, so typing is never overwritten
   }, [value, selected?.name])
 
   const needle = text.trim().toLowerCase()

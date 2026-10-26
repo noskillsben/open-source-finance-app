@@ -286,6 +286,7 @@ export default function Categories({ pickerDate }) {
     setSummary(null)
     setCategories(null)
     refresh()
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- reload only on a new date or archive view; refresh is recreated every render and must not refetch on typing
   }, [pickerDate, showArchived])
 
   function startAdd() {

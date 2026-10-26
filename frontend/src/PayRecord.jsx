@@ -146,6 +146,7 @@ export default function PayRecord({ pickerDate }) {
     let cancelled = false
     refreshPeriod(() => cancelled)
     return () => { cancelled = true }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch only when payday, stream or one-off changes
   }, [payday, streamId, isOneOff])
 
   const periodLoaded = period != null && period.payday === payday
@@ -175,6 +176,7 @@ export default function PayRecord({ pickerDate }) {
     return api.readyToAssign(payday).then(setReadyToAssign).catch((e) => setError(e.message))
   }
 
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch only when the payday changes
   useEffect(() => { refreshReadyToAssign() }, [payday])
 
   // Every goal bound to this named pay (DESIGN.md § Goals are paid by a named pay).
@@ -274,6 +276,7 @@ export default function PayRecord({ pickerDate }) {
       .get(existingTransactionId)
       .then((lines) => setBatch({ transactionId: existingTransactionId, lines }))
       .catch((e) => setFormError(e.message))
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- load the recorded pay only when its id changes; batch and reopenSeededFor must not retrigger the fetch or reset
   }, [existingTransactionId])
 
   // Lay the recorded pay out once: block 3 from the transaction, every other row from the batch's
@@ -487,6 +490,7 @@ export default function PayRecord({ pickerDate }) {
     }
     for (const m of [...rowsToMoves(oneOff), ...everythingElseMoves()]) ids.add(m.category_id)
     return ids
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- everythingElseMoves is recreated every render; everythingElse is its real input
   }, [retainRows, billRows, fundingRows, targetRows, oneOff, everythingElse])
 
   const shortByRows = useMemo(() => {
