@@ -13,7 +13,7 @@ from app.schemas import (
     PayBatchIn,
     ReadyToAssignOut,
 )
-from app.services.categories import category_balance_cents, pool_absorber_name, pool_available_cents
+from app.services.categories import category_balance_cents, category_month_cents, pool_absorber_name, pool_available_cents
 from app.services.earmarks import (
     EarmarkError,
     move_money,
@@ -32,6 +32,7 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
     """Both headline numbers on `as_of` and each category's available amount. The picker date
     is the only "today", so the caller always says which day.
     """
+    month = {cid: category_month_cents(session, cid, as_of=as_of) for cid in session.scalars(select(Category.id))}
     return ReadyToAssignOut(
         ready_to_assign_cents=ready_to_assign_cents(session, as_of=as_of),
         overspent_cents=overspent_cents(session, as_of=as_of),
@@ -39,6 +40,8 @@ def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> Rea
             CategoryAvailableOut(
                 category_id=category_id,
                 available_cents=category_balance_cents(session, category_id, as_of=as_of),
+                assigned_cents=month[category_id][0],
+                spent_cents=month[category_id][1],
                 pool_available_cents=pool_available_cents(session, category_id, as_of=as_of),
                 pool_absorber=pool_absorber_name(session, category_id, as_of=as_of),
             )
