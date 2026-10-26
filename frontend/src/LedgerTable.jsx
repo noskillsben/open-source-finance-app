@@ -1,8 +1,7 @@
-import { ChevronDown, ChevronRight } from 'lucide-react'
-import { Fragment, useEffect, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from './api.js'
-import SortHeader from './components/SortHeader.jsx'
+import List from './components/List.jsx'
 import { formatCents, formatDate, formatMonth } from './utils/format.js'
 import { compareValues } from './utils/useSort.js'
 
@@ -42,7 +41,7 @@ function Pending() {
 
 // Positive amounts are plain text; only a negative one is coloured, and it prints its minus sign.
 function Amount({ cents }) {
-  return <span className={`tabular ${cents < 0 ? 'text-negative' : ''}`}>{formatCents(cents)}</span>
+  return <span className={`tabular whitespace-nowrap ${cents < 0 ? 'text-negative' : ''}`}>{formatCents(cents)}</span>
 }
 
 /** "2026-10-03" -> "2026-10": the key of the month a transaction is grouped under. */
@@ -77,12 +76,34 @@ export function groupByMonth(transactions, sort, payeeName, accountId = null) {
     })
 }
 
-/** The Ledger's list of transactions (DESIGN.md § Transactions). Without `onSelect` it is read-only:
- * no row click, no pointer — the Splits page shows it this way. */
-export default function LedgerTable({ transactions, names, onSelect, selectedId, byMonth }) {
+/** The transactions a balance check or an opening balance produced, by id: `valuation_id` marks both, and
+ * the opening is the one with the account's lowest valuation id (an account's opening valuation is
+ * written first, with the account; DESIGN.md § Opening balance and backfilling history). Judged over
+ * the list it is given, so the Transactions page passes the whole ledger. */
+export function adjustmentLabels(transactions) {
+  const lowest = new Map()
+  for (const t of transactions) {
+    if (t.valuation_id == null || t.account_lines.length === 0) continue
+    const account = t.account_lines[0].account_id
+    if (!lowest.has(account) || t.valuation_id < lowest.get(account)) lowest.set(account, t.valuation_id)
+  }
+  const labels = new Map()
+  for (const t of transactions) {
+    if (t.valuation_id == null || t.account_lines.length === 0) continue
+    labels.set(t.id, lowest.get(t.account_lines[0].account_id) === t.valuation_id ? 'Opening balance' : 'Balance check')
+  }
+  return labels
+}
+
+/** The Ledger's list of transactions (DESIGN.md § Transactions): a table on a desktop, two-line rows on a
+ * phone (DESIGN.md § Lists on a phone). Without `onSelect` it is read-only: no row click, no pointer -
+ * the Splits page shows it this way. `allTransactions` is the whole ledger, for telling an opening
+ * balance from a balance check when `transactions` is a filtered part of it. */
+export default function LedgerTable({ transactions, allTransactions, names, onSelect, selectedId, byMonth }) {
   // With an account filter on, the Account lines column and the month totals count only that account.
   const accountId = byMonth?.accountId ?? null
   const { accounts, categories, payees, goals, splits, failed = {} } = names
+  const adjustments = adjustmentLabels(allTransactions ?? transactions)
   function splitLabel(id) {
     const match = splits?.find((s) => s.id === id)
     if (!match) return splits || failed.splits ? 'a split' : <Pending />
@@ -93,110 +114,98 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId,
     if (!match) return goals || failed.goals ? 'a bill' : <Pending />
     return match.goal.archived_on ? `${match.goal.name} (archived)` : match.goal.name
   }
-
-  const renderRow = (t) => (
-          <tr
-            key={t.id}
-            className={`${onSelect ? 'cursor-pointer hover:bg-raised' : ''} ${selectedId === t.id ? 'bg-raised' : ''}`.trim() || undefined}
-            onClick={onSelect ? () => onSelect(t) : undefined}
-          >
-            <td className="py-1 align-top">
-              {formatDate(t.date)}
-              {t.income_stream_id != null && (
-                <div>
-                  <Link
-                    className="btn btn-quiet"
-                    to={`/income/${t.income_stream_id}/record?date=${t.date}`}
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    Re-open pay
-                  </Link>
-                </div>
-              )}
-            </td>
-            <td className="py-1 align-top">{t.memo || '—'}</td>
-            <td className="py-1 align-top">
-              {t.payee_id != null ? entityLabel(payees, t.payee_id, `#${t.payee_id}`, failed.payees, 'a payee') : '—'}
-            </td>
-            <td className="py-1 align-top">
-              {t.account_lines.filter((l) => accountId == null || l.account_id === accountId).map((l) => (
-                <div key={l.id}>
-                  {entityLabel(accounts, l.account_id, `#${l.account_id}`, failed.accounts, 'an account')}: <Amount cents={l.cents} />
-                </div>
-              ))}
-            </td>
-            <td className="py-1 align-top">
-              {t.category_lines.length === 0 && (
-                <span className="text-text-2">
-                  {t.account_lines.reduce((sum, l) => sum + (l.budget_cents ?? 0), 0) === 0 ? '—' : 'unassigned'}
-                </span>
-              )}
-              {t.category_lines.map((l) => (
-                <div key={l.id}>
-                  {entityLabel(categories, l.category_id, `#${l.category_id}`, failed.categories, 'a category')}: <Amount cents={l.cents} />
-                </div>
-              ))}
-              {t.split_id != null && (
-                <div className="text-sm text-text-3">Split: {splitLabel(t.split_id)}</div>
-              )}
-              {t.goal_id != null && (
-                <div className="text-sm text-text-3">
-                  pays {billLabel(t.goal_id)}, due {formatDate(t.goal_due_on)}
-                </div>
-              )}
-            </td>
-          </tr>
+  const payeeLabel = (t) => (t.payee_id != null ? entityLabel(payees, t.payee_id, `#${t.payee_id}`, failed.payees, 'a payee') : null)
+  const accountLines = (t) => t.account_lines.filter((l) => accountId == null || l.account_id === accountId)
+  const accountName = (l) => entityLabel(accounts, l.account_id, `#${l.account_id}`, failed.accounts, 'an account')
+  const categoryName = (l) => entityLabel(categories, l.category_id, `#${l.category_id}`, failed.categories, 'a category')
+  const unassigned = (t) => (t.account_lines.reduce((sum, l) => sum + (l.budget_cents ?? 0), 0) === 0 ? '—' : 'unassigned')
+  const notes = (t) => (
+    <>
+      {t.split_id != null && <div className="text-sm text-text-3">Split: {splitLabel(t.split_id)}</div>}
+      {t.goal_id != null && (
+        <div className="text-sm text-text-3">
+          pays {billLabel(t.goal_id)}, due {formatDate(t.goal_due_on)}
+        </div>
+      )}
+    </>
   )
+  const reopenPay = (t) =>
+    t.income_stream_id != null && (
+      <div>
+        <Link className="btn btn-quiet" to={`/income/${t.income_stream_id}/record?date=${t.date}`} onClick={(e) => e.stopPropagation()}>
+          Re-open pay
+        </Link>
+      </div>
+    )
 
+  const columns = [
+    { key: 'date', header: 'Date', sortKey: byMonth ? 'date' : undefined, cell: (t) => <>{formatDate(t.date)}{reopenPay(t)}</> },
+    { key: 'memo', header: 'Memo', cell: (t) => t.memo || '—' },
+    { key: 'payee', header: 'Payee', sortKey: byMonth ? 'payee' : undefined, cell: (t) => payeeLabel(t) ?? adjustments.get(t.id) ?? '—' },
+    {
+      key: 'accounts',
+      header: 'Account lines',
+      cell: (t) =>
+        accountLines(t).map((l) => (
+          <div key={l.id}>
+            {accountName(l)}: <Amount cents={l.cents} />
+          </div>
+        )),
+    },
+    {
+      key: 'categories',
+      header: 'Category lines',
+      cell: (t) => (
+        <>
+          {t.category_lines.length === 0 && <span className="text-text-2">{unassigned(t)}</span>}
+          {t.category_lines.map((l) => (
+            <div key={l.id}>
+              {categoryName(l)}: <Amount cents={l.cents} />
+            </div>
+          ))}
+          {notes(t)}
+        </>
+      ),
+    },
+  ]
+
+  // A phone row: payee (else memo, else the adjustment label) and the date on the first line; each
+  // account line as "Account -$64.12" under it, then the category names.
+  const phoneRow = (t) => {
+    const payee = payeeLabel(t)
+    const title = payee ?? (t.memo || adjustments.get(t.id)) ?? '—'
+    const cats = t.category_lines.map(categoryName)
+    return (
+      <>
+        <div className="flex items-baseline justify-between gap-3">
+          <span className="min-w-0 break-words font-medium">{title}</span>
+          <span className="shrink-0 whitespace-nowrap text-sm text-text-2">{formatDate(t.date)}</span>
+        </div>
+        {payee && t.memo && <div className="break-words text-sm text-text-2">{t.memo}</div>}
+        {accountLines(t).map((l) => (
+          <div key={l.id} className="flex items-baseline justify-between gap-3 text-sm text-text-2">
+            <span className="min-w-0 break-words">{accountName(l)}</span>
+            <span className="shrink-0 whitespace-nowrap"><Amount cents={l.cents} /></span>
+          </div>
+        ))}
+        <div className="break-words text-sm text-text-2">{cats.length > 0 ? cats.join(', ') : unassigned(t)}</div>
+        {notes(t)}
+        {reopenPay(t)}
+      </>
+    )
+  }
+
+  const common = { columns, phoneRow, rowId: (t) => t.id, onSelect, selectedId, totalColumn: 3 }
+  if (!byMonth) return <List {...common} rows={transactions} />
+  const groups = groupByMonth(transactions, byMonth.sort, (id) => payees?.find((p) => p.id === id)?.name ?? '', accountId)
   return (
-    <table className="w-full">
-      <thead>
-        <tr className="text-left text-text-2">
-          {byMonth ? (
-            <>
-              <SortHeader label="Date" sortKey="date" sort={byMonth.sort} onSort={byMonth.onSort} className="pb-1" />
-              <th className="pb-1">Memo</th>
-              <SortHeader label="Payee" sortKey="payee" sort={byMonth.sort} onSort={byMonth.onSort} className="pb-1" />
-            </>
-          ) : (
-            <>
-              <th className="pb-1">Date</th>
-              <th className="pb-1">Memo</th>
-              <th className="pb-1">Payee</th>
-            </>
-          )}
-          <th className="pb-1">Account lines</th>
-          <th className="pb-1">Category lines</th>
-        </tr>
-      </thead>
-      <tbody>
-        {byMonth
-          ? groupByMonth(transactions, byMonth.sort, (id) => payees?.find((p) => p.id === id)?.name ?? '', accountId).map((g) => {
-              const open = !byMonth.collapsed.includes(g.key)
-              const Chevron = open ? ChevronDown : ChevronRight
-              return (
-                <Fragment key={g.key}>
-                  <tr>
-                    <td colSpan={3} className="py-1">
-                      <button
-                        type="button"
-                        aria-expanded={open}
-                        className="inline-flex min-h-14 items-center gap-1 font-medium md:min-h-11"
-                        onClick={() => byMonth.onToggle(g.key)}
-                      >
-                        <Chevron size={20} aria-hidden="true" />
-                        {g.label}
-                      </button>
-                    </td>
-                    <td className={`tabular py-1 font-medium ${g.total < 0 ? 'text-negative' : ''}`}>{formatCents(g.total)}</td>
-                    <td></td>
-                  </tr>
-                  {open && g.rows.map(renderRow)}
-                </Fragment>
-              )
-            })
-          : transactions.map(renderRow)}
-      </tbody>
-    </table>
+    <List
+      {...common}
+      groups={groups}
+      isOpen={(key) => !byMonth.collapsed.includes(key)}
+      onToggle={byMonth.onToggle}
+      sort={byMonth.sort}
+      onSort={byMonth.onSort}
+    />
   )
 }
