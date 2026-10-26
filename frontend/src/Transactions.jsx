@@ -247,6 +247,7 @@ export default function Transactions({ pickerDate }) {
   // typed by hand, but an open edit keeps the date of the transaction being edited.
   useEffect(() => {
     if (editingId == null) setDate(pickerDate)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-apply only when the picker date moves, never on edit state
   }, [pickerDate])
 
   // The first field is ready whenever the form view opens.
@@ -268,6 +269,7 @@ export default function Transactions({ pickerDate }) {
     if (!addTransaction) return
     navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
     openAdd()
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when the navigation state arrives; later renders must not reopen a blank form
   }, [addTransaction])
 
   // "Record" on a bill's row on Categories lands here with the bill, its due date and its expected
@@ -290,6 +292,7 @@ export default function Transactions({ pickerDate }) {
         }
       })
       .catch((e) => setFormError(e.message))
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when the navigation state arrives; later renders must not re-prefill the form
   }, [recordBill])
 
   // Quick add's "More details" lands here with everything typed (DESIGN.md § Quick add): the date,
@@ -312,6 +315,7 @@ export default function Transactions({ pickerDate }) {
       if (quickAdd.refill) pickPayee(quickAdd.payee_id)
     }
     navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when the quick-add state arrives; later renders must not wipe typed input
   }, [quickAdd])
 
   // "Settle up" on the Split expenses page lands here with their account and the signed cents to put on it
@@ -326,6 +330,7 @@ export default function Transactions({ pickerDate }) {
     setDate(pickerDate)
     showLines([{ account_id: String(settleUp.account_id), cents: theirs }, { account_id: '', cents: mine }], [])
     navigate(location.pathname, { replace: true, state: null }) // a reload must not re-apply it
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- fire only when the settle-up state arrives; later renders must not wipe typed input
   }, [settleUp])
 
   // Spending from an account locked to a payee pre-fills that payee (DESIGN.md § Payee-locked
@@ -375,6 +380,7 @@ export default function Transactions({ pickerDate }) {
     if (untouched && same(last, fill)) return
     boundaryFill.current = { filled: true, lines: fill }
     setCategoryLines(fill.map((f) => ({ ...emptyCategoryLine, ...f })))
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- re-fill only when the boundary inputs change, never on every typed line
   }, [accountLines, accounts, categories])
 
   // A box on an account line, shown only where the Amount does not derive the line (or its account).
@@ -490,6 +496,7 @@ export default function Transactions({ pickerDate }) {
       if (categoryId && !hasCategory) ownPicks.current.category_id = categoryId
       chooseSplit(String(split.id))
     }
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- run only on the picked ids; the form lines they fill must not retrigger this
   }, [payeeFill])
 
   function updateDeposit(i, field, value) {

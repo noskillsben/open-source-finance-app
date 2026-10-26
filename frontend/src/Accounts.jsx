@@ -482,6 +482,7 @@ export default function Accounts({ pickerDate }) {
   const hiddenKey = groupBy === 'side' ? 'side' : 'type'
   useEffect(() => {
     if (sort.key === hiddenKey) toggleSort(DEFAULT_SORT.key)
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs only when the sort key or hidden key changes; toggleSort is recreated every render
   }, [sort.key, hiddenKey])
   const effectiveSort = sort.key === hiddenKey ? DEFAULT_SORT : sort
   const needle = filters.search.trim().toLowerCase()

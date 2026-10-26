@@ -196,7 +196,7 @@ export default function Settings({ held = false }) {
           </div>
         )}
         {!held && <div className="flex flex-col items-start gap-3">
-          <p className="text-text-2">Every table as a spreadsheet file, in one zip. You can't import it back.</p>
+          <p className="text-text-2">Every table as a spreadsheet file, in one zip. You can&apos;t import it back.</p>
           <Button variant="secondary" disabled={exporting || restoring} onClick={exportData}>
             Export data
           </Button>

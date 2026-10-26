@@ -327,7 +327,7 @@ function MemberBalance({ member, balance, names, onSettle }) {
       </div>
       {balance.unheld && (
         <p className="text-sm text-text-2">
-          {member.payee_name}'s {formatCents(cents)} isn't held in an envelope, so Ready to assign still counts it — link their account to{' '}
+          {member.payee_name}&apos;s {formatCents(cents)} isn&apos;t held in an envelope, so Ready to assign still counts it — link their account to{' '}
           {balance.owed_to_me_category_id != null ? (
             <Link className="underline" to="/categories" state={{ highlightId: balance.owed_to_me_category_id }}>Owed to me</Link>
           ) : 'Owed to me'}
