@@ -122,6 +122,42 @@ export function EnvelopeRows({ linkedNet, deposits, setDeposits, depositsTouched
   )
 }
 
+// DESIGN.md § Categories → Pools → A refund can go back to the pool: "send this back to <pool>?"
+// per refunded category. An empty amount moves nothing.
+export function RefundRows({ refundOffers, updateRefund, categories }) {
+  const name = (id) => (categories ?? []).find((c) => c.id === id)?.name ?? ''
+  return (
+    <div className="space-y-2">
+      {refundOffers.map(({ from, cents, chain, row }) => (
+        <div key={from} className="space-y-2">
+          <span className="field-label">
+            Send this back to {name(Number(row.category_id)) || 'its pool'}?{' '}
+            <span className="text-text-2">
+              {name(from)} is refunded {formatCents(cents)}. Leave empty to keep it there.
+            </span>
+          </span>
+          <div className="flex flex-wrap gap-2">
+            <div className="flex-1 min-w-32">
+              <ChoicePicker
+                items={chain}
+                value={row.category_id}
+                onChange={(id) => updateRefund(from, 'category_id', id)}
+                placeholder="Select pool…"
+                ariaLabel={`Pool for ${name(from)} refund`}
+              />
+            </div>
+            <MoneyInput
+              aria-label={`Amount sent back from ${name(from)}`}
+              value={row.cents}
+              onChange={(text) => updateRefund(from, 'cents', text)}
+            />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // Delete is confirmed in place of window.confirm (DESIGN.md § Earmarks).
 export function DeleteConfirm({ deleteConfirm, setDeleteConfirm, confirmDelete }) {
   return (

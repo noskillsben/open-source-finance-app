@@ -22,6 +22,7 @@ const calls = vi.hoisted(() => ({
   payBatchGet: vi.fn(),
   payBatchReplace: vi.fn(),
   balance: vi.fn(),
+  readyToAssign: vi.fn(),
 }))
 
 const ACCOUNTS = [
@@ -52,6 +53,8 @@ const CATEGORIES = [
   { id: 11, name: 'Rent', archived_on: null },
   { id: 12, name: 'Debt payments', archived_on: null },
   { id: 13, name: 'Owed to me', archived_on: null },
+  { id: 14, name: 'Health and personal care', archived_on: null },
+  { id: 15, name: 'Therapy', archived_on: null, pool_id: 14 },
 ]
 const RENT_GOAL = {
   goal: { id: 7, category_id: 11, name: 'Rent', kind: 'recurring_bill', archived_on: null },
@@ -65,6 +68,7 @@ const DUE_DATES = [
 
 vi.mock('./api.js', () => ({
   api: {
+    readyToAssign: calls.readyToAssign,
     accounts: { list: () => Promise.resolve(ACCOUNTS), balance: calls.balance },
     splits: { list: () => Promise.resolve(SPLITS) },
     domains: { list: () => Promise.resolve([]) },
@@ -128,6 +132,8 @@ beforeEach(() => {
   calls.lastPayment.mockResolvedValue({ payee_id: null, account_id: null })
   calls.remove.mockReset()
   calls.remove.mockResolvedValue({})
+  calls.readyToAssign.mockReset()
+  calls.readyToAssign.mockResolvedValue({ categories: [] })
   calls.balance.mockReset()
   calls.balance.mockResolvedValue({ balance_cents: 0 })
   calls.payBatchGet.mockReset()
@@ -1632,5 +1638,47 @@ describe('Ledger form: the envelope step is pre-filled from the balance before t
     expect(await screen.findByText('Which envelope does this fund?')).toBeInTheDocument()
     expect(calls.balance).not.toHaveBeenCalled()
     expect(screen.queryByLabelText('Envelope')).not.toBeInTheDocument()
+  })
+})
+
+describe('Ledger form: a refund can go back to the pool (#436)', () => {
+  const refund = (amount_text) => ({
+    quickAdd: { date: '2026-10-05', payee_id: null, account_id: 1, category_id: 15, amount_text, goal: null, refill: false },
+  })
+  const sentBack = () => screen.getByLabelText('Amount sent back from Therapy')
+
+  it('pre-fills the lesser of the refund and how far below zero the pool is', async () => {
+    calls.readyToAssign.mockResolvedValue({ categories: [{ category_id: 14, available_cents: -14000 }] })
+    renderLedger(refund('160'))
+    await waitFor(() => expect(sentBack()).toHaveValue('140'))
+    expect(calls.readyToAssign).toHaveBeenCalledWith('2026-10-05')
+    expect(screen.getByLabelText('Pool for Therapy refund')).toHaveValue('Health and personal care')
+    fireEvent.click(screen.getByText('Record transaction'))
+    await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    expect(calls.create.mock.calls[0][0].deposits).toEqual([{ category_id: 14, cents: 14000, other_category_id: 15 }])
+  })
+
+  it('comes empty with the own pool picked when no pool is below zero, and sends nothing', async () => {
+    renderLedger(refund('160'))
+    await waitFor(() => expect(sentBack()).toHaveValue(''))
+    expect(screen.getByLabelText('Pool for Therapy refund')).toHaveValue('Health and personal care')
+    fireEvent.click(screen.getByText('Record transaction'))
+    await waitFor(() => expect(calls.create).toHaveBeenCalled())
+    expect(calls.create.mock.calls[0][0].deposits).toEqual([])
+  })
+
+  it('refuses more than the refund', async () => {
+    renderLedger(refund('160'))
+    await waitFor(() => expect(sentBack()).toBeInTheDocument())
+    fireEvent.change(sentBack(), { target: { value: '160.01' } })
+    fireEvent.click(screen.getByText('Record transaction'))
+    expect(await screen.findByText('No more than the refund can go back to its pool.')).toBeInTheDocument()
+    expect(calls.create).not.toHaveBeenCalled()
+  })
+
+  it('offers nothing on spending', async () => {
+    renderLedger(refund('-20'))
+    await screen.findByLabelText('Date')
+    expect(screen.queryByLabelText('Amount sent back from Therapy')).not.toBeInTheDocument()
   })
 })
