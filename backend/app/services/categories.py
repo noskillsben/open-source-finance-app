@@ -48,6 +48,27 @@ def category_balance_cents(session: Session, category_id: int, *, as_of: date) -
     return from_transactions + from_earmarks
 
 
+def category_month_cents(session: Session, category_id: int, *, as_of: date) -> tuple[int, int]:
+    """(assigned, spent) for the calendar month of `as_of`, first day through `as_of`
+    (DESIGN.md § Categories → Goals). Assigned is the signed sum of the category's earmark lines
+    of every source; spent is the signed sum of its transaction category lines (a refund lowers
+    it). The calendar month, never the pay period; read-time only, nothing stored. Available on
+    `as_of` = available at the end of the previous month + assigned + spent.
+    """
+    first = as_of.replace(day=1)
+    assigned = session.scalar(
+        select(func.coalesce(func.sum(EarmarkLine.cents), 0)).where(
+            EarmarkLine.category_id == category_id, EarmarkLine.date >= first, EarmarkLine.date <= as_of
+        )
+    )
+    spent = session.scalar(
+        select(func.coalesce(func.sum(CategoryLine.cents), 0))
+        .join(Transaction, CategoryLine.transaction_id == Transaction.id)
+        .where(CategoryLine.category_id == category_id, Transaction.date >= first, Transaction.date <= as_of)
+    )
+    return assigned, spent
+
+
 def category_children(session: Session, category_id: int) -> list[Category]:
     """Direct children still active — archiving a parent cascades into these
     (DESIGN.md: "archiving a category with children archives the children with the same

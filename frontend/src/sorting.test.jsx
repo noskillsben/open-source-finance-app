@@ -151,7 +151,7 @@ describe('Categories sort', () => {
     summary = [
       { category_id: 2, available_cents: 100 }, { category_id: 3, available_cents: 200 },
       { category_id: 4, available_cents: 1000 }, { category_id: 5, available_cents: 50 }, { category_id: 6, available_cents: 5 },
-    ]
+    ].map((r) => ({ ...r, assigned_cents: r.available_cents * 2, spent_cents: -r.available_cents }))
     goals = []
     render(<MemoryRouter><Categories pickerDate="2026-10-03" /></MemoryRouter>)
     await screen.findByText('Rent')
@@ -176,6 +176,20 @@ describe('Categories sort', () => {
     tap('Available')
     expect(order(all)).toEqual(['Misc', 'Food', 'Home', 'Rent', 'Cable', 'Fun'])
     tap('Available')
+    expect(order(all)).toEqual(['Fun', 'Home', 'Cable', 'Rent', 'Food', 'Misc'])
+  })
+
+  it('shows Assigned and Spent with group totals for a parent, and sorts on each', async () => {
+    await load()
+    expect(header('Assigned')).toHaveAttribute('aria-sort', 'none')
+    expect(header('Spent')).toHaveAttribute('aria-sort', 'none')
+    const home = screen.getByText('Home').closest('tr')
+    expect(home).toHaveTextContent('$6.00') // assigned: (100 + 200) * 2 cents across Rent and Cable
+    expect(home).toHaveTextContent('−$3.00') // spent: -(100 + 200) cents
+    tap('Assigned')
+    expect(order(all)).toEqual(['Misc', 'Food', 'Home', 'Rent', 'Cable', 'Fun'])
+    tap('Spent')
+    expect(header('Spent')).toHaveAttribute('aria-sort', 'ascending')
     expect(order(all)).toEqual(['Fun', 'Home', 'Cable', 'Rent', 'Food', 'Misc'])
   })
 

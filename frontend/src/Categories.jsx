@@ -69,7 +69,7 @@ function saveCollapsed(ids) {
 // descendant's), minus the descendants of a collapsed group. A parent holding money of its own gets a
 // "<name> itself" line first among its children. A search shows only matches and their ancestors, with
 // every group open, so a collapsed group never hides a hit.
-function viewRows(categories, availableOf, collapsed, search, passes = () => true, sort = DEFAULT_SORT) {
+function viewRows(categories, availableOf, collapsed, search, passes = () => true, sort = DEFAULT_SORT, monthOf = () => 0) {
   const ordered = orderTree(categories)
   const ids = new Set(categories.map((c) => c.id))
   const childrenOf = new Map()
@@ -78,16 +78,20 @@ function viewRows(categories, availableOf, collapsed, search, passes = () => tru
     if (!childrenOf.has(key)) childrenOf.set(key, [])
     childrenOf.get(key).push(c)
   }
+  // Group totals of all three figures: a category's own plus every descendant's.
+  const figureOf = (id, key) => (key === 'available' ? availableOf(id) : monthOf(id, key))
   const totals = new Map()
-  const totalOf = (c) => {
-    if (!totals.has(c.id)) {
-      totals.set(c.id, (childrenOf.get(c.id) ?? []).reduce((sum, child) => sum + totalOf(child), availableOf(c.id)))
+  const groupTotal = (c, key) => {
+    const memo = `${key}:${c.id}`
+    if (!totals.has(memo)) {
+      totals.set(memo, (childrenOf.get(c.id) ?? []).reduce((sum, child) => sum + groupTotal(child, key), figureOf(c.id, key)))
     }
-    return totals.get(c.id)
+    return totals.get(memo)
   }
+  const totalOf = (c) => groupTotal(c, 'available')
   // Siblings reorder under their parent; a parent ranks among its siblings by its group total.
   const valueOf = (c, key) =>
-    key === 'need' ? (c.need_level ? NEED_LEVELS.findIndex((n) => n.value === c.need_level) : null) : key === 'available' ? totalOf(c) : c.name
+    key === 'need' ? (c.need_level ? NEED_LEVELS.findIndex((n) => n.value === c.need_level) : null) : key === 'available' || key === 'assigned' || key === 'spent' ? groupTotal(c, key) : c.name
   const rank = comparator(sort, valueOf, (c) => c.name)
   for (const kids of childrenOf.values()) kids.sort(rank)
   const query = search.trim().toLowerCase()
@@ -113,9 +117,9 @@ function viewRows(categories, availableOf, collapsed, search, passes = () => tru
       const showAll = whole || (matches && !faceted)
       const kids = childrenOf.get(c.id) ?? []
       const expanded = filtering || !collapsed.includes(c.id)
-      out.push({ category: c, depth, isParent: kids.length > 0, expanded, total: totalOf(c) })
+      out.push({ category: c, depth, isParent: kids.length > 0, expanded, total: totalOf(c), assigned: groupTotal(c, 'assigned'), spent: groupTotal(c, 'spent') })
       if (kids.length > 0 && expanded) {
-        if ((!filtering || showAll) && availableOf(c.id) !== 0) out.push({ itself: c, depth: depth + 1, cents: availableOf(c.id) })
+        if ((!filtering || showAll) && availableOf(c.id) !== 0) out.push({ itself: c, depth: depth + 1, cents: availableOf(c.id), assigned: monthOf(c.id, 'assigned'), spent: monthOf(c.id, 'spent') })
         walk(c.id, depth + 1, !!showAll)
       }
     }
@@ -482,6 +486,8 @@ export default function Categories({ pickerDate }) {
   const domainName = (id) => domains.find((d) => d.id === id)?.name
   const active = (categories ?? []).filter((c) => !c.archived_on)
   const available = (id) => summary?.categories.find((c) => c.category_id === id)?.available_cents ?? 0
+  // Assigned and spent are for the calendar month of Show as of; the backend sends each category's own.
+  const monthFigure = (id, key) => summary?.categories.find((c) => c.category_id === id)?.[`${key}_cents`] ?? 0
   const goalOf = (id) => goals.find((g) => g.goal.category_id === id)
   const passes = (c) =>
     (filters.need === '' || (filters.need === 'none' ? !c.need_level : c.need_level === filters.need)) &&
@@ -489,7 +495,7 @@ export default function Categories({ pickerDate }) {
     (filters.goal === '' || (filters.goal === 'none' ? !goalOf(c.id) : goalOf(c.id)?.goal.kind === filters.goal))
   passes.faceted = filters.need !== '' || filters.goal !== '' || filters.overspent
   const loaded = Boolean(categories && summary) // a number is shown only when the real one has arrived
-  const rows = loaded ? viewRows(categories, available, collapsed, search, passes, sort) : []
+  const rows = loaded ? viewRows(categories, available, collapsed, search, passes, sort, monthFigure) : []
   const parentIds = rows.filter((r) => r.isParent).map((r) => r.category.id)
   const poolAbsorber = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_absorber ?? null
   const poolAvailable = (id) => summary?.categories.find((c) => c.category_id === id)?.pool_available_cents ?? 0
@@ -619,6 +625,11 @@ export default function Categories({ pickerDate }) {
     </SidePanel>
   )
 
+  const shownMonth = (row, key) => (row.itself || row.isParent ? row[key] : monthFigure(row.category.id, key))
+  const moneyCell = (key) => (row) => {
+    const cents = shownMonth(row, key)
+    return <span className={`tabular ${cents < 0 ? 'text-negative' : ''}`}>{formatCents(cents)}</span>
+  }
   const shownCents = (row) => (row.isParent ? row.total : available(row.category.id))
   const poolNote = (c) =>
     (poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
@@ -734,7 +745,7 @@ export default function Categories({ pickerDate }) {
             onClear={clearFilters}
             sort={sort}
             onSort={toggleSort}
-            sortOptions={[{ key: 'name', label: 'Name' }, { key: 'need', label: 'Need level' }, { key: 'available', label: 'Available' }]}
+            sortOptions={[{ key: 'name', label: 'Name' }, { key: 'need', label: 'Need level' }, { key: 'assigned', label: 'Assigned' }, { key: 'spent', label: 'Spent' }, { key: 'available', label: 'Available' }]}
             {...(parentIds.length > 0 && !filtersActive
               ? { onExpandAll: () => setCollapsedIds([]), onCollapseAll: () => setCollapsedIds(parentIds) }
               : {})}
@@ -768,6 +779,8 @@ export default function Categories({ pickerDate }) {
                 { key: 'name', header: 'Name', sortKey: 'name', cell: nameCell },
                 { key: 'domain', header: 'Domain', cell: (row) => (row.itself ? '' : domainName(row.category.domain_id) ?? '') },
                 { key: 'need', header: 'Need level', sortKey: 'need', cell: (row) => (row.itself ? '' : needLabel(row.category.need_level) ?? '') },
+                { key: 'assigned', header: 'Assigned', sortKey: 'assigned', className: 'text-right', cell: moneyCell('assigned') },
+                { key: 'spent', header: 'Spent', sortKey: 'spent', className: 'text-right', cell: moneyCell('spent') },
                 { key: 'available', header: 'Available', sortKey: 'available', className: 'text-right', cell: availableCell },
                 { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right whitespace-nowrap', cell: moveMoneyCell },
               ]}
@@ -790,6 +803,9 @@ export default function Categories({ pickerDate }) {
                     </div>
                     <div className="break-words text-sm text-text-2" style={{ paddingLeft: `${row.depth * 1.25 + (row.isParent ? 0 : 1.5)}rem` }}>
                       {detail || ' '}
+                    </div>
+                    <div className="text-sm text-text-2" style={{ paddingLeft: `${row.depth * 1.25 + (row.isParent ? 0 : 1.5)}rem` }}>
+                      Assigned {formatCents(shownMonth(row, 'assigned'))} · Spent {formatCents(shownMonth(row, 'spent'))}
                     </div>
                     {c.linked_accounts.length > 0 && (
                       <div className="text-sm text-text-3">money is in {c.linked_accounts.map((a) => a.name).join(' and ')}</div>

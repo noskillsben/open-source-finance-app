@@ -287,6 +287,8 @@ class EarmarkLineOut(BaseModel):
 class CategoryAvailableOut(BaseModel):
     category_id: int
     available_cents: int
+    assigned_cents: int = 0  # earmark lines in the calendar month of as_of, through as_of
+    spent_cents: int = 0  # category lines in the same range, signed
     pool_available_cents: int = 0
     pool_absorber: str | None = None
 
