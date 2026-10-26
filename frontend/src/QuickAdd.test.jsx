@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { readAmount, typeAmount } from './testAmounts.js'
+import { typeAmount } from './testAmounts.js'
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import QuickAdd from './QuickAdd.jsx'
