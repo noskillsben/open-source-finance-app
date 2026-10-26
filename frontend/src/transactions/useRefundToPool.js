@@ -5,7 +5,7 @@ import { parseCents } from '../utils/format.js'
 // DESIGN.md § Categories → Pools → A refund can go back to the pool: a positive category line on a
 // category with a pool offers "send this back to <pool>?", through the envelope step. The answer is
 // one row per refunded category: { from, category_id (the pool), cents }.
-export function useRefundToPool({ categories, categoryLines, editingId, date }) {
+export function useRefundToPool({ categories, categoryLines, editingId, date, linkedNet = 0 }) {
   const [rows, setRows] = useState([])
   const touched = useRef(false)
 
@@ -30,7 +30,9 @@ export function useRefundToPool({ categories, categoryLines, editingId, date }) 
     const id = Number(line.category_id)
     refundedCents.set(id, (refundedCents.get(id) ?? 0) + cents)
   }
-  const offers = [...refundedCents.entries()]
+  // The backend refuses a refund going back to its pool on a transaction that takes money out of a
+  // linked account (net < 0), so no offer is shown there.
+  const offers = (linkedNet < 0 ? [] : [...refundedCents.entries()])
     .map(([id, cents]) => ({ from: id, cents, chain: chainOf(id) }))
     .filter((o) => o.chain.length > 0)
   const offerKey = offers.map((o) => `${o.from}:${o.cents}:${o.chain.map((p) => p.id)}`).join('|')

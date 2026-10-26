@@ -49,7 +49,7 @@ export function useTransactionForm({ pickerDate, data, collapsed, setCollapsed }
     linkedNet, offeredBill, offeredGoalId, offeredDue, dueOptions, dueOptionValues, envelopes, depositTotal } =
     useBillLink({ accounts, categories, goals, accountLines, categoryLines, editingId, date })
   const { refundOffers, updateRefund, setRefundRows, refundTouched, refundItems } =
-    useRefundToPool({ categories, categoryLines, editingId, date })
+    useRefundToPool({ categories, categoryLines, editingId, date, linkedNet })
   const { splitId, setSplitId, paidById, setPaidById, setShareBasis, shareStart, setShareStart, totalLocked, setTotalLocked,
     ownPicks, mePayeeId, chosenSplit, fillShared, chooseSplit, changeReceipt, sharedTotalCents, changePaidBy } =
     useSharedBill({ payees, splitsAll, accountLines, categoryLines, setAccountLines, setCategoryLines, amount, setAmount, setForceAccountBoxes, setForceCategoryBoxes })
