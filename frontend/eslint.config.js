@@ -6,11 +6,10 @@ export default [
   { ignores: ['dist'] },
   {
     files: ['**/*.{js,jsx}'],
-    ...js.configs.recommended,
     plugins: { react, 'react-hooks': reactHooks },
     languageOptions: { ecmaVersion: 2022, sourceType: 'module', parserOptions: { ecmaFeatures: { jsx: true } },
-      globals: { window: 'readonly', document: 'readonly', fetch: 'readonly', console: 'readonly', process: 'readonly' } },
+      globals: Object.fromEntries(['window', 'document', 'fetch', 'console', 'process', 'localStorage', 'sessionStorage', 'Storage', 'URL', 'URLSearchParams', 'Blob', 'File', 'Node', 'Element', 'HTMLAnchorElement', 'setTimeout'].map((n) => [n, 'readonly'])) },
     settings: { react: { version: '18.3' } },
-    rules: { ...react.configs.recommended.rules, ...reactHooks.configs.recommended.rules, 'react/react-in-jsx-scope': 'off', 'react/prop-types': 'off' },
+    rules: { ...js.configs.recommended.rules, ...react.configs.recommended.rules, ...reactHooks.configs.recommended.rules, 'react/react-in-jsx-scope': 'off', 'react/prop-types': 'off' },
   },
 ]

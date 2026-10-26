@@ -626,7 +626,7 @@ export default function Categories({ pickerDate }) {
   )
 
   const shownMonth = (row, key) => (row.itself || row.isParent ? row[key] : monthFigure(row.category.id, key))
-  const moneyCell = (key) => (row) => {
+  const moneyCell = (key) => function MoneyCell(row) {
     const cents = shownMonth(row, key)
     return <span className={`tabular ${cents < 0 ? 'text-negative' : ''}`}>{formatCents(cents)}</span>
   }

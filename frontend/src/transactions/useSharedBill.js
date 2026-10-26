@@ -51,7 +51,7 @@ export function useSharedBill({ payees, splitsAll, accountLines, categoryLines, 
     })
     setShareBasis(basis)
     setAccountLines(
-      lines.map((l, i) => ({
+      lines.map((l) => ({
         account_id: String(l.account_id ?? ''),
         cents: String(l.cents / 100),
       }))
