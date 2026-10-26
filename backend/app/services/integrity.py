@@ -18,7 +18,7 @@ class IntegrityFinding:
     transaction_id: int
     date: date
     payee_id: int | None
-    kind: str  # "invariant", "settings_drift", "not_netted" or "stale_cover"
+    kind: str  # "invariant", "settings_drift", "netting" or "stale_cover"
     expected_cents: int
     stored_cents: int
     category_name: str | None = None  # stale_cover only
@@ -76,7 +76,10 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
                 )
 
         for line in txn.account_lines:
-            if line.netted_into_opening or txn.date >= line.account.opening_stated_on:
+            stated_on = line.account.opening_stated_on
+            netted_wrongly = line.netted_into_opening and stated_on is None
+            not_netted = not line.netted_into_opening and stated_on is not None and txn.date < stated_on
+            if not (netted_wrongly or not_netted):
                 continue
             if line.account_id not in opening_ids:
                 opening = _opening_adjustment_transaction(session, line.account)
@@ -86,7 +89,9 @@ def find_integrity_issues(session: Session) -> list[IntegrityFinding]:
             findings.append(
                 IntegrityFinding(
                     transaction_id=txn.id, date=txn.date, payee_id=txn.payee_id,
-                    kind="not_netted", expected_cents=line.cents, stored_cents=0,
+                    kind="netting",
+                    expected_cents=0 if netted_wrongly else line.cents,
+                    stored_cents=line.cents if netted_wrongly else 0,
                 )
             )
 

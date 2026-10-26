@@ -187,7 +187,7 @@ def test_un_netted_line_before_the_stated_date_is_flagged_and_re_save_nets_it_on
     txn.date = before  # hand-built legacy row: dated before D, never netted
     db_session.flush()
 
-    findings = [f for f in find_integrity_issues(db_session) if f.kind == "not_netted"]
+    findings = [f for f in find_integrity_issues(db_session) if f.kind == "netting"]
     assert [(f.transaction_id, f.expected_cents, f.stored_cents) for f in findings] == [(txn.id, -80_00, 0)]
 
     client = _client(db_session)
@@ -197,7 +197,7 @@ def test_un_netted_line_before_the_stated_date_is_flagged_and_re_save_nets_it_on
     finally:
         app.dependency_overrides.clear()
 
-    assert [f for f in find_integrity_issues(db_session) if f.kind == "not_netted"] == []
+    assert [f for f in find_integrity_issues(db_session) if f.kind == "netting"] == []
     opening = db_session.scalar(select(Valuation).where(Valuation.account_id == chequing.id))
     opening_txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == opening.id))
     assert opening_txn.account_lines[0].cents == 1_080_00  # netted once, not twice
@@ -317,3 +317,37 @@ def test_one_stale_category_reports_exactly_one_finding(db_session):
     _spend(db_session, chequing, cats[0], 30_00, datetime.date(2026, 2, 10))  # backfill Fun only
     stale = _stale(db_session)
     assert [(f.transaction_id, f.category_name, f.pool_name) for f in stale] == [(both.id, "Fun", "Buffer")]
+
+
+def test_a_netted_line_on_an_account_with_no_stated_day_is_flagged_and_re_save_fixes_it(db_session):
+    """#434: an opening the app made up never nets. A row netted into one before is repaired by Re-save."""
+    account = create_account_with_opening_valuation(
+        db_session, name="Sam", created_on=TODAY, type="Money owed to me", on_budget=True,
+        on_budget_floor_cents=0, opening_balance_cents=0, opening_stated=False,
+    )
+    db_session.flush()
+    txn = write_transaction(
+        db_session, transaction=None, txn_date=TODAY, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": 15_75}], category_lines=[],
+    )
+    db_session.flush()
+    line = txn.account_lines[0]
+    line.netted_into_opening = True  # legacy row: absorbed into the opening
+    opening = db_session.scalar(select(Valuation).where(Valuation.account_id == account.id))
+    opening_txn = db_session.scalar(select(Transaction).where(Transaction.valuation_id == opening.id))
+    opening_txn.account_lines[0].cents -= 15_75
+    db_session.flush()
+
+    findings = [f for f in find_integrity_issues(db_session) if f.kind == "netting"]
+    assert [(f.transaction_id, f.expected_cents, f.stored_cents) for f in findings] == [(txn.id, 0, 15_75)]
+
+    client = _client(db_session)
+    try:
+        for _ in range(2):
+            assert client.post(f"/api/transactions/{txn.id}/re-save").status_code == 200
+    finally:
+        app.dependency_overrides.clear()
+
+    assert [f for f in find_integrity_issues(db_session) if f.kind == "netting"] == []
+    assert opening_txn.account_lines[0].cents == 0
+    assert account_balance_cents(db_session, account.id, as_of=TODAY) == 15_75

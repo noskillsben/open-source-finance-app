@@ -163,7 +163,7 @@ def _account_for(session: Session, payee: Payee, created_on: date) -> int:
         )
     account = create_account_with_opening_valuation(
         session, name=payee.name, created_on=created_on, type=RECEIVABLE_TYPE,
-        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0,
+        on_budget=True, on_budget_floor_cents=0, opening_balance_cents=0, opening_stated=False,
     )
     owed = seeded_owed_to_me(session, on=created_on)  # DESIGN.md § Linked categories → Owed to me
     if owed is not None:

@@ -396,6 +396,16 @@ def _assert_b7d2f4a96c18(session):
     ]
 
 
+def _assert_c8e3a5b17d92(session):
+    from app.models import Account
+    from app.services.integrity import find_integrity_issues
+
+    stated = {a.id: a.opening_stated_on for a in session.query(Account)}
+    assert stated == {1: datetime.date(2026, 1, 1), 2: None, 3: datetime.date(2026, 3, 1)}
+    findings = find_integrity_issues(session)
+    assert [(f.kind, f.transaction_id, f.expected_cents, f.stored_cents) for f in findings] == [("netting", 1, 0, 5000)]
+
+
 ASSERTIONS = {
     "749e15077f93": _assert_749e15077f93,
     "769d6a847874": _assert_769d6a847874,
@@ -427,6 +437,7 @@ ASSERTIONS = {
     "f2b7d4c91e85": _assert_f2b7d4c91e85,
     "a6c3e9d27f51": _assert_a6c3e9d27f51,
     "b7d2f4a96c18": _assert_b7d2f4a96c18,
+    "c8e3a5b17d92": _assert_c8e3a5b17d92,
 }
 
 
