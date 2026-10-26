@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor, within } from '@testing-library/rea
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { todayIso } from './utils/format.js'
 import App from './App.jsx'
+import { titleFor } from './Nav.jsx'
 
 // Every page fetches on mount; stub every api call so routing/render tests never hit the network.
 vi.mock('./api.js', () => {
@@ -37,7 +38,7 @@ describe('nav menu', () => {
     await renderAt('/transactions')
     const nav = screen.getByRole('navigation', { name: 'Main' })
     const headings = within(nav).getAllByRole('heading', { level: 2 }).map((h) => h.textContent)
-    expect(headings).toEqual(['Record', 'Assign', 'Plan', 'Review', 'Settings'])
+    expect(headings).toEqual(['Record', 'Assign', 'Plan', 'Review', 'Settings', 'Help'])
 
     expect(within(nav).getByRole('link', { name: 'Income' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Transactions' })).toBeInTheDocument()
@@ -49,6 +50,7 @@ describe('nav menu', () => {
     expect(within(nav).getByRole('link', { name: 'Split expenses' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Domains' })).toBeInTheDocument()
     expect(within(nav).getByRole('link', { name: 'Data check' })).toBeInTheDocument()
+    expect(within(nav).getByRole('link', { name: 'Help' })).toHaveAttribute('href', '/help')
 
     // No placeholder link for the still-unbuilt Home page.
     expect(within(nav).queryByText('Home')).not.toBeInTheDocument()
@@ -184,5 +186,20 @@ describe('held start', () => {
     expect(screen.getByRole('heading', { name: 'Backup' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Export data' })).toBeNull()
     expect(screen.queryByRole('button', { name: '+ Add transaction' })).toBeNull()
+  })
+})
+
+describe('help', () => {
+  it('shows the user guide at /help', async () => {
+    await renderAt('/help')
+    const guide = screen.getByRole('article', { name: 'User guide' })
+    expect(within(guide).getByRole('heading', { name: /Using the app/ })).toBeInTheDocument()
+    expect(within(guide).getByRole('heading', { name: 'Getting started' })).toBeInTheDocument()
+    expect(within(guide).getByText(/Run/)).toBeInTheDocument()
+    expect(within(guide).getAllByRole('listitem').length).toBeGreaterThan(5)
+  })
+
+  it('titles the page Help', () => {
+    expect(titleFor('/help')).toBe('Help')
   })
 })

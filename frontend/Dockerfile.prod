@@ -4,6 +4,8 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci || npm install
 COPY . .
+# The user guide the Help page bundles, at ../../docs/user from /app/src.
+COPY --from=userdocs . /docs/user
 RUN npm run build
 
 FROM nginx:1.27-alpine
