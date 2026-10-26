@@ -119,7 +119,7 @@ export default function List({
                       </button>
                     </td>
                     <td className={`tabular py-1 font-medium ${g.total < 0 ? 'text-negative' : ''}`}>{formatCents(g.total)}</td>
-                    <td colSpan={Math.max(columns.length - totalColumn - 1, 1)}></td>
+                    {columns.length - totalColumn - 1 > 0 && <td colSpan={columns.length - totalColumn - 1}></td>}
                   </tr>
                   {open && g.rows.map(desktopRow)}
                 </Fragment>

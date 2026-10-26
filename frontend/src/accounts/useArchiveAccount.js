@@ -32,8 +32,7 @@ export function useArchiveAccount({ pickerDate, refresh }) {
     }
   }
 
-  async function unarchiveAccount(e, account) {
-    e.stopPropagation()
+  async function unarchiveAccount(account) {
     setRowError(null)
     try {
       await api.accounts.unarchive(account.id)

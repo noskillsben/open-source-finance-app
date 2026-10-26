@@ -1,12 +1,13 @@
 // A list row: 44 px on a desktop, 56 px on a phone, the row being edited highlighted, and the
 // row's actions on the right. `onSelect` makes the whole row tappable.
-export function ListRow({ selected = false, onSelect, children, actions }) {
+export function ListRow({ selected = false, onSelect, children, actions, rowProps }) {
   return (
     <li
       className={`flex min-h-14 items-center justify-between gap-3 border-t border-line px-2 md:min-h-11 ${
         selected ? 'bg-raised' : ''
       } ${onSelect ? 'cursor-pointer' : ''}`}
       onClick={onSelect}
+      {...rowProps}
     >
       <div className="min-w-0 py-1">{children}</div>
       {actions && <div className="flex shrink-0 items-center">{actions}</div>}

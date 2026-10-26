@@ -4,13 +4,13 @@ import { describe, expect, it, vi } from 'vitest'
 import Pay from './Pay.jsx'
 
 let streams = []
-const { createStream, updateStream } = vi.hoisted(() => ({ createStream: vi.fn(), updateStream: vi.fn() }))
+const { createStream, updateStream, archiveStream } = vi.hoisted(() => ({ createStream: vi.fn(), updateStream: vi.fn(), archiveStream: vi.fn() }))
 
 vi.mock('./api.js', () => {
   const list = () => Promise.resolve([])
   return {
     api: {
-      incomeStreams: { list: () => Promise.resolve(streams), create: createStream, update: updateStream },
+      incomeStreams: { list: () => Promise.resolve(streams), create: createStream, update: updateStream, archive: archiveStream },
       categories: { list: () => Promise.resolve([{ id: 5, name: 'Salary income' }]) },
       accounts: { list: () => Promise.resolve([{ id: 6, name: 'Chequing' }]) },
       payees: { list },
@@ -43,6 +43,29 @@ describe('Pay', () => {
     expect(within(salary).getByRole('link', { name: 'Re-open' })).toHaveAttribute('href', '/income/3/record')
     const gig = screen.getByText('Gig').closest('tr')
     expect(within(gig).getByRole('link', { name: 'Record' })).toBeInTheDocument()
+  })
+})
+
+describe('a row opens its panel (#398)', () => {
+  it('opens on a tap or Enter, keeps Record as its one control, and archives from the panel', async () => {
+    streams = [{ id: 4, name: 'Gig', cadence: 'monthly', next_payday: '2026-09-28', next_payday_recorded: false, archived_on: null, deductions: [], payee_id: null, anchor_payday: '2026-09-28', income_category_id: 5, destination_account_id: 6 }]
+    archiveStream.mockResolvedValue({ warnings: [] })
+    render(
+      <MemoryRouter initialEntries={['/income']}>
+        <Pay pickerDate="2026-09-23" />
+      </MemoryRouter>
+    )
+    const row = (await screen.findByText('Gig')).closest('tr')
+    expect(within(row).getAllByRole('link')).toHaveLength(1)
+    expect(within(row).queryByRole('button')).toBeNull()
+    expect(row).toHaveAttribute('tabindex', '0')
+
+    fireEvent.click(within(row).getByRole('link', { name: 'Record' }))
+    expect(screen.queryByRole('button', { name: 'Archive' })).toBeNull() // the control did not also open the row
+
+    fireEvent.keyDown(row, { key: 'Enter' })
+    fireEvent.click(await screen.findByRole('button', { name: 'Archive' }))
+    await waitFor(() => expect(archiveStream).toHaveBeenCalledWith(4, '2026-09-23'))
   })
 })
 
@@ -114,7 +137,7 @@ describe('Recorded and the highlight (#343)', () => {
     expect(rowOf('Gig')).toHaveClass('bg-raised')
     expect(rowOf('Salary')).not.toHaveClass('bg-raised')
 
-    fireEvent.click(within(rowOf('Salary')).getByRole('button', { name: 'Edit' }))
+    fireEvent.click(within(rowOf('Salary')).getByText('Salary'))
     expect(screen.queryByText('Recorded.')).toBeNull()
     expect(rowOf('Gig')).not.toHaveClass('bg-raised')
     fireEvent.click(await screen.findByRole('button', { name: 'Save' }))
