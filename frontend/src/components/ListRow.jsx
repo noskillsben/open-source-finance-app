@@ -14,23 +14,22 @@ export function ListRow({ selected = false, onSelect, children, actions }) {
   )
 }
 
-// The goal row sits under its category in the table: the goal's name and status line, and its one
-// action on the right. `depth` indents it to its category.
-export function GoalRow({ depth = 0, colSpan, name, status, action, onSelect, selected = false }) {
+// The goal line sits under its category (drawn by the shared List's `after`): the goal's name and
+// status line, and its one action on the right. `depth` indents it to its category.
+export function GoalRow({ depth = 0, name, status, action, onSelect, selected = false }) {
   return (
-    <tr
-      className={`border-t-0 text-sm text-text-2 ${selected ? 'bg-raised' : ''} ${onSelect ? 'cursor-pointer' : ''}`}
+    <div
+      className={`text-sm text-text-2 ${selected ? 'bg-raised' : ''} ${onSelect ? 'cursor-pointer' : ''}`}
+      style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}
       onClick={onSelect}
     >
-      <td colSpan={colSpan} className="pb-2" style={{ paddingLeft: `${depth * 1.25 + 1}rem` }}>
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-            <span className="text-text">{name}</span>
-            {status}
-          </div>
-          {action}
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-1">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+          <span className="text-text">{name}</span>
+          {status}
         </div>
-      </td>
-    </tr>
+        {action}
+      </div>
+    </div>
   )
 }

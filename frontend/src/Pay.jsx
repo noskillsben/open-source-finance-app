@@ -5,7 +5,7 @@ import { CADENCES } from './cadences.js'
 import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
 import ListFilters from './components/ListFilters.jsx'
-import SortHeader from './components/SortHeader.jsx'
+import List from './components/List.jsx'
 import { useFilters } from './utils/useFilters.js'
 import { comparator } from './utils/useSort.js'
 import LoadingRows from './components/LoadingRows.jsx'
@@ -351,6 +351,30 @@ export default function Pay({ pickerDate }) {
     </SidePanel>
   )
 
+  const archivedNote = (s) =>
+    s.archived_on && <div className="text-sm text-text-3">archived {formatDate(s.archived_on)}</div>
+  const streamActions = (s) => (
+    <>
+      {!s.archived_on && (
+        <Link className="btn btn-quiet" to={`/income/${s.id}/record`}>
+          {s.next_payday_recorded ? 'Re-open' : 'Record'}
+        </Link>
+      )}
+      {!s.archived_on && (
+        <button type="button" className="btn btn-quiet" onClick={() => startEdit(s)}>
+          Edit
+        </button>
+      )}
+      <button
+        type="button"
+        className="btn btn-quiet"
+        onClick={() => (s.archived_on ? unarchiveStream(s) : archiveStream(s))}
+      >
+        {s.archived_on ? 'Unarchive' : 'Archive'}
+      </button>
+    </>
+  )
+
   return (
     <div className="space-y-6 py-4">
       <div className="flex items-center justify-between gap-3">
@@ -396,49 +420,30 @@ export default function Pay({ pickerDate }) {
           <p className="text-text-2">No named pays match these filters.</p>
         )}
         {shown.length > 0 && (
-          <table className="w-full">
-            <thead>
-              <tr className="text-left text-text-2">
-                <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} className="pb-1" />
-                <th className="pb-1">Cadence</th>
-                <SortHeader label="Next payday" sortKey="next_payday" sort={sort} onSort={toggleSort} className="pb-1" />
-                <th className="pb-1"></th>
-              </tr>
-            </thead>
-            <tbody>
-              {shown.map((s) => (
-                <tr key={s.id} className={editing?.id === s.id || highlightId === s.id ? 'bg-raised' : ''}>
-                  <td className="py-1">
-                    {s.name}
-                    {s.archived_on && (
-                      <div className="text-sm text-text-3">archived {formatDate(s.archived_on)}</div>
-                    )}
-                  </td>
-                  <td className="py-1">{cadenceText(s)}</td>
-                  <td className="py-1">{formatDate(s.next_payday)}</td>
-                  <td className="py-1 text-right space-x-3 whitespace-nowrap">
-                    {!s.archived_on && (
-                      <Link className="btn btn-quiet" to={`/income/${s.id}/record`}>
-                        {s.next_payday_recorded ? 'Re-open' : 'Record'}
-                      </Link>
-                    )}
-                    {!s.archived_on && (
-                      <button type="button" className="btn btn-quiet" onClick={() => startEdit(s)}>
-                        Edit
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="btn btn-quiet"
-                      onClick={() => (s.archived_on ? unarchiveStream(s) : archiveStream(s))}
-                    >
-                      {s.archived_on ? 'Unarchive' : 'Archive'}
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          <List
+            rows={shown}
+            rowId={(s) => s.id}
+            selectedId={editing?.id ?? highlightId}
+            sort={sort}
+            onSort={toggleSort}
+            columns={[
+              { key: 'name', header: 'Name', sortKey: 'name', cell: (s) => <>{s.name}{archivedNote(s)}</> },
+              { key: 'cadence', header: 'Cadence', cell: (s) => cadenceText(s) },
+              { key: 'next_payday', header: 'Next payday', sortKey: 'next_payday', cell: (s) => formatDate(s.next_payday) },
+              { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right space-x-3 whitespace-nowrap', cell: streamActions },
+            ]}
+            phoneRow={(s) => (
+              <>
+                <div className="flex items-baseline justify-between gap-3">
+                  <span className="min-w-0 break-words">{s.name}</span>
+                  <span className="shrink-0 whitespace-nowrap">{formatDate(s.next_payday)}</span>
+                </div>
+                <div className="break-words text-sm text-text-2">{cadenceText(s)}</div>
+                {archivedNote(s)}
+                <div className="space-x-3">{streamActions(s)}</div>
+              </>
+            )}
+          />
         )}
       </section>
       </PanelLayout>

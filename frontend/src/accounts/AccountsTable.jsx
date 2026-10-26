@@ -1,15 +1,13 @@
-import { Fragment } from 'react'
-import { ChevronDown, ChevronRight } from 'lucide-react'
 import Button from '../components/Button.jsx'
-import SortHeader from '../components/SortHeader.jsx'
+import List from '../components/List.jsx'
 import { formatCents, formatDate } from '../utils/format.js'
 import { termsLine } from '../utils/terms.js'
 import { VALUE_TYPES } from './accountForm.js'
 
-// The accounts table: grouped rows, locked-to-payee clusters, and each row's notes and actions. This is
-// the only place the table markup lives, so it can be swapped for the shared list on its own.
+// The accounts list: grouped rows, locked-to-payee clusters, and each row's notes and actions, drawn
+// with the shared List (a table on a desktop, rows on a phone).
 export default function AccountsTable({ list, payeesAll, selectedId, highlightId, editAccount, startCheck, startArchive, unarchiveAccount, undoCheck }) {
-  const { groupedRows, groupBy, effectiveSort, toggleSort, isOpen, toggleGroup, colCount } = list
+  const { groupedRows, groupBy, effectiveSort, toggleSort, isOpen, toggleGroup } = list
 
   function accountNotes(a) {
     return (
@@ -68,92 +66,54 @@ export default function AccountsTable({ list, payeesAll, selectedId, highlightId
     )
   }
 
+  // A locked-to-payee cluster is flattened to its accounts; the first carries the "Locked to" caption.
+  const groups = groupedRows.map((g) => ({
+    ...g,
+    rows: g.rows.flatMap((row) =>
+      row.group
+        ? row.group.map((account, i) => ({
+            account,
+            lockedTo: i === 0 ? payeesAll?.find((p) => p.id === row.payeeId)?.name ?? `#${row.payeeId}` : null,
+          }))
+        : [{ account: row.account }],
+    ),
+  }))
+  const balance = (a) => (
+    <span className={`tabular ${a.balance_cents < 0 ? 'text-negative' : ''}`}>{formatCents(a.balance_cents)}</span>
+  )
+  const columns = [
+    { key: 'name', header: 'Name', sortKey: 'name', cell: ({ account: a }) => <>{a.name}{accountNotes(a)}</> },
+    ...(groupBy !== 'type' ? [{ key: 'type', header: 'Type', sortKey: 'type', cell: ({ account: a }) => a.type }] : []),
+    ...(groupBy !== 'side' ? [{ key: 'side', header: 'Side', sortKey: 'side', cell: ({ account: a }) => (a.on_budget ? 'On-budget' : 'Tracking') }] : []),
+    { key: 'balance', header: 'Balance', sortKey: 'balance', className: 'text-right', cell: ({ account: a }) => balance(a) },
+    { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right', cell: ({ account: a }) => accountActions(a) },
+  ]
+  const phoneRow = ({ account: a }) => (
+    <>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="min-w-0 break-words">{a.name}</span>
+        <span className="shrink-0 whitespace-nowrap">{balance(a)}</span>
+      </div>
+      {groupBy !== 'type' && <div className="break-words text-sm text-text-2">{a.type}</div>}
+      {accountNotes(a)}
+      <div>{accountActions(a)}</div>
+    </>
+  )
+
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full">
-        <thead>
-          <tr>
-            <SortHeader label="Name" sortKey="name" sort={effectiveSort} onSort={toggleSort} />
-            {groupBy !== 'type' && <SortHeader label="Type" sortKey="type" sort={effectiveSort} onSort={toggleSort} />}
-            {groupBy !== 'side' && <SortHeader label="Side" sortKey="side" sort={effectiveSort} onSort={toggleSort} />}
-            <SortHeader label="Balance" sortKey="balance" sort={effectiveSort} onSort={toggleSort} className="text-right" />
-            <th></th>
-          </tr>
-        </thead>
-        <tbody>
-          {groupedRows.map((g) => {
-            const open = isOpen(g.key)
-            const Chevron = open ? ChevronDown : ChevronRight
-            return (
-              <Fragment key={g.key}>
-                <tr>
-                  <td colSpan={colCount - 2} className="py-1">
-                    <button
-                      type="button"
-                      aria-expanded={open}
-                      className="inline-flex min-h-14 items-center gap-1 font-medium md:min-h-11"
-                      onClick={() => toggleGroup(g.key)}
-                    >
-                      <Chevron size={20} aria-hidden="true" />
-                      {g.label}
-                    </button>
-                  </td>
-                  <td className={`tabular py-1 text-right font-medium ${g.total < 0 ? 'text-negative' : ''}`}>{formatCents(g.total)}</td>
-                  <td></td>
-                </tr>
-                {open && (
-                  <>
-                    {g.rows.map((row) =>
-            row.group ? (
-              <tr key={`payee-${row.payeeId}`}>
-                <td colSpan={colCount} className="py-1">
-                  <div className="text-sm text-text-3">
-                    Locked to {payeesAll?.find((p) => p.id === row.payeeId)?.name ?? `#${row.payeeId}`}
-                  </div>
-                  {row.group.map((a) => (
-                    <div
-                      key={a.id}
-                      className={`flex min-h-14 cursor-pointer flex-wrap items-center justify-between gap-2 hover:bg-raised md:min-h-11 ${selectedId === a.id || highlightId === a.id ? 'bg-raised' : ''}`}
-                      onClick={() => editAccount(a)}
-                    >
-                      <div>
-                        {a.name}
-                        {accountNotes(a)}
-                      </div>
-                      <div className="flex items-center gap-3">
-                        <span className={`tabular ${a.balance_cents < 0 ? 'text-negative' : ''}`}>{formatCents(a.balance_cents)}</span>
-                        <span>{accountActions(a)}</span>
-                      </div>
-                    </div>
-                  ))}
-                </td>
-              </tr>
-            ) : (
-              <tr
-                key={row.account.id}
-                className={`cursor-pointer hover:bg-raised ${selectedId === row.account.id || highlightId === row.account.id ? 'bg-raised' : ''}`}
-                onClick={() => editAccount(row.account)}
-              >
-                <td className="py-1">
-                  {row.account.name}
-                  {accountNotes(row.account)}
-                </td>
-                {groupBy !== 'type' && <td className="py-1">{row.account.type}</td>}
-                {groupBy !== 'side' && <td className="py-1">{row.account.on_budget ? 'On-budget' : 'Tracking'}</td>}
-                <td className={`tabular py-1 text-right ${row.account.balance_cents < 0 ? 'text-negative' : ''}`}>
-                  {formatCents(row.account.balance_cents)}
-                </td>
-                <td className="py-1 text-right">{accountActions(row.account)}</td>
-              </tr>
-            ),
-          )}
-                  </>
-                )}
-              </Fragment>
-            )
-          })}
-        </tbody>
-      </table>
-    </div>
+    <List
+      groups={groups}
+      isOpen={isOpen}
+      onToggle={toggleGroup}
+      totalColumn={columns.length - 2}
+      columns={columns}
+      phoneRow={phoneRow}
+      rowId={({ account }) => account.id}
+      onSelect={({ account }) => editAccount(account)}
+      selectedId={selectedId ?? highlightId}
+      before={({ lockedTo }) => lockedTo && <div className="text-sm text-text-3">Locked to {lockedTo}</div>}
+      sort={effectiveSort}
+      onSort={toggleSort}
+    />
   )
 }

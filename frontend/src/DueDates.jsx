@@ -11,7 +11,7 @@ import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { EMPTY_GOAL, GoalFields, goalBody, goalToForm } from './GoalFields.jsx'
 import { goalSaved } from './goalProgress.js'
 import NamePicker from './NamePicker.jsx'
-import SortHeader from './components/SortHeader.jsx'
+import List from './components/List.jsx'
 import { comparator, useSort } from './utils/useSort.js'
 
 // The Due dates page (DESIGN.md § Goals → The Due dates page): a view of goals, never a second store.
@@ -175,6 +175,15 @@ export default function DueDates({ pickerDate }) {
   )
   const filtered = kind !== '' || cadence !== '' || categoryId != null
   const closePanel = () => setPanel(null)
+  const openRow = (p) => setPanel({ flavour: isBill(p) ? 'bill' : 'set_aside', progress: p })
+  const rowParts = (p) => {
+    const { amount, status } = split(p.commitment_cadence_text)
+    return isBill(p) ? { amount: p.per_period_text, status: p.bill_status_text } : { amount, status }
+  }
+  const savedText = (p) => {
+    const saved = goalSaved(p)
+    return saved.short ? <span className="text-negative">{saved.short} short</span> : saved.text
+  }
 
   const formPanel = panel && (
     panel.step === 'choose' ? (
@@ -249,52 +258,57 @@ export default function DueDates({ pickerDate }) {
             </EmptyState>
           )}
           {rows.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
-                    <SortHeader label="Amount" sortKey="amount" sort={sort} onSort={toggleSort} />
-                    <SortHeader label="Status" sortKey="status" sort={sort} onSort={toggleSort} />
-                    <SortHeader label="Saved" sortKey="saved" sort={sort} onSort={toggleSort} className="text-right" />
-                    <th><span className="sr-only">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((p) => {
-                    const bill = isBill(p)
-                    const { amount, status: commitmentStatus } = split(p.commitment_cadence_text)
-                    const saved = goalSaved(p)
-                    const selected = panel?.progress?.goal.id === p.goal.id
-                    const open = () => setPanel({ flavour: bill ? 'bill' : 'set_aside', progress: p })
-                    return (
-                      <tr
-                        key={p.goal.id}
-                        className={`cursor-pointer ${selected ? 'bg-raised' : ''}`}
-                        tabIndex={0}
-                        onClick={open}
-                        onKeyDown={(e) => {
-                          if (e.target === e.currentTarget && e.key === 'Enter') open()
-                        }}
-                      >
-                        <td className="py-1">
-                          {p.goal.name}
-                          <div className="text-sm text-text-3">{categoryName(p.goal.category_id)}</div>
-                        </td>
-                        <td className="py-1">{bill ? p.per_period_text : amount}</td>
-                        <td className={`py-1 ${p.bill_status === 'overdue' ? 'text-warning' : ''}`}>
-                          {bill ? p.bill_status_text : commitmentStatus}
-                        </td>
-                        <td className="tabular py-1 text-right">
-                          {saved.short ? <span className="text-negative">{saved.short} short</span> : saved.text}
-                        </td>
-                        <td className="py-1 text-right whitespace-nowrap">{bill && <RecordBillLink progress={p} />}</td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <List
+              rows={rows}
+              rowId={(p) => p.goal.id}
+              selectedId={panel?.progress?.goal.id}
+              onSelect={openRow}
+              rowProps={(p) => ({
+                tabIndex: 0,
+                onKeyDown: (e) => {
+                  if (e.target === e.currentTarget && e.key === 'Enter') openRow(p)
+                },
+              })}
+              sort={sort}
+              onSort={toggleSort}
+              columns={[
+                {
+                  key: 'name',
+                  header: 'Name',
+                  sortKey: 'name',
+                  cell: (p) => (
+                    <>
+                      {p.goal.name}
+                      <div className="text-sm text-text-3">{categoryName(p.goal.category_id)}</div>
+                    </>
+                  ),
+                },
+                { key: 'amount', header: 'Amount', sortKey: 'amount', cell: (p) => rowParts(p).amount },
+                {
+                  key: 'status',
+                  header: 'Status',
+                  sortKey: 'status',
+                  cell: (p) => <span className={p.bill_status === 'overdue' ? 'text-warning' : ''}>{rowParts(p).status}</span>,
+                },
+                { key: 'saved', header: 'Saved', sortKey: 'saved', className: 'tabular text-right', cell: (p) => savedText(p) },
+                { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right whitespace-nowrap', cell: (p) => isBill(p) && <RecordBillLink progress={p} /> },
+              ]}
+              phoneRow={(p) => (
+                <>
+                  <div className="flex items-baseline justify-between gap-3">
+                    <span className="min-w-0 break-words">{p.goal.name}</span>
+                    <span className="tabular shrink-0 whitespace-nowrap">{rowParts(p).amount}</span>
+                  </div>
+                  <div className="break-words text-sm text-text-2">
+                    <span className={p.bill_status === 'overdue' ? 'text-warning' : ''}>{rowParts(p).status}</span>
+                    {' · '}
+                    {savedText(p)}
+                  </div>
+                  <div className="text-sm text-text-3">{categoryName(p.goal.category_id)}</div>
+                  {isBill(p) && <RecordBillLink progress={p} />}
+                </>
+              )}
+            />
           )}
         </section>
       </PanelLayout>
