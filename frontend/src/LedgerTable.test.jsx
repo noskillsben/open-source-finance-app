@@ -20,6 +20,26 @@ function table(onSelect) {
   return render(<MemoryRouter><LedgerTable transactions={[T]} names={NAMES} onSelect={onSelect} /></MemoryRouter>)
 }
 
+describe('LedgerTable when names fail or are pending', () => {
+  const render1 = (names) => render(<MemoryRouter><LedgerTable transactions={[T]} names={names} /></MemoryRouter>)
+
+  it('reads in plain words, with no id and no placeholder, when the lists failed to load', () => {
+    const { container } = render1({ failed: { accounts: true, categories: true, payees: true, goals: true, splits: true } })
+    expect(screen.getByText('Split: a split')).toBeInTheDocument()
+    expect(screen.getByText(/pays a bill, due/)).toBeInTheDocument()
+    expect(screen.getByText('a payee')).toBeInTheDocument()
+    expect(screen.getAllByText(/an account:/)).toHaveLength(2)
+    expect(screen.getByText(/a category:/)).toBeInTheDocument()
+    expect(container.querySelector('[aria-busy]')).toBeNull()
+    expect(container.textContent).not.toMatch(/#\d/)
+  })
+
+  it('shows a placeholder for the split and bill while they are still pending', () => {
+    const { container } = render1({})
+    expect(container.querySelectorAll('[aria-busy]')).toHaveLength(2)
+  })
+})
+
 describe('LedgerTable', () => {
   it('names every part of a row, marks archived entities, and notes the split and the bill', () => {
     table()

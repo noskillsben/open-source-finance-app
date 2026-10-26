@@ -9,6 +9,7 @@ import { FormOpenProvider } from './components/SidePanel.jsx'
 // What the mocked backend already holds; a test sets these before rendering.
 let existingTransactions = []
 let existingPayees = []
+let goalsFail = false
 
 const calls = vi.hoisted(() => ({
   create: vi.fn(),
@@ -76,7 +77,7 @@ vi.mock('./api.js', () => ({
       remove: calls.remove,
     },
     goals: {
-      list: () => Promise.resolve([RENT_GOAL]),
+      list: () => (goalsFail ? Promise.reject(new Error('goals down')) : Promise.resolve([RENT_GOAL])),
       dueDates: calls.dueDates,
       lastPayment: calls.lastPayment,
     },
@@ -113,6 +114,7 @@ const dueSelect = () => screen.findByLabelText('Which due date')
 beforeEach(() => {
   existingTransactions = []
   existingPayees = []
+  goalsFail = false
   calls.payeeCreate.mockReset()
   calls.create.mockReset()
   calls.update.mockReset()
@@ -374,6 +376,14 @@ describe('Transactions: the form is a page of its own (#285)', () => {
     expect(await screen.findByText(/Marked as paying/)).toBeInTheDocument()
     expect(screen.getByLabelText('Date')).toBeInTheDocument()
     await waitFor(() => expect(screen.getByLabelText('Category')).toHaveValue('Rent'))
+  })
+
+  it('says "this bill" rather than a placeholder when the bills fail to load', async () => {
+    goalsFail = true
+    renderLedger({ recordBill: { goal_id: 7, goal_due_on: '2026-10-01', category_id: 11, amount_cents: 120000 } })
+    const note = await screen.findByText(/Marked as paying/)
+    await waitFor(() => expect(note).toHaveTextContent('Marked as paying this bill'))
+    expect(note.querySelector('[aria-busy]')).toBeNull()
   })
 
   it("opens from Split expenses' Settle up pre-filled", async () => {
