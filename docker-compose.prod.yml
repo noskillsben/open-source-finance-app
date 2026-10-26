@@ -57,6 +57,9 @@ services:
     build:
       context: ./frontend
       dockerfile: Dockerfile.prod
+      # The Help page is built from docs/user/README.md, so the guide on screen is the deployed version's.
+      additional_contexts:
+        userdocs: ./docs/user
     restart: unless-stopped
     depends_on:
       - backend

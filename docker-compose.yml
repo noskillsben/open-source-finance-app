@@ -33,7 +33,11 @@ services:
       - "8000:8000"
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      # The Help page bundles docs/user/README.md; the image build can see it too.
+      additional_contexts:
+        userdocs: ./docs/user
     restart: unless-stopped
     environment:
       # Source lives on a Windows drive bind-mounted into a Linux container; inotify doesn't cross that boundary.
@@ -44,6 +48,9 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules
+      # The user guide the Help page shows (src/Help.jsx imports ../../docs/user/README.md, which is
+      # /docs/user here); read-only, and editing the file reloads the page.
+      - ./docs/user:/docs/user:ro
     ports:
       - "5173:5173"
 

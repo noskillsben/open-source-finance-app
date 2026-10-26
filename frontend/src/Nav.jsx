@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { NavLink, useLocation } from 'react-router-dom'
 import {
-  Banknote, CalendarClock, Ellipsis, Landmark, Plus, Zap, Receipt, Settings as SettingsIcon, ShieldCheck, Split, Tag, Users, Wallet,
+  Banknote, BookOpen, CalendarClock, Ellipsis, Landmark, Plus, Zap, Receipt, Settings as SettingsIcon, ShieldCheck, Split, Tag, Users, Wallet,
 } from 'lucide-react'
 import { useFormOpen } from './components/SidePanel.jsx'
 
@@ -43,9 +43,14 @@ const SETTINGS = {
   ],
 }
 
+const HELP = {
+  name: 'Help',
+  items: [{ label: 'Help', to: '/help', Icon: BookOpen }],
+}
+
 /** The page title for the phone's top bar: the nav label of the longest matching route. */
 export function titleFor(pathname) {
-  const items = [...GROUPS, SETTINGS].flatMap((g) => g.items)
+  const items = [...GROUPS, SETTINGS, HELP].flatMap((g) => g.items)
   const match = items
     .filter((i) => pathname === i.to || pathname.startsWith(`${i.to}/`))
     .sort((a, b) => b.to.length - a.to.length)[0]
@@ -87,6 +92,7 @@ export function Sidebar() {
         ))}
         <div className="mt-auto">
           <NavGroup group={SETTINGS} />
+          <NavGroup group={HELP} />
         </div>
       </nav>
     </aside>
@@ -108,7 +114,7 @@ export function BottomBar({ onAdd }) {
       {more && (
         <div className="fixed inset-x-0 bottom-bar z-30 max-h-[70dvh] overflow-y-auto rounded-t-xl bg-raised p-4 md:hidden">
           <nav aria-label="More" className="space-y-1" key={pathname}>
-            {[...GROUPS, SETTINGS].map((group) => (
+            {[...GROUPS, SETTINGS, HELP].map((group) => (
               <NavGroup key={group.name} group={group} onNavigate={() => setMore(false)} />
             ))}
           </nav>
