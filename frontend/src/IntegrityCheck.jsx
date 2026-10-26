@@ -49,7 +49,7 @@ export default function IntegrityCheck() {
 
   return (
     <div className="space-y-6 py-4">
-      <h2 className="page-title hidden md:block">Integrity check</h2>
+      <h2 className="page-title hidden md:block">Data check</h2>
 
       <section className="card space-y-2">
         {error && <WarningNote>{error}</WarningNote>}
