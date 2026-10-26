@@ -260,8 +260,15 @@ export default function Categories({ pickerDate }) {
 
   const summaryRequest = useRef(0) // only the newest ready-to-assign response may land
 
+  const listRequest = useRef(0) // only the newest category list may land
+
   function refresh() {
-    api.categories.list(pickerDate, showArchived).then(setCategories).catch((e) => setError(e.message))
+    const listed = ++listRequest.current
+    api.categories.list(pickerDate, showArchived)
+      .then((result) => {
+        if (listed === listRequest.current) setCategories(result)
+      })
+      .catch((e) => setError(e.message))
     api.domains.list(pickerDate).then(setDomains).catch((e) => setError(e.message))
     const request = ++summaryRequest.current
     api.readyToAssign(pickerDate)
@@ -277,6 +284,7 @@ export default function Categories({ pickerDate }) {
   // A new date or archive view starts from "not loaded", so no stale or zero number is shown meanwhile.
   useEffect(() => {
     setSummary(null)
+    setCategories(null)
     refresh()
   }, [pickerDate, showArchived])
 
