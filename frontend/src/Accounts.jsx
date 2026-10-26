@@ -1,7 +1,6 @@
 import { useState } from 'react'
 import Button from './components/Button.jsx'
 import EmptyState from './components/EmptyState.jsx'
-import GroupBy from './components/GroupBy.jsx'
 import ListFilters from './components/ListFilters.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
 import { SaveNote, WarningNote } from './components/Notes.jsx'
@@ -21,7 +20,7 @@ export default function Accounts({ pickerDate }) {
   const data = useAccountsData(pickerDate, showArchived)
   const { accounts, error, payeesAll } = data
   const list = useAccountsList(accounts)
-  const { filters, setFilter, clearFilters, filtersActive, filtered, groupBy, setGroupBy, setCollapsed, groupedRows, hasRows } = list
+  const { filters, setFilter, clearFilters, filtersActive, filtered, groupBy, setGroupBy, effectiveSort, toggleSort, setCollapsed, groupedRows, hasRows } = list
   const panel = useAccountPanel({ pickerDate, data })
   const {
     check, archive, editingId, adding, focusKey, savedNote, highlightId, startAdd, closePanel, editAccount,
@@ -70,6 +69,18 @@ export default function Accounts({ pickerDate }) {
               clearFilters()
               setGroupBy('side')
             }}
+            groupBy={{ value: groupBy, onChange: setGroupBy, options: GROUP_OPTIONS }}
+            {...(hasRows && !filtered
+              ? { onExpandAll: () => setCollapsed([]), onCollapseAll: () => setCollapsed(groupedRows.map((g) => g.key)) }
+              : {})}
+            sort={effectiveSort}
+            onSort={toggleSort}
+            sortOptions={[
+              { key: 'name', label: 'Name' },
+              ...(groupBy !== 'type' ? [{ key: 'type', label: 'Type' }] : []),
+              ...(groupBy !== 'side' ? [{ key: 'side', label: 'Side' }] : []),
+              { key: 'balance', label: 'Balance' },
+            ]}
             facets={[
               { name: 'type', label: 'Type', value: filters.type, onChange: (v) => setFilter('type', v), options: [...ON_BUDGET_TYPES, ...TRACKING_TYPES].map((t) => ({ value: t, label: t })) },
               { name: 'side', label: 'Side', value: filters.side, onChange: (v) => setFilter('side', v), options: [{ value: 'on', label: 'On-budget' }, { value: 'off', label: 'Tracking' }] },
@@ -79,13 +90,6 @@ export default function Accounts({ pickerDate }) {
               <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
               Show archived
             </label>
-            <GroupBy value={groupBy} onChange={setGroupBy} options={GROUP_OPTIONS} />
-            {hasRows && !filtered && (
-              <div className="flex">
-                <Button variant="quiet" onClick={() => setCollapsed([])}>Expand all</Button>
-                <Button variant="quiet" onClick={() => setCollapsed(groupedRows.map((g) => g.key))}>Collapse all</Button>
-              </div>
-            )}
           </ListFilters>
           {!error && !accounts && <LoadingRows />}
           {accounts && accounts.length === 0 && (

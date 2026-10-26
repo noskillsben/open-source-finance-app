@@ -11,6 +11,7 @@ import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
 import { EMPTY_GOAL, GoalFields, goalBody, goalToForm } from './GoalFields.jsx'
 import { goalSaved } from './goalProgress.js'
 import NamePicker from './NamePicker.jsx'
+import ListFilters from './components/ListFilters.jsx'
 import List from './components/List.jsx'
 import { comparator, useSort } from './utils/useSort.js'
 
@@ -148,10 +149,11 @@ export default function DueDates({ pickerDate }) {
   const [categories, setCategories] = useState([])
   const [streams, setStreams] = useState([])
   const [error, setError] = useState(null)
-  const { sort, toggle: toggleSort } = useSort('due-dates.sort', DEFAULT_SORT)
+  const { sort, toggle: toggleSort, reset: resetSort } = useSort('due-dates.sort', DEFAULT_SORT)
   const [kind, setKind] = useState('')
   const [cadence, setCadence] = useState('')
   const [categoryId, setCategoryId] = useState(null)
+  const [clearKey, setClearKey] = useState(0) // remounts the category picker so its box empties on Clear
   const [panel, setPanel] = useState(null) // { step: 'choose' } | { flavour } | { flavour, progress }
 
   function refresh() {
@@ -222,7 +224,21 @@ export default function DueDates({ pickerDate }) {
       <PanelLayout panel={formPanel}>
         <section className="card space-y-3">
           {error && <WarningNote>Could not reach the backend: {error}</WarningNote>}
-          <div className="flex flex-wrap items-end gap-x-4 gap-y-2">
+          <ListFilters
+            noun="due dates"
+            barClassName="items-end"
+            extraCount={(kind !== '' ? 1 : 0) + (cadence !== '' ? 1 : 0) + (categoryId != null ? 1 : 0)}
+            onClear={() => {
+              setKind('')
+              setCadence('')
+              setCategoryId(null)
+              setClearKey((k) => k + 1)
+              resetSort()
+            }}
+            sort={sort}
+            onSort={toggleSort}
+            sortOptions={[{ key: 'name', label: 'Name' }, { key: 'amount', label: 'Amount' }, { key: 'status', label: 'Status' }, { key: 'saved', label: 'Saved' }]}
+          >
             <label className="block space-y-1">
               <span className="field-label">Show</span>
               <select className="field" value={kind} onChange={(e) => setKind(e.target.value)}>
@@ -242,13 +258,15 @@ export default function DueDates({ pickerDate }) {
             </label>
             <div className="w-56">
               <NamePicker
+                key={clearKey}
+                initialId={categoryId}
                 label="Category"
                 placeholder="Any"
                 items={categories}
                 onChange={(id) => setCategoryId(id)}
               />
             </div>
-          </div>
+          </ListFilters>
           {!error && !goals && <LoadingRows />}
           {goals && rows.length === 0 && (
             <EmptyState action={!filtered && <Button variant="secondary" onClick={() => setPanel({ step: 'choose' })}>Add</Button>}>

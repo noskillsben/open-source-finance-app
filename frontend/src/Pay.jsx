@@ -397,6 +397,9 @@ export default function Pay({ pickerDate }) {
             onSearch={(v) => setFilter('search', v)}
             active={filtersActive}
             onClear={clearFilters}
+            sort={sort}
+            onSort={toggleSort}
+            sortOptions={[{ key: 'name', label: 'Name' }, { key: 'next_payday', label: 'Next payday' }]}
             facets={[
               { name: 'cadence', label: 'How often', value: filters.cadence, onChange: (v) => setFilter('cadence', v), options: CADENCES },
             ]}
