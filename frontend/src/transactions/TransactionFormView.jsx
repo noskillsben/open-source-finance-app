@@ -3,7 +3,7 @@ import ChoicePicker from '../components/ChoicePicker.jsx'
 import MoneyInput from '../components/MoneyInput.jsx'
 import { RefusalNote } from '../components/Notes.jsx'
 import PayeePicker from '../PayeePicker.jsx'
-import { BillLinkNote, DeleteConfirm, EnvelopeRows } from './TransactionFormParts.jsx'
+import { BillLinkNote, DeleteConfirm, EnvelopeRows, RefundRows } from './TransactionFormParts.jsx'
 
 // The Record / Edit form, shown in place of the list (DESIGN.md § Visual design → Where forms open).
 export default function TransactionFormView({ form }) {
@@ -15,7 +15,7 @@ export default function TransactionFormView({ form }) {
     splitId, paidById, totalLocked, mePayeeId, chosenSplit, accountBoxes, categoryBoxes, formTitle,
     closeForm, submit, addCategory, openDeleteConfirm, confirmDelete, addPayee, pickPayee, changeAmount, chooseSplit,
     changePaidBy, changeReceipt, updateAccountLine, updateCategoryLine, updateDeposit, addAccountLine, addCategoryLine,
-    removeAccountLine, removeCategoryLine,
+    removeAccountLine, removeCategoryLine, refundOffers, updateRefund,
   } = form
 
   return (
@@ -207,6 +207,10 @@ export default function TransactionFormView({ form }) {
               categories={categories}
               depositTotal={depositTotal}
             />
+          )}
+
+          {refundOffers.length > 0 && (
+            <RefundRows refundOffers={refundOffers} updateRefund={updateRefund} categories={categories} />
           )}
 
           {formError && <RefusalNote>{formError}</RefusalNote>}

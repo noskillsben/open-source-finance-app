@@ -78,23 +78,42 @@ def _write_deposits(session: Session, transaction: Transaction, deposits: list[d
     if not deposits:
         return
     net = _linked_net_cents(session, transaction)
-    if net == 0:
-        raise TransactionError("This transaction doesn't move money into or out of an account with linked categories.")
-    direction = 1 if net > 0 else -1
+    direction = -1 if net < 0 else 1
     linked = {
         category_id
         for line in transaction.account_lines
         for category_id in linked_category_ids(session, line.account_id)
     }
+    # DESIGN.md § Categories -> Pools: a refund (a positive category line) on a category with a
+    # pool may go back up the chain, as a move from that category to a pool in its chain.
+    positive: dict[int, int] = {}
+    for line in transaction.category_lines:
+        if line.cents > 0:
+            positive[line.category_id] = positive.get(line.category_id, 0) + line.cents
     total = 0
+    refunded: dict[int, int] = {}
     for item in deposits:
         if item["cents"] <= 0:
             raise TransactionError("Enter an amount for each envelope.")
-        if item["category_id"] not in linked:
+        other_id = item.get("other_category_id")
+        is_linked = net != 0 and item["category_id"] in linked
+        is_refund = (
+            not is_linked
+            and other_id in positive
+            and session.get(Category, item["category_id"]) is not None
+            and item["category_id"] in {pool.id for pool in pool_chain(session, other_id)}
+        )
+        if not is_linked and not is_refund:
+            if net == 0:
+                raise TransactionError(
+                    "This transaction doesn't move money into or out of an account with linked categories."
+                )
             raise TransactionError("Pick an envelope linked to the account this moves money in or out of.")
-        if item.get("other_category_id") == item["category_id"]:
+        if is_refund and net < 0:
+            raise TransactionError("A refund can't go back to its pool on a transaction that takes money out of a linked account.")
+        if other_id == item["category_id"]:
             raise TransactionError("Pick two different categories.")
-        for category_id in (item["category_id"], item.get("other_category_id")):
+        for category_id in (item["category_id"], other_id):
             if category_id is None:
                 continue
             category = session.get(Category, category_id)
@@ -102,11 +121,20 @@ def _write_deposits(session: Session, transaction: Transaction, deposits: list[d
                 raise TransactionError(f"Unknown category id: {category_id}")
             if category.archived_on is not None and category.archived_on <= transaction.date:
                 raise TransactionError(f"{category.name} was archived on {category.archived_on.isoformat()}.")
-        total += item["cents"]
+        if is_refund:
+            refunded[other_id] = refunded.get(other_id, 0) + item["cents"]
+        else:
+            total += item["cents"]
     if total > abs(net):
         raise TransactionError(
             f"The envelopes add up to {total} cents but the transfer moved {abs(net)} cents. They can't exceed it."
         )
+    for category_id, cents in refunded.items():
+        if cents > positive[category_id]:
+            raise TransactionError(
+                f"{session.get(Category, category_id).name} is refunded {positive[category_id]} cents, "
+                f"so no more than that can go back to its pool; {cents} cents were sent."
+            )
     for item in deposits:
         sides = [(item["category_id"], direction * item["cents"])]
         if item.get("other_category_id") is not None:
@@ -130,7 +158,7 @@ def _items_from_lines(lines: list[EarmarkLine], net: int) -> list[dict]:
     items: list[dict] = []
     pending = None  # a deposit's `other` line, seen before the linked line that ends its item
     for line in lines:
-        if net > 0:
+        if net >= 0:
             if line.cents > 0:
                 items.append({"category_id": line.category_id, "cents": line.cents, "other_category_id": pending})
                 pending = None

@@ -6,6 +6,7 @@ import { monthKey } from '../LedgerTable.jsx'
 import { basisFromSplit, basisFromTransaction, scaleBasis, spreadCents } from '../sharedBill.js'
 import { NEW_AMOUNT, accountSideDerived, deriveLines, emptyCategoryLine, emptyLine, readShape, readable, splitSign } from './formShape.js'
 import { useBillLink } from './useBillLink.js'
+import { useRefundToPool } from './useRefundToPool.js'
 import { useBoundaryFill } from './useBoundaryFill.js'
 import { usePayeeFill } from './usePayeeFill.js'
 import { useSharedBill } from './useSharedBill.js'
@@ -47,6 +48,8 @@ export function useTransactionForm({ pickerDate, data, collapsed, setCollapsed }
   const { deposits, setDeposits, depositsTouched, updateDeposit, billLink, setBillLink, declinedBills, setDeclinedBills,
     linkedNet, offeredBill, offeredGoalId, offeredDue, dueOptions, dueOptionValues, envelopes, depositTotal } =
     useBillLink({ accounts, categories, goals, accountLines, categoryLines, editingId, date })
+  const { refundOffers, updateRefund, setRefundRows, refundTouched, refundItems } =
+    useRefundToPool({ categories, categoryLines, editingId, date })
   const { splitId, setSplitId, paidById, setPaidById, setShareBasis, shareStart, setShareStart, totalLocked, setTotalLocked,
     ownPicks, mePayeeId, chosenSplit, fillShared, chooseSplit, changeReceipt, sharedTotalCents, changePaidBy } =
     useSharedBill({ payees, splitsAll, accountLines, categoryLines, setAccountLines, setCategoryLines, amount, setAmount, setForceAccountBoxes, setForceCategoryBoxes })
@@ -177,6 +180,8 @@ export function useTransactionForm({ pickerDate, data, collapsed, setCollapsed }
     setCategoryLines([])
     setDeposits([])
     depositsTouched.current = false
+    setRefundRows([])
+    refundTouched.current = false
     setBillLink(null)
     setDeclinedBills([])
     setFormError(null)
@@ -202,12 +207,26 @@ export function useTransactionForm({ pickerDate, data, collapsed, setCollapsed }
       t.category_lines.map((l) => ({ category_id: String(l.category_id), cents: String(l.cents / 100), receipt: '' }))
     )
     depositsTouched.current = true // an edit shows what was stored and never re-fills
+    // Stored envelope-step rows split in two: those into a category the transaction's accounts are
+    // linked to, and a refund going back up to a pool (DESIGN.md § Pools).
+    const linkedIds = new Set(
+      t.account_lines.flatMap((l) => accounts?.find((a) => a.id === l.account_id)?.linked_category_ids ?? [])
+    )
+    const stored = t.deposits ?? []
     setDeposits(
-      (t.deposits ?? []).map((d) => ({
-        category_id: String(d.category_id),
-        cents: String(d.cents / 100),
-        other_category_id: d.other_category_id ? String(d.other_category_id) : '',
-      }))
+      stored
+        .filter((d) => linkedIds.has(d.category_id))
+        .map((d) => ({
+          category_id: String(d.category_id),
+          cents: String(d.cents / 100),
+          other_category_id: d.other_category_id ? String(d.other_category_id) : '',
+        }))
+    )
+    refundTouched.current = true
+    setRefundRows(
+      stored
+        .filter((d) => !linkedIds.has(d.category_id))
+        .map((d) => ({ from: d.other_category_id, category_id: String(d.category_id), cents: String(d.cents / 100) }))
     )
     setBillLink(t.goal_id != null ? { goal_id: t.goal_id, goal_due_on: t.goal_due_on } : null)
     setDeclinedBills([])
@@ -329,6 +348,9 @@ export function useTransactionForm({ pickerDate, data, collapsed, setCollapsed }
       }
     }
 
+    const refund = refundItems()
+    if (refund.error) return setFormError(refund.error)
+
     if (splitId && paidById == null) return setFormError('Choose who paid.')
 
     const body = {
@@ -342,7 +364,7 @@ export function useTransactionForm({ pickerDate, data, collapsed, setCollapsed }
       shared_total_cents: sharedTotalCents(),
       account_lines: parsedAccountLines,
       category_lines: parsedCategoryLines,
-      deposits: parsedDeposits,
+      deposits: [...parsedDeposits, ...refund.items],
     }
 
     try {
@@ -383,6 +405,6 @@ export function useTransactionForm({ pickerDate, data, collapsed, setCollapsed }
     openAdd, editTransaction, closeForm, submit, addCategory, openDeleteConfirm, confirmDelete,
     addPayee, pickPayee, changeAmount, chooseSplit, changePaidBy, changeReceipt,
     updateAccountLine, updateCategoryLine, updateDeposit, addAccountLine, addCategoryLine, removeAccountLine, removeCategoryLine,
-    setDeposits, depositsTouched,
+    setDeposits, depositsTouched, refundOffers, updateRefund,
   }
 }
