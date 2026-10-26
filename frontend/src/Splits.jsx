@@ -298,6 +298,7 @@ export default function Splits({ pickerDate }) {
                             member={m}
                             balance={balances[m.account_id]}
                             names={names}
+                            ledger={ledger}
                             onSettle={() => settleUp(m, balances[m.account_id])}
                           />
                         )}
@@ -316,7 +317,7 @@ export default function Splits({ pickerDate }) {
 }
 
 // What a member owes, a Settle up button, and the transactions since the balance last stood at zero.
-function MemberBalance({ member, balance, names, onSettle }) {
+function MemberBalance({ member, balance, names, ledger, onSettle }) {
   const cents = balance.balance_cents
   const text =
     cents > 0 ? `${member.payee_name} owes you ${formatCents(cents)}`
