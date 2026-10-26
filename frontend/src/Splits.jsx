@@ -39,7 +39,7 @@ export default function Splits({ pickerDate }) {
   // The whole ledger, only so the table can tell an opening balance from a balance check.
   const [ledger, setLedger] = useState(undefined)
   useEffect(() => {
-    api.transactions.list().then(setLedger).catch(() => setLedger(undefined))
+    api.transactions.list().then(setLedger).catch((e) => setError(`Could not load the ledger, so balance adjustments are labelled only as adjustments: ${e.message}`))
   }, [])
   // Each member account's balance and what built it, by account id: a person in two splits shows
   // the same balance under each (DESIGN.md § Splits).

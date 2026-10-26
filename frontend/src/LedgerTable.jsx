@@ -100,12 +100,16 @@ export function adjustmentLabels(transactions) {
 /** The Ledger's list of transactions (DESIGN.md § Transactions): a table on a desktop, two-line rows on a
  * phone (DESIGN.md § Lists on a phone). Without `onSelect` it is read-only: no row click, no pointer -
  * the Splits page shows it this way. `allTransactions` is the whole ledger, for telling an opening
- * balance from a balance check when `transactions` is a filtered part of it. */
+ * balance from a balance check when `transactions` is a part of it; without it an adjustment reads "Balance adjustment". */
 export default function LedgerTable({ transactions, allTransactions, names, onSelect, selectedId, byMonth }) {
   // With an account filter on, the Account lines column and the month totals count only that account.
   const accountId = byMonth?.accountId ?? null
   const { accounts, categories, payees, goals, splits, failed = {} } = names
-  const adjustments = adjustmentLabels(allTransactions ?? transactions)
+  // Never judged from a partial list: until the whole ledger is given, an adjustment has a neutral name.
+  const adjustmentKinds = allTransactions ? adjustmentLabels(allTransactions) : null
+  const adjustments = {
+    get: (id) => adjustmentKinds?.get(id) ?? (transactions.find((t) => t.id === id)?.valuation_id != null ? 'Balance adjustment' : undefined),
+  }
   function splitLabel(id) {
     const match = splits?.find((s) => s.id === id)
     if (!match) return splits || failed.splits ? 'a split' : <Pending />

@@ -89,6 +89,30 @@ describe('the Split expenses page', () => {
     for (const key of Object.keys(balances)) delete balances[key]
   })
 
+  const CHECK = {
+    id: 41, date: '2026-10-02', memo: null, payee_id: null, valuation_id: 12, income_stream_id: null, goal_id: null, split_id: null,
+    account_lines: [{ id: 2, account_id: 3, cents: 700 }], category_lines: [],
+  }
+
+  it('names an adjustment only as a Balance adjustment while the ledger is still loading', async () => {
+    balances.splits = household()
+    balances[3] = { account_id: 3, balance_cents: 700, transactions: [CHECK] }
+    transactionsList.mockReturnValue(new Promise(() => {}))
+    renderSplits()
+    expect((await screen.findAllByText('Balance adjustment')).length).toBeGreaterThan(0)
+    expect(screen.queryByText('Opening balance')).toBeNull()
+  })
+
+  it('says so in plain words when the ledger will not load, and never reads Opening balance', async () => {
+    balances.splits = household()
+    balances[3] = { account_id: 3, balance_cents: 700, transactions: [CHECK] }
+    transactionsList.mockRejectedValue(new Error('down'))
+    renderSplits()
+    expect(await screen.findByText(/Could not load the ledger.*down/)).toBeInTheDocument()
+    expect(screen.getAllByText('Balance adjustment').length).toBeGreaterThan(0)
+    expect(screen.queryByText('Opening balance')).toBeNull()
+  })
+
   it('shows what a person owes, the transactions that built it, and the same balance under each split', async () => {
     balances.splits = household()
     balances[3] = { account_id: 3, balance_cents: 5000, transactions: [HEAT] }

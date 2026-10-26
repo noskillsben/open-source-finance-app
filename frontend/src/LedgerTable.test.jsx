@@ -105,7 +105,7 @@ describe('LedgerTable adjustments and the phone list', () => {
     category_lines: [],
   })
   const ledger = [adj(1, 11), adj(2, 12)]
-  const renderLedger = (list = ledger) => render(<MemoryRouter><LedgerTable transactions={list} names={NAMES} /></MemoryRouter>)
+  const renderLedger = (list = ledger) => render(<MemoryRouter><LedgerTable transactions={list} allTransactions={list} names={NAMES} /></MemoryRouter>)
 
   afterEach(() => { delete window.matchMedia })
 
@@ -121,6 +121,13 @@ describe('LedgerTable adjustments and the phone list', () => {
     setWidth(true)
     render(<MemoryRouter><LedgerTable transactions={[ledger[1]]} allTransactions={ledger} names={NAMES} /></MemoryRouter>)
     expect(screen.getByText('Balance check')).toBeInTheDocument()
+    expect(screen.queryByText('Opening balance')).toBeNull()
+  })
+
+  it('never labels from a partial list: without the whole ledger an adjustment is a Balance adjustment', () => {
+    setWidth(true)
+    render(<MemoryRouter><LedgerTable transactions={[ledger[1]]} names={NAMES} /></MemoryRouter>)
+    expect(screen.getByText('Balance adjustment')).toBeInTheDocument()
     expect(screen.queryByText('Opening balance')).toBeNull()
   })
 
