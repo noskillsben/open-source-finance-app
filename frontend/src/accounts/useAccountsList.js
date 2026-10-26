@@ -77,10 +77,9 @@ export function useAccountsList(accounts) {
   // A search or filter opens every group holding a match, so a collapsed group never hides a hit.
   const isOpen = (key) => filtered || !collapsed.includes(key)
   const hasRows = groupedRows.length > 0
-  const colCount = 4
 
   return {
     filters, setFilter, clearFilters, filtersActive, filtered, toggleSort, effectiveSort, groupBy, setGroupBy,
-    setCollapsed, toggleGroup, isOpen, groupedRows, hasRows, colCount,
+    setCollapsed, toggleGroup, isOpen, groupedRows, hasRows,
   }
 }

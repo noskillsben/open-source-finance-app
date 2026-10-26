@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 import { api } from './api.js'
@@ -8,7 +8,7 @@ import { GoalRow as GoalRowShell } from './components/ListRow.jsx'
 import RecordBillLink from './components/RecordBillLink.jsx'
 import { EMPTY_GOAL, GOAL_KINDS, GoalFields, goalBody, goalToForm } from './GoalFields.jsx'
 import ListFilters from './components/ListFilters.jsx'
-import SortHeader from './components/SortHeader.jsx'
+import List from './components/List.jsx'
 import { NEED_LEVELS } from './utils/order.js'
 import { comparator } from './utils/useSort.js'
 import { useFilters } from './utils/useFilters.js'
@@ -206,7 +206,7 @@ function GoalRow({ progress, depth, archived, streams, onSelect, selected }) {
       )}
     </>
   )
-  return <GoalRowShell depth={depth} colSpan={5} name={goal.name} status={status} onSelect={onSelect} selected={selected} />
+  return <GoalRowShell depth={depth} name={goal.name} status={status} onSelect={onSelect} selected={selected} />
 }
 
 const EMPTY_FORM = { name: '', needLevel: '', parent: {}, pool: {}, domain: {}, absorb: false }
@@ -619,6 +619,84 @@ export default function Categories({ pickerDate }) {
     </SidePanel>
   )
 
+  const shownCents = (row) => (row.isParent ? row.total : available(row.category.id))
+  const poolNote = (c) =>
+    (poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
+      <div className="text-sm text-text-3">
+        +{formatCents(poolAvailable(c.id))} available if overspent
+        {poolAbsorber(c.id) && `, then ${poolAbsorber(c.id)} absorbs the rest`}
+      </div>
+    )
+  function nameCell(row, notes = true) {
+    if (row.itself) {
+      return <div className="text-text-2" style={{ paddingLeft: `${row.depth * 1.25 + 1.5}rem` }}>{row.itself.name} itself</div>
+    }
+    const { category: c, depth, isParent, expanded } = row
+    const Chevron = expanded ? ChevronDown : ChevronRight
+    return (
+      <div style={{ paddingLeft: `${depth * 1.25 + (isParent ? 0 : 1.5)}rem` }}>
+        <div className="flex items-center gap-1">
+          {isParent && (
+            <button
+              type="button"
+              aria-label={`${expanded ? 'Collapse' : 'Expand'} ${c.name}`}
+              aria-expanded={expanded}
+              className="btn btn-quiet px-0 text-text-2"
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleGroup(c.id)
+              }}
+            >
+              <Chevron aria-hidden="true" size={20} />
+            </button>
+          )}
+          {isParent ? (
+            <span
+              onClick={(e) => {
+                e.stopPropagation()
+                toggleGroup(c.id)
+              }}
+            >
+              {c.name}
+            </span>
+          ) : (
+            c.name
+          )}
+        </div>
+        {notes && c.linked_accounts.length > 0 && (
+          <div className="text-sm text-text-3">
+            money is in {c.linked_accounts.map((a) => a.name).join(' and ')}
+          </div>
+        )}
+        {notes && c.archived_on && <div className="text-sm text-text-3">archived {formatDate(c.archived_on)}</div>}
+      </div>
+    )
+  }
+  function availableCell(row) {
+    if (row.itself) return <span className={`tabular ${row.cents < 0 ? 'text-negative' : ''}`}>{formatCents(row.cents)}</span>
+    const c = row.category
+    const shown = shownCents(row)
+    return (
+      <span className={`tabular ${shown < 0 ? 'text-negative' : ''}`}>
+        {formatCents(shown)}
+        {poolNote(c)}
+      </span>
+    )
+  }
+  const moveMoneyCell = (row) =>
+    !row.itself &&
+    !row.category.archived_on && (
+      <Button
+        variant="secondary"
+        onClick={(e) => {
+          e.stopPropagation()
+          startEdit(row.category)
+        }}
+      >
+        Move money
+      </Button>
+    )
+
   return (
     <div className="space-y-6 py-4">
       <div className="flex items-center justify-between gap-3">
@@ -681,129 +759,69 @@ export default function Categories({ pickerDate }) {
             <p className="text-text-2">No categories match these filters.</p>
           )}
           {rows.length > 0 && (
-            <div className="overflow-x-auto">
-              <table className="w-full">
-                <thead>
-                  <tr>
-                    <SortHeader label="Name" sortKey="name" sort={sort} onSort={toggleSort} />
-                    <th>Domain</th>
-                    <SortHeader label="Need level" sortKey="need" sort={sort} onSort={toggleSort} />
-                    <SortHeader label="Available" sortKey="available" sort={sort} onSort={toggleSort} className="text-right" />
-                    <th><span className="sr-only">Actions</span></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((row) => {
-                    if (row.itself) {
-                      const c = row.itself
-                      return (
-                        <tr
-                          key={`${c.id}-itself`}
-                          className={`cursor-pointer text-text-2 ${editing?.id === c.id ? 'bg-raised' : ''}`}
-                          onClick={() => startEdit(c)}
-                        >
-                          <td className="py-1" style={{ paddingLeft: `${row.depth * 1.25 + 1.5}rem` }}>{c.name} itself</td>
-                          <td></td>
-                          <td></td>
-                          <td className={`tabular py-1 text-right ${row.cents < 0 ? 'text-negative' : ''}`}>{formatCents(row.cents)}</td>
-                          <td></td>
-                        </tr>
-                      )
-                    }
-                    const { category: c, depth, isParent, expanded, total } = row
-                    const shown = isParent ? total : available(c.id)
-                    const Chevron = expanded ? ChevronDown : ChevronRight
-                    return (
-                      <Fragment key={c.id}>
-                        <tr
-                          className={`cursor-pointer ${editing?.id === c.id || highlightId === c.id ? 'bg-raised' : ''}`}
-                          tabIndex={0}
-                          onClick={() => startEdit(c)}
-                          onKeyDown={(e) => {
-                            if (e.target === e.currentTarget && e.key === 'Enter') startEdit(c)
-                          }}
-                        >
-                          <td className="py-1" style={{ paddingLeft: `${depth * 1.25 + (isParent ? 0 : 1.5)}rem` }}>
-                            <div className="flex items-center gap-1">
-                              {isParent && (
-                                <button
-                                  type="button"
-                                  aria-label={`${expanded ? 'Collapse' : 'Expand'} ${c.name}`}
-                                  aria-expanded={expanded}
-                                  className="btn btn-quiet px-0 text-text-2"
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleGroup(c.id)
-                                  }}
-                                >
-                                  <Chevron aria-hidden="true" size={20} />
-                                </button>
-                              )}
-                              {isParent ? (
-                                <span
-                                  onClick={(e) => {
-                                    e.stopPropagation()
-                                    toggleGroup(c.id)
-                                  }}
-                                >
-                                  {c.name}
-                                </span>
-                              ) : (
-                                c.name
-                              )}
-                            </div>
-                            {c.linked_accounts.length > 0 && (
-                              <div className="text-sm text-text-3">
-                                money is in {c.linked_accounts.map((a) => a.name).join(' and ')}
-                              </div>
-                            )}
-                            {c.archived_on && (
-                              <div className="text-sm text-text-3">archived {formatDate(c.archived_on)}</div>
-                            )}
-                          </td>
-                          <td className="py-1">{domainName(c.domain_id) ?? ''}</td>
-                          <td className="py-1">{needLabel(c.need_level) ?? ''}</td>
-                          <td className={`tabular py-1 text-right ${shown < 0 ? 'text-negative' : ''}`}>
-                            {formatCents(shown)}
-                            {(poolAvailable(c.id) > 0 || poolAbsorber(c.id)) && (
-                              <div className="text-sm text-text-3">
-                                +{formatCents(poolAvailable(c.id))} available if overspent
-                                {poolAbsorber(c.id) && `, then ${poolAbsorber(c.id)} absorbs the rest`}
-                              </div>
-                            )}
-                          </td>
-                          <td className="py-1 text-right whitespace-nowrap">
-                            {/* On a phone the row has no visible control: tapping it opens the form. */}
-                            {!c.archived_on && (
-                              <Button
-                                variant="secondary"
-                                className="hidden md:inline-flex"
-                                onClick={(e) => {
-                                  e.stopPropagation()
-                                  startEdit(c)
-                                }}
-                              >
-                                Move money
-                              </Button>
-                            )}
-                          </td>
-                        </tr>
-                        {goalOf(c.id) && (
-                          <GoalRow
-                            progress={goalOf(c.id)}
-                            depth={depth}
-                            archived={!!c.archived_on}
-                            streams={streams}
-                            selected={editing?.id === c.id || highlightId === c.id}
-                            onSelect={() => startEdit(c)}
-                          />
-                        )}
-                      </Fragment>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
+            <List
+              rows={rows}
+              rowId={(row) => (row.itself ? `${row.itself.id}-itself` : row.category.id)}
+              onSelect={(row) => startEdit(row.itself ?? row.category)}
+              selectedId={editing?.id ?? highlightId}
+              columns={[
+                { key: 'name', header: 'Name', sortKey: 'name', cell: nameCell },
+                { key: 'domain', header: 'Domain', cell: (row) => (row.itself ? '' : domainName(row.category.domain_id) ?? '') },
+                { key: 'need', header: 'Need level', sortKey: 'need', cell: (row) => (row.itself ? '' : needLabel(row.category.need_level) ?? '') },
+                { key: 'available', header: 'Available', sortKey: 'available', className: 'text-right', cell: availableCell },
+                { key: 'actions', header: <span className="sr-only">Actions</span>, className: 'text-right whitespace-nowrap', cell: moveMoneyCell },
+              ]}
+              phoneRow={(row) => {
+                if (row.itself) {
+                  return (
+                    <div className="flex items-baseline justify-between gap-3 text-text-2">
+                      <span className="min-w-0 break-words" style={{ paddingLeft: `${row.depth * 1.25 + 1.5}rem` }}>{row.itself.name} itself</span>
+                      <span className={`tabular shrink-0 whitespace-nowrap ${row.cents < 0 ? 'text-negative' : ''}`}>{formatCents(row.cents)}</span>
+                    </div>
+                  )
+                }
+                const c = row.category
+                const detail = [domainName(c.domain_id), needLabel(c.need_level)].filter(Boolean).join(' · ')
+                return (
+                  <>
+                    <div className="flex items-baseline justify-between gap-3">
+                      <span className="min-w-0 break-words">{nameCell(row, false)}</span>
+                      <span className={`tabular shrink-0 whitespace-nowrap ${shownCents(row) < 0 ? 'text-negative' : ''}`}>{formatCents(shownCents(row))}</span>
+                    </div>
+                    <div className="break-words text-sm text-text-2" style={{ paddingLeft: `${row.depth * 1.25 + (row.isParent ? 0 : 1.5)}rem` }}>
+                      {detail || ' '}
+                    </div>
+                    {c.linked_accounts.length > 0 && (
+                      <div className="text-sm text-text-3">money is in {c.linked_accounts.map((a) => a.name).join(' and ')}</div>
+                    )}
+                    {c.archived_on && <div className="text-sm text-text-3">archived {formatDate(c.archived_on)}</div>}
+                    {poolNote(c)}
+                  </>
+                )
+              }}
+              rowProps={(row) => ({
+                tabIndex: 0,
+                onKeyDown: (e) => {
+                  if (e.target === e.currentTarget && e.key === 'Enter') startEdit(row.itself ?? row.category)
+                },
+              })}
+              after={(row) => {
+                if (row.itself || !goalOf(row.category.id)) return null
+                const c = row.category
+                return (
+                  <GoalRow
+                    progress={goalOf(c.id)}
+                    depth={row.depth}
+                    archived={!!c.archived_on}
+                    streams={streams}
+                    selected={editing?.id === c.id || highlightId === c.id}
+                    onSelect={() => startEdit(c)}
+                  />
+                )
+              }}
+              sort={sort}
+              onSort={toggleSort}
+            />
           )}
         </section>
       </PanelLayout>

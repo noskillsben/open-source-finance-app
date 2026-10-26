@@ -13,22 +13,32 @@ import SortHeader from './SortHeader.jsx'
 //   groups    [{ key, label, total, rows }] with `isOpen(key)` / `onToggle(key)`; `totalColumn` is
 //             the desktop column index the group total sits in.
 //   onSelect  makes rows tappable; without it the list is read-only.
+//   column.className  extra classes for the column's header and cells (text-right for money).
+//   rowProps  (row) => attributes for the row (tabIndex, onKeyDown), on both widths.
+//   before / after  (row) => node drawn as its own full-width line above / below the row (a goal
+//             under its category, a "Locked to" caption); null for none.
 export default function List({
   columns, phoneRow, rows, groups, isOpen, onToggle, totalColumn = 0, rowId, onSelect, selectedId, sort, onSort,
+  rowProps, before, after,
 }) {
   const desktop = useIsDesktop()
   const rowClass = (row) =>
     `${onSelect ? 'cursor-pointer hover:bg-raised' : ''} ${selectedId === rowId(row) ? 'bg-raised' : ''}`.trim()
 
   if (!desktop) {
+    const line = (node, key) => node && <li key={key} className="px-2 pb-1">{node}</li>
     const phone = (row) => (
-      <li
-        key={rowId(row)}
-        className={`border-t border-line px-2 py-2 ${rowClass(row)}`.trim()}
-        onClick={onSelect ? () => onSelect(row) : undefined}
-      >
-        {phoneRow(row)}
-      </li>
+      <Fragment key={rowId(row)}>
+        {line(before?.(row), `${rowId(row)}-before`)}
+        <li
+          className={`border-t border-line px-2 py-2 ${rowClass(row)}`.trim()}
+          onClick={onSelect ? () => onSelect(row) : undefined}
+          {...rowProps?.(row)}
+        >
+          {phoneRow(row)}
+        </li>
+        {line(after?.(row), `${rowId(row)}-after`)}
+      </Fragment>
     )
     return (
       <ul>
@@ -59,12 +69,22 @@ export default function List({
     )
   }
 
+  const fullLine = (node, key) =>
+    node && (
+      <tr key={key}>
+        <td colSpan={columns.length} className="pb-1">{node}</td>
+      </tr>
+    )
   const desktopRow = (row) => (
-    <tr key={rowId(row)} className={rowClass(row) || undefined} onClick={onSelect ? () => onSelect(row) : undefined}>
-      {columns.map((c) => (
-        <td key={c.key} className="py-1 align-top">{c.cell(row)}</td>
-      ))}
-    </tr>
+    <Fragment key={rowId(row)}>
+      {fullLine(before?.(row), `${rowId(row)}-before`)}
+      <tr className={rowClass(row) || undefined} onClick={onSelect ? () => onSelect(row) : undefined} {...rowProps?.(row)}>
+        {columns.map((c) => (
+          <td key={c.key} className={`py-1 align-top ${c.className ?? ''}`.trim()}>{c.cell(row)}</td>
+        ))}
+      </tr>
+      {fullLine(after?.(row), `${rowId(row)}-after`)}
+    </Fragment>
   )
   return (
     <table className="w-full">
@@ -72,9 +92,9 @@ export default function List({
         <tr className="text-left text-text-2">
           {columns.map((c) =>
             c.sortKey && sort ? (
-              <SortHeader key={c.key} label={c.header} sortKey={c.sortKey} sort={sort} onSort={onSort} className="pb-1" />
+              <SortHeader key={c.key} label={c.header} sortKey={c.sortKey} sort={sort} onSort={onSort} className={`pb-1 ${c.className ?? ''}`.trim()} />
             ) : (
-              <th key={c.key} className="pb-1">{c.header}</th>
+              <th key={c.key} className={`pb-1 ${c.className ?? ''}`.trim()}>{c.header}</th>
             ),
           )}
         </tr>
