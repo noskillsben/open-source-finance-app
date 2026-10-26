@@ -9,10 +9,12 @@ import { compareValues } from './utils/useSort.js'
 // Ledger name lookups: resolve from the "all" (archived-included) lists so a row that names an
 // archived entity still shows its name, marked "(archived)", instead of falling back to `#id`
 // (DESIGN.md § General concepts).
-function entityLabel(list, id, fallback) {
+// A list that failed to load is flagged in `names.failed` (by key); its labels then read in plain
+// words (`plain`, e.g. "an account") instead of a placeholder or an id.
+function entityLabel(list, id, fallback, failed, plain) {
   if (id == null) return null
   const match = list?.find((e) => e.id === id)
-  if (!match) return fallback
+  if (!match) return failed ? plain : fallback
   return match.archived_on ? `${match.name} (archived)` : match.name
 }
 
@@ -20,7 +22,10 @@ function entityLabel(list, id, fallback) {
 export function useLedgerNames(pickerDate) {
   const [names, setNames] = useState({})
   useEffect(() => {
-    const load = (key, request) => request.then((list) => setNames((n) => ({ ...n, [key]: list }))).catch(() => {})
+    const load = (key, request) =>
+      request
+        .then((list) => setNames((n) => ({ ...n, [key]: list })))
+        .catch(() => setNames((n) => ({ ...n, failed: { ...n.failed, [key]: true } })))
     load('accounts', api.accounts.list(undefined, true))
     load('categories', api.categories.list(undefined, true))
     load('payees', api.payees.list(undefined, true))
@@ -77,15 +82,15 @@ export function groupByMonth(transactions, sort, payeeName, accountId = null) {
 export default function LedgerTable({ transactions, names, onSelect, selectedId, byMonth }) {
   // With an account filter on, the Account lines column and the month totals count only that account.
   const accountId = byMonth?.accountId ?? null
-  const { accounts, categories, payees, goals, splits } = names
+  const { accounts, categories, payees, goals, splits, failed = {} } = names
   function splitLabel(id) {
     const match = splits?.find((s) => s.id === id)
-    if (!match) return splits ? 'a split' : <Pending />
+    if (!match) return splits || failed.splits ? 'a split' : <Pending />
     return match.archived_on ? `${match.name} (archived)` : match.name
   }
   function billLabel(goalId) {
     const match = goals?.find((g) => g.goal.id === goalId)
-    if (!match) return goals ? 'a bill' : <Pending />
+    if (!match) return goals || failed.goals ? 'a bill' : <Pending />
     return match.goal.archived_on ? `${match.goal.name} (archived)` : match.goal.name
   }
 
@@ -111,12 +116,12 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId,
             </td>
             <td className="py-1 align-top">{t.memo || '—'}</td>
             <td className="py-1 align-top">
-              {t.payee_id != null ? entityLabel(payees, t.payee_id, `#${t.payee_id}`) : '—'}
+              {t.payee_id != null ? entityLabel(payees, t.payee_id, `#${t.payee_id}`, failed.payees, 'a payee') : '—'}
             </td>
             <td className="py-1 align-top">
               {t.account_lines.filter((l) => accountId == null || l.account_id === accountId).map((l) => (
                 <div key={l.id}>
-                  {entityLabel(accounts, l.account_id, `#${l.account_id}`)}: <Amount cents={l.cents} />
+                  {entityLabel(accounts, l.account_id, `#${l.account_id}`, failed.accounts, 'an account')}: <Amount cents={l.cents} />
                 </div>
               ))}
             </td>
@@ -128,7 +133,7 @@ export default function LedgerTable({ transactions, names, onSelect, selectedId,
               )}
               {t.category_lines.map((l) => (
                 <div key={l.id}>
-                  {entityLabel(categories, l.category_id, `#${l.category_id}`)}: <Amount cents={l.cents} />
+                  {entityLabel(categories, l.category_id, `#${l.category_id}`, failed.categories, 'a category')}: <Amount cents={l.cents} />
                 </div>
               ))}
               {t.split_id != null && (

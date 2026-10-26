@@ -117,6 +117,8 @@ export default function Transactions({ pickerDate }) {
   const [payees, setPayees] = useState(null)
   const [transactions, setTransactions] = useState(null)
   const [goals, setGoals] = useState(null)
+  const [goalsFailed, setGoalsFailed] = useState(false)
+  const [namesFailed, setNamesFailed] = useState({}) // which ledger name lists failed to load
   const [error, setError] = useState(null)
   // Ledger rows can name an archived entity (DESIGN.md § General concepts): these "all" lists
   // include archived rows and feed only the ledger table's name lookups, never the form pickers.
@@ -206,12 +208,30 @@ export default function Transactions({ pickerDate }) {
     api.categories.list(pickerDate).then(setCategories).catch((e) => setError(e.message))
     api.payees.list(pickerDate).then(setPayees).catch((e) => setError(e.message))
     api.transactions.list().then(setTransactions).catch((e) => setError(e.message))
-    api.goals.list(pickerDate).then(setGoals).catch((e) => setError(e.message))
-    api.accounts.list(undefined, true).then(setAccountsAll).catch((e) => setError(e.message))
-    api.categories.list(undefined, true).then(setCategoriesAll).catch((e) => setError(e.message))
-    api.payees.list(undefined, true).then(setPayeesAll).catch((e) => setError(e.message))
-    api.goals.list(pickerDate, true, true).then(setGoalsAll).catch((e) => setError(e.message))
-    api.splits.list(undefined, true).then(setSplitsAll).catch((e) => setError(e.message))
+    api.goals.list(pickerDate).then(setGoals).catch((e) => {
+      setGoalsFailed(true)
+      setError(e.message)
+    })
+    api.accounts.list(undefined, true).then(setAccountsAll).catch((e) => {
+      setNamesFailed((f) => ({ ...f, accounts: true }))
+      setError(e.message)
+    })
+    api.categories.list(undefined, true).then(setCategoriesAll).catch((e) => {
+      setNamesFailed((f) => ({ ...f, categories: true }))
+      setError(e.message)
+    })
+    api.payees.list(undefined, true).then(setPayeesAll).catch((e) => {
+      setNamesFailed((f) => ({ ...f, payees: true }))
+      setError(e.message)
+    })
+    api.goals.list(pickerDate, true, true).then(setGoalsAll).catch((e) => {
+      setNamesFailed((f) => ({ ...f, goals: true }))
+      setError(e.message)
+    })
+    api.splits.list(undefined, true).then(setSplitsAll).catch((e) => {
+      setNamesFailed((f) => ({ ...f, splits: true }))
+      setError(e.message)
+    })
     api.domains.list(undefined, true).then(setDomainsAll).catch((e) => setError(e.message))
   }
 
@@ -906,7 +926,7 @@ export default function Transactions({ pickerDate }) {
             <div className="overflow-x-auto">
               <LedgerTable
                 transactions={shown}
-                names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll }}
+                names={{ accounts: accountsAll, categories: categoriesAll, payees: payeesAll, goals: goalsAll, splits: splitsAll, failed: namesFailed }}
                 onSelect={editTransaction}
                 selectedId={highlightId}
                 byMonth={{
@@ -1097,7 +1117,7 @@ export default function Transactions({ pickerDate }) {
                 {billLink ? 'Marked as paying ' : 'This pays '}
                 {offeredBill ? (
                   <strong>{offeredBill.goal.name}</strong>
-                ) : goals === null ? (
+                ) : goals === null && !goalsFailed ? (
                   <span aria-busy="true" className="inline-block h-4 w-28 animate-pulse rounded bg-raised align-middle" />
                 ) : (
                   <strong>this bill</strong>
