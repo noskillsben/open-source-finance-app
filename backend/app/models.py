@@ -33,9 +33,12 @@ class Account(Base, Owned, NonLedger):
     # The date the opening balance was first stated (DESIGN.md § Opening balance and
     # backfilling history). Set once at creation and never moved: `created_on` and the opening
     # valuation's date slide back on a backfill, this doesn't. A line dated before it is netted
-    # into the opening; a line on or after it is plain activity.
-    opening_stated_on: Mapped[date] = mapped_column(
-        Date, nullable=False, default=lambda ctx: ctx.get_current_parameters()["created_on"]
+    # into the opening; a line on or after it is plain activity. Null means the app made the
+    # opening up (a split member's $0 receivable): nobody stated it, so nothing is ever netted
+    # and an earlier row moves the start back instead (DESIGN.md � An opening the app made up
+    # is not a stated balance).
+    opening_stated_on: Mapped[date | None] = mapped_column(
+        Date, nullable=True, default=lambda ctx: ctx.get_current_parameters()["created_on"]
     )
     # Payee-locked accounts (DESIGN.md § Payee-locked accounts): spending from this account
     # pre-fills this payee and warns on any other. Null means not locked.

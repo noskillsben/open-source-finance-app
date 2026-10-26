@@ -4,7 +4,7 @@
 import calendar
 from datetime import date, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import func, null, select
 from sqlalchemy.orm import Session
 
 from app.models import Account, AccountLine, Transaction, Valuation
@@ -170,7 +170,8 @@ def backfill_opening_balance(
     `account.opening_stated_on` — the date the balance was first stated, which never moves —
     whether it is fresh or was already netted, so backfilled transactions can be entered in any
     order and today's balance never changes. A line dated on or after that date is ordinary
-    activity and never touches the opening.
+    activity and never touches the opening. An account with no stated day never nets: a line
+    dated before its start only moves the start and the opening back.
 
     `old_line_cents`/`old_line_netted` are this account's previous lines' cents and stored
     flag, for the edit and delete paths — the caller must capture them before clearing the
@@ -182,10 +183,13 @@ def backfill_opening_balance(
     if opening_transaction is None or opening_transaction.id == exclude_transaction_id:
         return False
 
-    new_netted = txn_date < account.opening_stated_on
+    # No stated day (an opening the app made up): nothing is ever netted, but an earlier row
+    # still moves the start and the $0 opening back to its date and counts as ordinary activity.
+    stated_on = account.opening_stated_on
+    new_netted = stated_on is not None and txn_date < stated_on
     delta = (new_line_cents if new_netted else 0) - (old_line_cents if old_line_netted else 0)
 
-    if new_netted and txn_date < opening_transaction.date:
+    if (new_netted or stated_on is None) and txn_date < opening_transaction.date:
         account.created_on = txn_date
         opening_transaction.date = txn_date
         opening_transaction.valuation.date = txn_date
@@ -206,6 +210,7 @@ def create_account_with_opening_valuation(
     on_budget: bool,
     on_budget_floor_cents: int,
     opening_balance_cents: int,
+    opening_stated: bool = True,
     **terms: object,
 ) -> Account:
     """Write the account, its opening valuation and the opening adjustment transaction
@@ -221,6 +226,8 @@ def create_account_with_opening_valuation(
         on_budget_floor_cents=on_budget_floor_cents,
         **terms,
     )
+    if not opening_stated:
+        account.opening_stated_on = null()  # SQL NULL, not the column default; see backfill_opening_balance
     session.add(account)
     session.flush()  # assigns account.id for the valuation's FK
 

@@ -9,7 +9,7 @@ import { formatCents, formatDate } from './utils/format.js'
 const KIND_LABELS = {
   invariant: "Category lines don't add up",
   settings_drift: 'Would compute differently under today\'s settings',
-  not_netted: "Dated before the account's opening but not absorbed into it",
+  netting: "Opening balance netting is wrong: a row before the opening that was not absorbed, or absorbed into an opening nobody stated",
 }
 
 function issueLabel(f) {

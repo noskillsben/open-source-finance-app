@@ -731,3 +731,55 @@ def test_the_picker_date_decides_whether_the_balance_is_above_zero(db_session):
     db_session.flush()
     assert _balance(db_session, account, datetime.date(2026, 3, 5))["unheld"] is False
     assert _balance(db_session, account, later)["unheld"] is True
+
+
+# --- #434: an opening the app made up is not a stated balance ----------------------------
+
+def _write_on(db_session, account, on, cents):
+    from app.services.transactions import write_transaction
+
+    return write_transaction(
+        db_session, transaction=None, txn_date=on, memo=None, payee_id=None,
+        account_lines=[{"account_id": account.id, "cents": cents}], category_lines=[],
+    )
+
+
+def test_a_bill_backfilled_before_a_split_created_account_counts_and_moves_its_start_back(db_session):
+    from app.services.accounts import account_balance_cents, _opening_adjustment_transaction
+
+    sam = _payee(db_session, "Sam")
+    client = _client(db_session)
+    try:
+        _create(client, "Rent", [{"payee_id": sam.id, "percent": "50"}])
+    finally:
+        app.dependency_overrides.clear()
+    account = _live_accounts(db_session, "Sam")[0]
+    assert account.opening_stated_on is None
+
+    earlier = DAY - datetime.timedelta(days=10)
+    txn = _write_on(db_session, account, earlier, 15_75)
+    db_session.flush()
+
+    assert not any(line.netted_into_opening for line in txn.account_lines)
+    opening = _opening_adjustment_transaction(db_session, account)
+    assert opening.date == earlier and account.created_on == earlier
+    assert opening.account_lines[0].cents == 0  # still the $0 opening
+    assert account_balance_cents(db_session, account.id, as_of=earlier) == 15_75
+    assert account_balance_cents(db_session, account.id, as_of=DAY) == 15_75
+
+
+def test_form_and_picked_accounts_still_net_a_row_before_their_stated_day(db_session):
+    sam = _payee(db_session, "Sam")
+    owed = create_account_with_opening_valuation(
+        db_session, name="Owed by Sam", created_on=DAY, type="Cash", on_budget=True,
+        on_budget_floor_cents=0, opening_balance_cents=12_00,
+    )
+    client = _client(db_session)
+    try:
+        _create(client, "Rent", [{"payee_id": sam.id, "account_id": owed.id, "percent": "50"}])
+    finally:
+        app.dependency_overrides.clear()
+    assert owed.opening_stated_on == DAY
+
+    txn = _write_on(db_session, owed, DAY - datetime.timedelta(days=3), 5_00)
+    assert all(line.netted_into_opening for line in txn.account_lines)
