@@ -37,20 +37,19 @@ export default function TransactionListView({ data, list, form }) {
             facets={[{ name: 'need', label: 'Need level', value: filters.need, onChange: (v) => setFilter('need', v), options: NEED_LEVELS }]}
             active={clearShows}
             onClear={clearFilters}
+            extraCount={['account', 'category', 'payee', 'domain'].filter((k) => filters[k] !== '').length}
+            sort={sort}
+            onSort={toggleSort}
+            sortOptions={[{ key: 'date', label: 'Date' }, { key: 'payee', label: 'Payee' }]}
+            {...(!filtered
+              ? { onExpandAll: () => setCollapsed([]), onCollapseAll: () => setCollapsed(groupByMonth(transactions, DEFAULT_SORT, () => '').map((g) => g.key)) }
+              : {})}
           >
             <FilterPicker label="Account" items={marked(accountsAll)} value={filters.account} onChange={(v) => setFilter('account', v)} />
             <FilterPicker label="Category" items={marked(categoriesAll)} value={filters.category} onChange={(v) => setFilter('category', v)} />
             <FilterPicker label="Payee" items={marked(payeesAll)} value={filters.payee} onChange={(v) => setFilter('payee', v)} />
             <FilterPicker label="Domain" items={marked(domainsAll)} value={filters.domain} onChange={(v) => setFilter('domain', v)} />
           </ListFilters>
-        )}
-        {transactions && transactions.length > 0 && !filtered && (
-          <div className="flex">
-            <Button variant="quiet" onClick={() => setCollapsed([])}>Expand all</Button>
-            <Button variant="quiet" onClick={() => setCollapsed(groupByMonth(transactions, DEFAULT_SORT, () => '').map((g) => g.key))}>
-              Collapse all
-            </Button>
-          </div>
         )}
         {transactions && transactions.length > 0 && shown.length === 0 && (
           <EmptyState action={<Button onClick={clearFilters}>Clear filters</Button>}>No transactions match these filters.</EmptyState>

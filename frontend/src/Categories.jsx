@@ -732,6 +732,12 @@ export default function Categories({ pickerDate }) {
             onSearch={(v) => setFilter('search', v)}
             active={clearShows}
             onClear={clearFilters}
+            sort={sort}
+            onSort={toggleSort}
+            sortOptions={[{ key: 'name', label: 'Name' }, { key: 'need', label: 'Need level' }, { key: 'available', label: 'Available' }]}
+            {...(parentIds.length > 0 && !filtersActive
+              ? { onExpandAll: () => setCollapsedIds([]), onCollapseAll: () => setCollapsedIds(parentIds) }
+              : {})}
             checks={[{ name: 'overspent', label: 'Overspent', checked: filters.overspent, onChange: (v) => setFilter('overspent', v) }]}
             facets={[
               { name: 'need', label: 'Need level', value: filters.need, onChange: (v) => setFilter('need', v), options: [...NEED_LEVELS, { value: 'none', label: 'Not set' }] },
@@ -742,12 +748,6 @@ export default function Categories({ pickerDate }) {
               <input type="checkbox" checked={showArchived} onChange={(e) => setShowArchived(e.target.checked)} />
               Show archived
             </label>
-            {parentIds.length > 0 && !filtersActive && (
-              <div className="flex">
-                <Button variant="quiet" onClick={() => setCollapsedIds([])}>Expand all</Button>
-                <Button variant="quiet" onClick={() => setCollapsedIds(parentIds)}>Collapse all</Button>
-              </div>
-            )}
           </ListFilters>
           {!error && !loaded && <LoadingRows />}
           {loaded && categories.length === 0 && (
