@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from app.db import get_session
 from app.main import app
+from app.models import Category
 from app.services.accounts import create_account_with_opening_valuation
 
 DAY = datetime.date(2026, 3, 1)
@@ -146,5 +147,29 @@ def test_touched_is_false_until_a_real_line_and_stays_true_after_a_settle_up(db_
         _move(client, chequing, owed, "2026-04-02", -5000, "Paid back")
         body = client.get(f"/api/splits/accounts/{owed.id}/balance").json()
         assert body["balance_cents"] == 0 and body["touched"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
+def test_the_balance_route_carries_each_bills_envelope_step(db_session):
+    client, chequing, owed = _setup(db_session)
+    try:
+        fund = Category(name="Owed to me", created_on=DAY)
+        db_session.add(fund)
+        db_session.flush()
+        assert client.put(
+            f"/api/categories/{fund.id}/linked-accounts", json={"on": DAY.isoformat(), "account_ids": [owed.id]}
+        ).status_code == 200
+        _move(client, chequing, owed, "2026-03-02", 1000, "plain")
+        fronted = client.post("/api/transactions", json={
+            "date": "2026-03-03", "memo": "fronted", "category_lines": [],
+            "deposits": [{"category_id": fund.id, "cents": 2500}],
+            "account_lines": [{"account_id": owed.id, "cents": 2500}, {"account_id": chequing.id, "cents": -2500}],
+        })
+        assert fronted.status_code == 201, fronted.text
+        body = client.get(f"/api/splits/accounts/{owed.id}/balance").json()
+        by_memo = {t["memo"]: t["deposits"] for t in body["transactions"]}
+        assert by_memo["plain"] == []
+        assert [(d["category_id"], d["cents"], d["other_category_id"]) for d in by_memo["fronted"]] == [(fund.id, 2500, None)]
     finally:
         app.dependency_overrides.clear()
