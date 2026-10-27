@@ -7,7 +7,7 @@ import { formatCents, formatDate } from './utils/format.js'
 
 /** The rows of the statement, oldest first. Cents are integers; a running total is the plain sum of
  * the member account's lines, so the last one is the balance the page shows. */
-export function statementRows(transactions, accountId, names = {}) {
+export function statementRows(transactions, accountId, names = {}, memberAccountIds = [accountId]) {
   const sorted = [...transactions].sort((a, b) => (a.date === b.date ? a.id - b.id : a.date < b.date ? -1 : 1))
   let running = 0
   return sorted.map((t) => {
@@ -17,9 +17,10 @@ export function statementRows(transactions, accountId, names = {}) {
     const iPaid = isBill && t.paid_by_payee_id == null
     let bill = null
     if (iPaid) {
-      // My paying account line: what left my accounts, never another member's receivable.
-      const paid = t.account_lines.filter((l) => l.account_id !== accountId && l.cents < 0).reduce((sum, l) => sum - l.cents, 0)
-      bill = paid > 0 ? paid : null
+      // My paying account line: what left (or, on a refund, came back to) my accounts, never a
+      // member's receivable, which is their share and not the bill.
+      const mine = t.account_lines.filter((l) => !memberAccountIds.includes(l.account_id)).reduce((sum, l) => sum + l.cents, 0)
+      bill = mine !== 0 ? Math.abs(mine) : null
     } else if (isBill) {
       bill = t.shared_total_cents ?? null // a bill saved before the field existed prints its share only
     }
@@ -34,9 +35,9 @@ export function statementRows(transactions, accountId, names = {}) {
   })
 }
 
-export default function MemberStatement({ memberName, balance, names, pickerDate }) {
+export default function MemberStatement({ memberName, balance, names, pickerDate, memberAccountIds }) {
   const cents = balance.balance_cents
-  const rows = statementRows(balance.transactions, balance.account_id, names)
+  const rows = statementRows(balance.transactions, balance.account_id, names, memberAccountIds)
   const total = cents > 0 ? `${memberName} owes you ${formatCents(cents)}` : cents < 0 ? `You owe ${memberName} ${formatCents(-cents)}` : 'Settled up'
   return createPortal(
     <div id="print-statement" aria-label={`Statement for ${memberName}`}>

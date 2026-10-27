@@ -207,6 +207,29 @@ describe('the Split expenses page', () => {
       expect(statement.getByText('Sam owes you $8.00')).toBeInTheDocument()
     })
 
+    it('prints a refund on a bill I paid with the whole bill, and ignores other members receivables', async () => {
+      balances.splits = [{ ...household()[0], members: [SAM, { ...SAM, id: 3, payee_id: 8, payee_name: 'Kit', account_id: 4 }] }]
+      balances[3] = {
+        account_id: 3,
+        balance_cents: 1500,
+        transactions: [
+          // I paid $100 with two members: Sam 30, Kit 20 (their receivables are positive lines).
+          { ...base, id: 1, date: '2026-10-01', split_id: 5, account_lines: [{ id: 1, account_id: 20, cents: -10000 }, { id: 2, account_id: 3, cents: 3000 }, { id: 3, account_id: 4, cents: 2000 }] },
+          // A $50 refund of it: money back to me, their receivables shrink.
+          { ...base, id: 2, date: '2026-10-02', split_id: 5, account_lines: [{ id: 4, account_id: 20, cents: 5000 }, { id: 5, account_id: 3, cents: -1500 }, { id: 6, account_id: 4, cents: -1000 }] },
+        ],
+      }
+      balances[4] = { account_id: 4, balance_cents: 1000, transactions: [] }
+      renderSplits()
+      fireEvent.click((await screen.findAllByRole('button', { name: 'Print' }))[0])
+      await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1))
+      const rows = within(document.getElementById('print-statement')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent))
+      expect(rows.map((r) => [r[3], r[4], r[5], r[6]])).toEqual([
+        ['$100.00', 'You', '$30.00', '$30.00'],
+        ['$50.00', 'You', '−$15.00', '$15.00'],
+      ])
+    })
+
     it('says so when I owe them', async () => {
       const statement = await openStatement(-2050, [BILLS[2]].map((t) => ({ ...t, account_lines: [{ id: 6, account_id: 3, cents: -2050 }] })))
       expect(statement.getByText('You owe Sam $20.50')).toBeInTheDocument()
