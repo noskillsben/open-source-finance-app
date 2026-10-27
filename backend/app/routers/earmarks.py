@@ -13,7 +13,7 @@ from app.schemas import (
     PayBatchIn,
     ReadyToAssignOut,
 )
-from app.services.categories import category_balance_cents, category_month_cents, pool_absorber_name, pool_available_cents
+from app.services.categories import category_balances, category_month_map, pool_availability
 from app.services.earmarks import (
     EarmarkError,
     move_money,
@@ -30,22 +30,27 @@ router = APIRouter()
 @router.get("/api/ready-to-assign", response_model=ReadyToAssignOut)
 def ready_to_assign(as_of: date, session: Session = Depends(get_session)) -> ReadyToAssignOut:
     """Both headline numbers on `as_of` and each category's available amount. The picker date
-    is the only "today", so the caller always says which day.
+    is the only "today", so the caller always says which day. Every number comes from a few
+    grouped queries over the whole ledger, never one per category (#440): each category's balance
+    is read once and feeds the headline, overspent and every row.
     """
-    month = {cid: category_month_cents(session, cid, as_of=as_of) for cid in session.scalars(select(Category.id))}
+    balances = category_balances(session, as_of=as_of)
+    month = category_month_map(session, as_of=as_of)
+    categories = {c.id: c for c in session.scalars(select(Category))}
+    pools = pool_availability(categories, balances, as_of=as_of)
     return ReadyToAssignOut(
-        ready_to_assign_cents=ready_to_assign_cents(session, as_of=as_of),
-        overspent_cents=overspent_cents(session, as_of=as_of),
+        ready_to_assign_cents=ready_to_assign_cents(session, as_of=as_of, balances=balances),
+        overspent_cents=overspent_cents(session, as_of=as_of, balances=balances),
         categories=[
             CategoryAvailableOut(
                 category_id=category_id,
-                available_cents=category_balance_cents(session, category_id, as_of=as_of),
+                available_cents=balances[category_id],
                 assigned_cents=month[category_id][0],
                 spent_cents=month[category_id][1],
-                pool_available_cents=pool_available_cents(session, category_id, as_of=as_of),
-                pool_absorber=pool_absorber_name(session, category_id, as_of=as_of),
+                pool_available_cents=pools[category_id][0],
+                pool_absorber=pools[category_id][1],
             )
-            for category_id in session.scalars(select(Category.id).order_by(Category.id))
+            for category_id in sorted(categories)
         ],
     )
 

@@ -4,7 +4,7 @@
 import calendar
 from datetime import date, timedelta
 
-from sqlalchemy import func, null, select
+from sqlalchemy import BigInteger, Date, case, column, func, null, select, values
 from sqlalchemy.orm import Session
 
 from app.models import Account, AccountLine, Transaction, Valuation
@@ -75,14 +75,10 @@ def _statement_close_on_or_before(close_day: int, year: int, month: int) -> date
     return date(year, month, min(close_day, calendar.monthrange(year, month)[1]))
 
 
-def carried_statement_note(session: Session, account: Account, as_of: date | None) -> str | None:
-    """DESIGN.md § Carrying a balance: part of the latest statement whose due date has passed
-    is still unpaid. Statement balance = balance at the end of the close day; due = close +
-    grace days; carried = what that balance owed, less every positive line dated after the
-    close up to `as_of`. Read-time only, from the terms block (never the account type). Silent
-    when either term is null, no statement has closed since the account began, the statement
-    was not owing, or its due date has not passed — never a reminder of what is coming due.
-    `as_of` None is silent: only the picker date says what day it is.
+def statement_dates(account: Account, as_of: date | None) -> tuple[date, date] | None:
+    """(close, due) of the latest statement whose due date has passed on `as_of`, or None when
+    the terms are unknown, no statement has closed since the account began, or `as_of` is None.
+    Pure date arithmetic — the half of `carried_statement_note` that needs no ledger.
     """
     close_day, grace_days = account.statement_close_day, account.grace_days
     if close_day is None or grace_days is None or as_of is None:
@@ -94,8 +90,37 @@ def carried_statement_note(session: Session, account: Account, as_of: date | Non
             return None
         due = close + timedelta(days=grace_days)
         if due <= as_of:
-            break
+            return close, due
         year, month = (year, month - 1) if month > 1 else (year - 1, 12)
+
+
+def carried_note_text(statement_cents: int, paid_cents: int, close: date, due: date) -> str | None:
+    """The wording half of `carried_statement_note`: silent when the statement was not owing or
+    was paid off since it closed."""
+    if statement_cents >= 0:
+        return None
+    carried_cents = -statement_cents - paid_cents
+    if carried_cents <= 0:
+        return None
+    return (
+        f"Carrying {dollars(carried_cents)} from the {close:%b} {close.day} statement "
+        f"(due {due:%b} {due.day})."
+    )
+
+
+def carried_statement_note(session: Session, account: Account, as_of: date | None) -> str | None:
+    """DESIGN.md § Carrying a balance: part of the latest statement whose due date has passed
+    is still unpaid. Statement balance = balance at the end of the close day; due = close +
+    grace days; carried = what that balance owed, less every positive line dated after the
+    close up to `as_of`. Read-time only, from the terms block (never the account type). Silent
+    when either term is null, no statement has closed since the account began, the statement
+    was not owing, or its due date has not passed — never a reminder of what is coming due.
+    `as_of` None is silent: only the picker date says what day it is.
+    """
+    dates = statement_dates(account, as_of)
+    if dates is None:
+        return None
+    close, due = dates
     statement_cents = account_balance_cents(session, account.id, as_of=close)
     if statement_cents >= 0:
         return None
@@ -109,13 +134,40 @@ def carried_statement_note(session: Session, account: Account, as_of: date | Non
             Transaction.date <= as_of,
         )
     )
-    carried_cents = -statement_cents - paid_cents
-    if carried_cents <= 0:
-        return None
-    return (
-        f"Carrying {dollars(carried_cents)} from the {close:%b} {close.day} statement "
-        f"(due {due:%b} {due.day})."
+    return carried_note_text(statement_cents, paid_cents, close, due)
+
+
+def carried_statement_notes(session: Session, accounts: list[Account], as_of: date | None) -> dict[int, str | None]:
+    """`carried_statement_note` for many accounts in one grouped query: each account's statement
+    balance (at its own close date) and positive lines since, joined to a values list of
+    (account, close). Equal to the single-account function per account.
+    """
+    dates = {a.id: d for a in accounts if (d := statement_dates(a, as_of)) is not None}
+    notes: dict[int, str | None] = {a.id: None for a in accounts}
+    if not dates:
+        return notes
+    wanted = values(
+        column("account_id", BigInteger), column("close", Date), name="wanted"
+    ).data([(account_id, close) for account_id, (close, _due) in dates.items()])
+    rows = session.execute(
+        select(
+            wanted.c.account_id,
+            func.sum(case((Transaction.date <= wanted.c.close, AccountLine.cents), else_=0)),
+            func.sum(case(
+                ((Transaction.date > wanted.c.close) & (AccountLine.cents > 0), AccountLine.cents), else_=0
+            )),
+        )
+        .select_from(wanted)
+        .join(AccountLine, AccountLine.account_id == wanted.c.account_id)
+        .join(Transaction, AccountLine.transaction_id == Transaction.id)
+        .where(Transaction.date <= as_of)
+        .group_by(wanted.c.account_id)
     )
+    sums = {account_id: (int(statement), int(paid)) for account_id, statement, paid in rows}
+    for account_id, (close, due) in dates.items():
+        statement_cents, paid_cents = sums.get(account_id, (0, 0))
+        notes[account_id] = carried_note_text(statement_cents, paid_cents, close, due)
+    return notes
 
 
 def dollars(cents: int) -> str:
@@ -298,6 +350,20 @@ def account_balance_cents(
         line_stmt = line_stmt.where(Transaction.id != exclude_transaction_id)
 
     return session.scalar(line_stmt)
+
+
+def account_balances(session: Session, *, as_of: date | None = None) -> dict[int, int]:
+    """Every account's balance on `as_of` (all lines when None) in one grouped query; equal to
+    `account_balance_cents` per account. An account with no lines is absent — read it as 0.
+    """
+    stmt = (
+        select(AccountLine.account_id, func.sum(AccountLine.cents))
+        .join(Transaction, AccountLine.transaction_id == Transaction.id)
+        .group_by(AccountLine.account_id)
+    )
+    if as_of is not None:
+        stmt = stmt.where(Transaction.date <= as_of)
+    return {account_id: int(cents) for account_id, cents in session.execute(stmt)}
 
 
 class AccountError(ValueError):

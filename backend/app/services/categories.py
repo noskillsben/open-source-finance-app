@@ -69,6 +69,51 @@ def category_month_cents(session: Session, category_id: int, *, as_of: date) -> 
     return assigned, spent
 
 
+def category_balances(session: Session, *, as_of: date) -> dict[int, int]:
+    """Every category's balance on `as_of`, archived ones included, in two grouped queries (one
+    per line source) instead of two per category. Must equal `category_balance_cents` for each
+    category — that function stays the single-category definition for writes and archive checks.
+    A category with no lines reads 0.
+    """
+    balances = {category_id: 0 for category_id in session.scalars(select(Category.id))}
+    from_transactions = session.execute(
+        select(CategoryLine.category_id, func.sum(CategoryLine.cents))
+        .join(Transaction, CategoryLine.transaction_id == Transaction.id)
+        .where(Transaction.date <= as_of)
+        .group_by(CategoryLine.category_id)
+    )
+    from_earmarks = session.execute(
+        select(EarmarkLine.category_id, func.sum(EarmarkLine.cents))
+        .where(EarmarkLine.date <= as_of)
+        .group_by(EarmarkLine.category_id)
+    )
+    for category_id, cents in (*from_transactions, *from_earmarks):
+        balances[category_id] = balances.get(category_id, 0) + int(cents)
+    return balances
+
+
+def category_month_map(session: Session, *, as_of: date) -> dict[int, tuple[int, int]]:
+    """(assigned, spent) for every category's calendar month of `as_of` in two grouped queries;
+    equal to `category_month_cents` per category. A category with no lines reads (0, 0).
+    """
+    first = as_of.replace(day=1)
+    month = {category_id: (0, 0) for category_id in session.scalars(select(Category.id))}
+    assigned = dict(session.execute(
+        select(EarmarkLine.category_id, func.sum(EarmarkLine.cents))
+        .where(EarmarkLine.date >= first, EarmarkLine.date <= as_of)
+        .group_by(EarmarkLine.category_id)
+    ).all())
+    spent = dict(session.execute(
+        select(CategoryLine.category_id, func.sum(CategoryLine.cents))
+        .join(Transaction, CategoryLine.transaction_id == Transaction.id)
+        .where(Transaction.date >= first, Transaction.date <= as_of)
+        .group_by(CategoryLine.category_id)
+    ).all())
+    for category_id in set(assigned) | set(spent):
+        month[category_id] = (int(assigned.get(category_id, 0)), int(spent.get(category_id, 0)))
+    return month
+
+
 def category_children(session: Session, category_id: int) -> list[Category]:
     """Direct children still active — archiving a parent cascades into these
     (DESIGN.md: "archiving a category with children archives the children with the same
@@ -156,6 +201,40 @@ def pool_absorber_name(session: Session, category_id: int, *, as_of: date) -> st
         for pool in pool_chain(session, category_id)
         if pool.absorb_overspending and (pool.archived_on is None or pool.archived_on > as_of)
     ), None)
+
+
+def _chain_in_memory(categories: dict[int, Category], category_id: int) -> list[Category]:
+    """`pool_chain` over a category map loaded once — same walk, same cycle guard, no queries."""
+    seen = {category_id}
+    chain: list[Category] = []
+    current = categories[category_id].pool_id
+    while current is not None and current not in seen:
+        seen.add(current)
+        pool = categories[current]
+        chain.append(pool)
+        current = pool.pool_id
+    return chain
+
+
+def pool_availability(
+    categories: dict[int, Category], balances: dict[int, int], *, as_of: date
+) -> dict[int, tuple[int, str | None]]:
+    """(pool available, pool absorber name) for every category, resolving pool chains in memory
+    from one category load and one balances map. Equal to `pool_available_cents` and
+    `pool_absorber_name` per category (same rules: a negative pool counts as nothing, a pool
+    archived on or before `as_of` is skipped).
+    """
+    result = {}
+    for category_id in categories:
+        live = [
+            pool for pool in _chain_in_memory(categories, category_id)
+            if pool.archived_on is None or pool.archived_on > as_of
+        ]
+        result[category_id] = (
+            sum(max(balances[pool.id], 0) for pool in live),
+            next((pool.name for pool in live if pool.absorb_overspending), None),
+        )
+    return result
 
 
 def apply_category_settings(

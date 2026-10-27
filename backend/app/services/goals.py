@@ -7,14 +7,14 @@ import calendar
 from dataclasses import dataclass
 from datetime import date, timedelta
 
-from sqlalchemy import func, select
+from sqlalchemy import BigInteger, Date, column, func, select, values
 from sqlalchemy.orm import Session
 
 from app.models import Category, CategoryLine, EarmarkLine, Goal, IncomeStream, Transaction
 from app.services.accounts import dollars, most_spent_account_id
 from app.services.archiving import _visible
 from app.services.cadence import CADENCES, step
-from app.services.categories import category_balance_cents
+from app.services.categories import category_balance_cents, category_balances
 from app.services.income_streams import next_payday
 
 KINDS = ("recurring_bill", "target", "commitment")
@@ -145,14 +145,94 @@ def contribution_cents(goal: Goal, balance_cents: int, *, as_of: date) -> int | 
     return -(-shortfall // max(periods, 1))
 
 
-def due_date(session: Session, goal: Goal) -> date | None:
+@dataclass
+class GoalBatch:
+    """Everything the Categories goal list reads per goal, fetched once for the whole list
+    (#440) so the number of statements does not grow with the number of goals. Each lookup
+    equals the single-goal query it replaces, which stays the definition (a miss falls back
+    to it). Built by `build_goal_batch`.
+    """
+    balances: dict[int, int]
+    paid_dates: dict[int, set[date]]
+    paid_cents: dict[tuple[int, date, int], int]  # (goal id, due date, category id) -> category-line sum
+    assigned: dict[tuple[int, date, date], int]  # (category id, start, through) -> earmark sum
+
+
+def build_goal_batch(
+    session: Session, goals: list[Goal], streams: dict[int, IncomeStream], *, as_of: date
+) -> GoalBatch:
+    """Read the goal list's numbers in a fixed number of queries: every category balance, every
+    paid due date, the last paid due date's category lines for the bills, and each fixed
+    Commitment's assigned sums for the two windows its row and its ask read.
+    """
+    goal_ids = [g.id for g in goals]
+    paid_dates: dict[int, set[date]] = {goal_id: set() for goal_id in goal_ids}
+    paid_cents: dict[tuple[int, date, int], int] = {}
+    if goal_ids:
+        for goal_id, due_on in session.execute(
+            select(Transaction.goal_id, Transaction.goal_due_on)
+            .where(Transaction.goal_id.in_(goal_ids), Transaction.goal_due_on.is_not(None))
+            .distinct()
+        ):
+            paid_dates[goal_id].add(due_on)
+    bill_ids = [g.id for g in goals if g.kind == "recurring_bill"]
+    for g in goals:
+        if g.kind == "recurring_bill" and paid_dates[g.id]:
+            paid_cents[(g.id, max(paid_dates[g.id]), g.category_id)] = 0  # none of its own lines reads 0
+    if bill_ids:
+        # Only each bill's last paid due date is worded, so only its lines are summed.
+        latest = (
+            select(Transaction.goal_id.label("goal_id"), func.max(Transaction.goal_due_on).label("due_on"))
+            .where(Transaction.goal_id.in_(bill_ids))
+            .group_by(Transaction.goal_id)
+            .subquery()
+        )
+        for goal_id, due_on, category_id, cents in session.execute(
+            select(Transaction.goal_id, Transaction.goal_due_on, CategoryLine.category_id, func.sum(CategoryLine.cents))
+            .join(CategoryLine, CategoryLine.transaction_id == Transaction.id)
+            .join(latest, (latest.c.goal_id == Transaction.goal_id) & (latest.c.due_on == Transaction.goal_due_on))
+            .group_by(Transaction.goal_id, Transaction.goal_due_on, CategoryLine.category_id)
+        ):
+            paid_cents[(goal_id, due_on, category_id)] = int(cents)
+    windows: set[tuple[int, date, date]] = set()
+    for g in goals:
+        if not _is_dated_commitment(g):
+            continue
+        windows.add((g.category_id, _commitment_period(g, as_of)[0], as_of))
+        stream = streams.get(g.income_stream_id)
+        if stream is not None:
+            pivot = next_payday(stream, as_of=as_of)
+            windows.add((g.category_id, _commitment_period(g, pivot)[0], pivot))
+    assigned: dict[tuple[int, date, date], int] = {}
+    if windows:
+        wanted = values(
+            column("category_id", BigInteger), column("start", Date), column("through", Date), name="wanted"
+        ).data(sorted(windows))
+        sums = {
+            (category_id, start, through): int(cents)
+            for category_id, start, through, cents in session.execute(
+                select(wanted.c.category_id, wanted.c.start, wanted.c.through, func.sum(EarmarkLine.cents))
+                .select_from(wanted)
+                .join(EarmarkLine, EarmarkLine.category_id == wanted.c.category_id)
+                .where(EarmarkLine.date >= wanted.c.start, EarmarkLine.date <= wanted.c.through)
+                .group_by(wanted.c.category_id, wanted.c.start, wanted.c.through)
+            )
+        }
+        assigned = {window: sums.get(window, 0) for window in windows}
+    return GoalBatch(
+        balances=category_balances(session, as_of=as_of), paid_dates=paid_dates, paid_cents=paid_cents,
+        assigned=assigned,
+    )
+
+
+def due_date(session: Session, goal: Goal, batch: GoalBatch | None = None) -> date | None:
     """The date shown for a goal, and the one definition of "due" both Categories and the pay
     screen read. A recurring bill's is its earliest unpaid due date — it does not roll past
     `as_of`, so an unpaid bill stays due (and reads overdue) instead of becoming next month's;
     a target's is its target date.
     """
     if goal.kind == "recurring_bill":
-        return earliest_unpaid_due_date(session, goal)
+        return earliest_unpaid_due_date(session, goal, batch)
     return goal.target_date
 
 
@@ -176,9 +256,11 @@ class Progress:
     commitment_next_due_on: date | None = None
 
 
-def goal_progress(session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None = None) -> Progress:
+def goal_progress(
+    session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None = None, batch: GoalBatch | None = None
+) -> Progress:
     # Postgres sums come back as Decimal, whose // truncates toward zero — the round-up needs an int.
-    balance = int(category_balance_cents(session, goal.category_id, as_of=as_of))
+    balance = _balance(session, goal, as_of, batch)
     if goal.kind == "commitment":
         target = goal.level_cents  # an "add" commitment has no target
         per_period = goal.amount_cents
@@ -186,19 +268,25 @@ def goal_progress(session: Session, goal: Goal, *, as_of: date, stream: IncomeSt
         target = goal.amount_cents
         # A bound Target's pace is what Pay pre-fills; an unbound one's is its own cadence.
         if goal.kind == "target" and stream is not None:
-            per_period = due_by_next_payday(session, goal, stream, as_of=as_of)
+            per_period = due_by_next_payday(session, goal, stream, as_of=as_of, batch=batch)
         else:
             per_period = contribution_cents(goal, balance, as_of=as_of)
     return Progress(
         balance_cents=balance,
         target_cents=target,
         owed_cents=None if target is None else max(target - balance, 0),
-        due_date=due_date(session, goal),
+        due_date=due_date(session, goal, batch),
         per_period_cents=per_period,
         per_period_text=per_period_text(goal, per_period, stream),
         commitment_next_due_on=_commitment_period(goal, as_of)[1] if _is_dated_commitment(goal) else None,
-        **commitment_row_text(session, goal, as_of=as_of),
+        **commitment_row_text(session, goal, as_of=as_of, batch=batch),
     )
+
+
+def _balance(session: Session, goal: Goal, as_of: date, batch: GoalBatch | None) -> int:
+    if batch is not None and goal.category_id in batch.balances:
+        return batch.balances[goal.category_id]
+    return int(category_balance_cents(session, goal.category_id, as_of=as_of))
 
 
 def _month_end(day: date) -> date:
@@ -228,8 +316,12 @@ def _is_dated_commitment(goal: Goal) -> bool:
     return goal.kind == "commitment" and goal.amount_cents is not None and goal.cadence is not None and goal.first_due_on is not None
 
 
-def _assigned_cents(session: Session, category_id: int, start: date, through: date) -> int:
+def _assigned_cents(
+    session: Session, category_id: int, start: date, through: date, batch: GoalBatch | None = None
+) -> int:
     """Signed earmark lines to the category from `start` to `through` — spending never counts."""
+    if batch is not None and (category_id, start, through) in batch.assigned:
+        return batch.assigned[(category_id, start, through)]
     return int(session.scalar(
         select(func.coalesce(func.sum(EarmarkLine.cents), 0)).where(
             EarmarkLine.category_id == category_id, EarmarkLine.date >= start, EarmarkLine.date <= through
@@ -252,7 +344,9 @@ class CommitmentAsk:
     due_on: date
 
 
-def commitment_ask(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> CommitmentAsk | None:
+def commitment_ask(
+    session: Session, goal: Goal, stream: IncomeStream, *, as_of: date, batch: GoalBatch | None = None
+) -> CommitmentAsk | None:
     """A fixed Commitment with a cadence, spread over the paydays before its due date (DESIGN.md §
     Goals). Due: the earliest due date on or after the payday the screen is open for. Still
     missing: the amount less the signed earmark lines to the category from the period's start to
@@ -264,7 +358,7 @@ def commitment_ask(session: Session, goal: Goal, stream: IncomeStream, *, as_of:
         return None
     pivot = next_payday(stream, as_of=as_of)
     start, due = _commitment_period(goal, pivot)
-    assigned = _assigned_cents(session, goal.category_id, start, pivot)
+    assigned = _assigned_cents(session, goal.category_id, start, pivot, batch)
     missing = min(max(goal.amount_cents - assigned, 0), goal.amount_cents)
     instalment = -(-missing // _periods_left(stream, pivot, due))
     return CommitmentAsk(instalment, assigned, due)
@@ -296,7 +390,9 @@ def per_period_text(goal: Goal, per_period_cents: int | None, stream: IncomeStre
     return None
 
 
-def commitment_row_text(session: Session, goal: Goal, *, as_of: date) -> dict[str, str | None]:
+def commitment_row_text(
+    session: Session, goal: Goal, *, as_of: date, batch: GoalBatch | None = None
+) -> dict[str, str | None]:
     """A fixed Commitment's two goal-row lines, measured at the picker date and needing no bound
     pay: "$200.00 monthly · next due Oct 31" and "$140.00 of $200.00 this month" (assigned since the
     period began, capped at the amount). Each payday has no period, so it gets only "$50.00 each
@@ -309,26 +405,30 @@ def commitment_row_text(session: Session, goal: Goal, *, as_of: date) -> dict[st
     if goal.cadence is None or goal.first_due_on is None:
         return {"commitment_cadence_text": f"{amount} each payday", "commitment_progress_text": None}
     start, due = _commitment_period(goal, as_of)
-    assigned = min(max(_assigned_cents(session, goal.category_id, start, as_of), 0), goal.amount_cents)
+    assigned = min(max(_assigned_cents(session, goal.category_id, start, as_of, batch), 0), goal.amount_cents)
     return {
         "commitment_cadence_text": f"{amount} {_CADENCE_LABELS[goal.cadence]} · next due {_short_date(due, as_of=as_of)}",
         "commitment_progress_text": f"{dollars(assigned)} of {amount} {_PERIOD_LABELS[goal.cadence]}",
     }
 
 
-def commitment_context(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> str | None:
+def commitment_context(
+    session: Session, goal: Goal, stream: IncomeStream, *, as_of: date, batch: GoalBatch | None = None
+) -> str | None:
     """The pay screen's context line for a fixed Commitment, worded once here: "each payday", or
     "$100.00 of $200.00 due Oct 31" ($100.00 assigned so far this period). None for any other."""
     if goal.kind != "commitment" or goal.amount_cents is None:
         return None
-    ask = commitment_ask(session, goal, stream, as_of=as_of)
+    ask = commitment_ask(session, goal, stream, as_of=as_of, batch=batch)
     if ask is None:
         return "each payday"
     assigned = min(max(ask.assigned_cents, 0), goal.amount_cents)
     return f"{dollars(assigned)} of {dollars(goal.amount_cents)} due {_short_date(ask.due_on, as_of=as_of)}"
 
 
-def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> int | None:
+def due_by_next_payday(
+    session: Session, goal: Goal, stream: IncomeStream, *, as_of: date, batch: GoalBatch | None = None
+) -> int | None:
     """What a bound goal wants at its very next payday (DESIGN.md § Goals): the shortfall to the
     goal's amount, spread over the STREAM's paydays remaining up to the goal's due date — the
     $1,200 quarterly bill with $400 saved and two Salary paydays left wants $400 now. Counts the
@@ -340,15 +440,15 @@ def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as
     just its full amount).
     """
     if goal.kind == "commitment":
-        ask = commitment_ask(session, goal, stream, as_of=as_of)
+        ask = commitment_ask(session, goal, stream, as_of=as_of, batch=batch)
         return None if ask is None else ask.instalment_cents
-    due = due_date(session, goal)
+    due = due_date(session, goal, batch)
     if due is None:
         return None
     target = goal.amount_cents
     if target is None:
         return None
-    balance = int(category_balance_cents(session, goal.category_id, as_of=as_of))
+    balance = _balance(session, goal, as_of, batch)
     shortfall = max(target - balance, 0)
     periods = _periods_left(stream, next_payday(stream, as_of=as_of), due)
     if goal.kind == "recurring_bill" and goal.set_aside_whole and periods > 1:
@@ -356,13 +456,15 @@ def due_by_next_payday(session: Session, goal: Goal, stream: IncomeStream, *, as
     return -(-shortfall // periods)
 
 
-def set_aside_context(session: Session, goal: Goal, stream: IncomeStream, *, as_of: date) -> str | None:
+def set_aside_context(
+    session: Session, goal: Goal, stream: IncomeStream, *, as_of: date, batch: GoalBatch | None = None
+) -> str | None:
     """The pay screen's context line for a bill set aside whole that wants nothing yet, worded once
     here: "set aside whole on Oct 24" — the last payday of the pay on or before the due date (the
     pay that fills it). None when the goal isn't set aside whole or wants its full shortfall now."""
     if goal.kind != "recurring_bill" or not goal.set_aside_whole:
         return None
-    due = due_date(session, goal)
+    due = due_date(session, goal, batch)
     if due is None:
         return None
     pivot = next_payday(stream, as_of=as_of)
@@ -386,14 +488,16 @@ def is_bill_due_date(goal: Goal, day: date) -> bool:
     return _step(goal, goal.first_due_on, n) == day
 
 
-def linked_due_dates(session: Session, goal_id: int) -> set[date]:
+def linked_due_dates(session: Session, goal_id: int, batch: GoalBatch | None = None) -> set[date]:
     """The due dates of a bill that at least one transaction says it paid."""
+    if batch is not None and goal_id in batch.paid_dates:
+        return batch.paid_dates[goal_id]
     return set(session.scalars(
         select(Transaction.goal_due_on).where(Transaction.goal_id == goal_id, Transaction.goal_due_on.is_not(None))
     ))
 
 
-def earliest_unpaid_due_date(session: Session, goal: Goal) -> date | None:
+def earliest_unpaid_due_date(session: Session, goal: Goal, batch: GoalBatch | None = None) -> date | None:
     """The first of a recurring bill's due dates with no linked transaction — computed at read
     time, never stored, so an unpaid bill stays due instead of rolling on (DESIGN.md § Goals).
     One linked payment marks a date paid whatever its amount. Links to dates no longer on the
@@ -401,7 +505,7 @@ def earliest_unpaid_due_date(session: Session, goal: Goal) -> date | None:
     """
     if goal.kind != "recurring_bill" or goal.first_due_on is None:
         return None
-    paid = linked_due_dates(session, goal.id)
+    paid = linked_due_dates(session, goal.id, batch)
     n = 0
     while _step(goal, goal.first_due_on, n) in paid:
         n += 1
@@ -462,7 +566,7 @@ def unbound_bill_horizon(session: Session, *, as_of: date) -> date | None:
 
 def bill_status(
     session: Session, goal: Goal, *, as_of: date, stream: IncomeStream | None, horizon: date | None = None,
-    balance_cents: int = 0,
+    balance_cents: int = 0, batch: GoalBatch | None = None,
 ) -> tuple[str, str] | None:
     """A recurring bill's status and its wording, computed here so no component words it again:
     "overdue" once `as_of` is past its earliest unpaid due date; "due" when that date falls
@@ -476,7 +580,7 @@ def bill_status(
     `balance_cents` (the category balance at `as_of`, the same number the row's progress uses),
     appended as " · $300.00 short" when positive. Nothing is stored; "next due" never carries it.
     """
-    due = earliest_unpaid_due_date(session, goal)
+    due = earliest_unpaid_due_date(session, goal, batch)
     if due is None:
         return None
     day = _short_date(due, as_of=as_of)
@@ -495,16 +599,18 @@ def bill_status(
     return "next_due", f"next due {day}"
 
 
-def last_paid_due_date(session: Session, goal: Goal) -> date | None:
+def last_paid_due_date(session: Session, goal: Goal, batch: GoalBatch | None = None) -> date | None:
     """The latest of a bill's due dates that a transaction says it paid."""
-    return max(linked_due_dates(session, goal.id), default=None)
+    return max(linked_due_dates(session, goal.id, batch), default=None)
 
 
-def paid_against(session: Session, goal: Goal, due_on: date) -> int:
+def paid_against(session: Session, goal: Goal, due_on: date, batch: GoalBatch | None = None) -> int:
     """Cents paid against one due date: the bill's own category lines (a payment's outflow is
     negative, so the sign flips) on the transactions linked to that goal and date. Lines of other
     categories on a split payment are not this bill's money.
     """
+    if batch is not None and (goal.id, due_on, goal.category_id) in batch.paid_cents:
+        return -batch.paid_cents[(goal.id, due_on, goal.category_id)]
     total = session.scalar(
         select(func.coalesce(func.sum(CategoryLine.cents), 0))
         .join(Transaction, Transaction.id == CategoryLine.transaction_id)
@@ -517,13 +623,15 @@ def paid_against(session: Session, goal: Goal, due_on: date) -> int:
     return -int(total)
 
 
-def last_paid_text(session: Session, goal: Goal, *, as_of: date) -> tuple[date, int, str] | None:
+def last_paid_text(
+    session: Session, goal: Goal, *, as_of: date, batch: GoalBatch | None = None
+) -> tuple[date, int, str] | None:
     """The last paid due date, what was paid against it, and its wording next to what the bill
     expected: "Oct 1 paid · $112.40 of $120.00". None when nothing was paid yet.
     """
-    due_on = last_paid_due_date(session, goal)
+    due_on = last_paid_due_date(session, goal, batch)
     if due_on is None:
         return None
-    paid = paid_against(session, goal, due_on)
+    paid = paid_against(session, goal, due_on, batch)
     text = f"{_short_date(due_on, as_of=as_of)} paid · {dollars(paid)} of {dollars(goal.amount_cents)}"
     return due_on, paid, text

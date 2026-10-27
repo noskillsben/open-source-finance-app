@@ -25,7 +25,7 @@ from app.services.archiving import Archivable, ArchiveError, _visible, archive, 
 from app.services.categories import CategoryError, apply_category_settings, build_category_archivable
 from app.services.earmarks import sweep_archived_category_tree
 from app.services.goals import (
-    GoalError, _short_date, apply_goal, bill_status, commitment_context, due_by_next_payday,
+    GoalError, _short_date, apply_goal, bill_status, build_goal_batch, commitment_context, due_by_next_payday,
     earliest_unpaid_due_date, set_aside_context,
     goal_latest_linked_date, goal_progress, last_paid_text, last_payment, live_goal, offered_due_dates,
     unbound_bill_horizon,
@@ -126,22 +126,31 @@ def list_goals(
     visible = true() if any_date else _visible(Goal, as_of, include_archived)
     goals = session.scalars(select(Goal).where(visible).order_by(Goal.category_id)).all()
     horizon = unbound_bill_horizon(session, as_of=as_of)
+    # Every number the rows read is fetched once for the whole list (#440), so the statement
+    # count does not grow with the number of goals.
+    stream_ids = {g.income_stream_id for g in goals if g.income_stream_id is not None}
+    streams = (
+        {s.id: s for s in session.scalars(select(IncomeStream).where(IncomeStream.id.in_(stream_ids)))}
+        if stream_ids else {}
+    )
+    batch = build_goal_batch(session, list(goals), streams, as_of=as_of)
     out = []
     for g in goals:
         due_cents = None
         context_text = None
-        stream = session.get(IncomeStream, g.income_stream_id) if g.income_stream_id is not None else None
+        stream = streams.get(g.income_stream_id)
         if stream is not None:
-            due_cents = due_by_next_payday(session, g, stream, as_of=as_of)
-            context_text = commitment_context(session, g, stream, as_of=as_of) or set_aside_context(
-                session, g, stream, as_of=as_of
+            due_cents = due_by_next_payday(session, g, stream, as_of=as_of, batch=batch)
+            context_text = commitment_context(session, g, stream, as_of=as_of, batch=batch) or set_aside_context(
+                session, g, stream, as_of=as_of, batch=batch
             )
-        progress = goal_progress(session, g, as_of=as_of, stream=stream)
+        progress = goal_progress(session, g, as_of=as_of, stream=stream, batch=batch)
         status = bill_status(
-            session, g, as_of=as_of, stream=stream, horizon=horizon, balance_cents=progress.balance_cents
+            session, g, as_of=as_of, stream=stream, horizon=horizon, balance_cents=progress.balance_cents,
+            batch=batch,
         )
-        last_paid = last_paid_text(session, g, as_of=as_of) if g.kind == "recurring_bill" else None
-        earliest_unpaid = earliest_unpaid_due_date(session, g)
+        last_paid = last_paid_text(session, g, as_of=as_of, batch=batch) if g.kind == "recurring_bill" else None
+        earliest_unpaid = earliest_unpaid_due_date(session, g, batch)
         out.append(
             GoalProgressOut(
                 goal=GoalOut.model_validate(g),

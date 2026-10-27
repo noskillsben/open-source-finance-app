@@ -23,11 +23,11 @@ from app.schemas import (
 )
 from app.services.accounts import (
     AccountError,
-    _opening_valuation,
     account_balance_cents,
+    account_balances,
     account_latest_ledger_date,
     create_account_with_opening_valuation,
-    carried_statement_note,
+    carried_statement_notes,
     credit_limit_note,
     reject_floor_below_credit_limit,
     update_account,
@@ -38,9 +38,8 @@ from app.services.links import (
     LinkError,
     add_category_link,
     check_new_account_link,
-    drift_cents,
-    drift_note,
-    linked_category_ids,
+    drift_notes,
+    linked_category_ids_by_account,
     prune_archived_links,
     suggest_split,
 )
@@ -48,8 +47,7 @@ from app.services.transactions import TransactionError
 from app.services.valuations import (
     check_balance,
     delete_valuation as remove_valuation,
-    entries_added_since_check,
-    latest_valuation,
+    valuation_picture,
 )
 
 router = APIRouter()
@@ -57,34 +55,46 @@ router = APIRouter()
 
 
 def _account_out(session: Session, account: Account, *, as_of: date | None = None) -> AccountOut:
-    valuation = latest_valuation(session, account.id, as_of=as_of)
-    balance_cents = account_balance_cents(session, account.id, as_of=as_of)
-    notes = []
-    limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)
-    if limit_note is not None:
-        notes.append(f"{limit_note}.")
-    carried = carried_statement_note(session, account, as_of)
-    if carried is not None:
-        notes.append(carried)
-    drift = drift_cents(session, account.id, as_of=as_of)
-    drifting = drift_note(session, account, drift)
-    if drifting is not None:
-        notes.append(drifting)
-    return AccountOut(
-        id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
-        type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
-        balance_cents=balance_cents, locked_payee_id=account.locked_payee_id,
-        boundary_category_id=account.boundary_category_id,
-        linked_category_ids=linked_category_ids(session, account.id),
-        checked_on=valuation.date if valuation is not None else None,
-        checked_valuation_id=valuation.id if valuation is not None else None,
-        checked_is_opening=valuation is not None and valuation is _opening_valuation(session, account),
-        entries_added_since_check=(
-            entries_added_since_check(session, account.id, valuation) if valuation is not None else 0
-        ),
-        notes=notes,
-        terms=DebtTerms.model_validate(account, from_attributes=True),
-    )
+    return _accounts_out(session, [account], as_of=as_of)[0]
+
+
+def _accounts_out(session: Session, accounts: list[Account], *, as_of: date | None = None) -> list[AccountOut]:
+    """One row per account, with every ledger-derived number for the whole list read in a fixed
+    number of grouped queries instead of a handful per account. Each number equals the
+    single-account function it replaces (`account_balance_cents`, `latest_valuation`,
+    `entries_added_since_check`, `carried_statement_note`, `drift_cents`/`drift_note`).
+    """
+    balances = account_balances(session, as_of=as_of)
+    pictures = valuation_picture(session, [a.id for a in accounts], as_of=as_of)
+    carried = carried_statement_notes(session, accounts, as_of)
+    drift = drift_notes(session, accounts, as_of=as_of)
+    links = linked_category_ids_by_account(session)
+    out = []
+    for account in accounts:
+        balance_cents = balances.get(account.id, 0)
+        valuation, is_opening, entries = pictures[account.id]
+        notes = []
+        limit_note = credit_limit_note(balance_cents, account.credit_limit_cents)
+        if limit_note is not None:
+            notes.append(f"{limit_note}.")
+        if carried[account.id] is not None:
+            notes.append(carried[account.id])
+        if drift[account.id] is not None:
+            notes.append(drift[account.id])
+        out.append(AccountOut(
+            id=account.id, name=account.name, created_on=account.created_on, archived_on=account.archived_on,
+            type=account.type, on_budget=account.on_budget, on_budget_floor_cents=account.on_budget_floor_cents,
+            balance_cents=balance_cents, locked_payee_id=account.locked_payee_id,
+            boundary_category_id=account.boundary_category_id,
+            linked_category_ids=links.get(account.id, []),
+            checked_on=valuation.date if valuation is not None else None,
+            checked_valuation_id=valuation.id if valuation is not None else None,
+            checked_is_opening=is_opening,
+            entries_added_since_check=entries,
+            notes=notes,
+            terms=DebtTerms.model_validate(account, from_attributes=True),
+        ))
+    return out
 
 
 @router.get("/api/accounts", response_model=list[AccountOut])
@@ -93,7 +103,7 @@ def list_accounts(
 ) -> list[AccountOut]:
     visible = _visible(Account, as_of, include_archived)
     accounts = session.scalars(select(Account).where(visible).order_by(Account.name)).all()
-    return [_account_out(session, a, as_of=as_of) for a in accounts]
+    return _accounts_out(session, list(accounts), as_of=as_of)
 
 
 def _reject_floor_below_credit_limit(floor_cents: int, credit_limit_cents: int | None) -> None:
