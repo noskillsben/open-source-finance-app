@@ -7,6 +7,7 @@ import EmptyState from './components/EmptyState.jsx'
 import LoadingRows from './components/LoadingRows.jsx'
 import { RefusalNote, SaveNote, WarningNote } from './components/Notes.jsx'
 import SidePanel, { PanelLayout } from './components/SidePanel.jsx'
+import MemberStatement from './MemberStatement.jsx'
 import NamePicker from './NamePicker.jsx'
 import PayeePicker from './PayeePicker.jsx'
 import { formatCents, formatDate, formatPercent, parsePercent } from './utils/format.js'
@@ -171,6 +172,9 @@ export default function Splits({ pickerDate }) {
     }
   }
 
+  // Every member's receivable account, so a statement can tell their lines from my paying account.
+  const memberAccountIds = [...new Set((splits ?? []).flatMap((s) => s.members.map((m) => m.account_id)))]
+
   const accountItems = accounts.map((a) => ({ id: a.id, name: a.name }))
 
   const formPanel = panelOpen && (
@@ -313,6 +317,8 @@ export default function Splits({ pickerDate }) {
                             balance={balances[m.account_id]}
                             names={names}
                             ledger={ledger}
+                            pickerDate={pickerDate}
+                            memberAccountIds={memberAccountIds}
                             onSettle={() => settleUp(m, balances[m.account_id])}
                           />
                         )}
@@ -331,7 +337,24 @@ export default function Splits({ pickerDate }) {
 }
 
 // What a member owes, a Settle up button, and the transactions since the balance last stood at zero.
-function MemberBalance({ member, balance, names, ledger, onSettle }) {
+function MemberBalance({ member, balance, names, ledger, pickerDate, memberAccountIds, onSettle }) {
+  // Print mounts the statement, opens the browser's print dialog (Save as PDF is the export), and
+  // takes the statement down again when the dialog closes.
+  const [printing, setPrinting] = useState(false)
+  const printed = useRef(false) // StrictMode runs an effect twice in development; the dialog opens once
+  useEffect(() => {
+    if (!printing) return undefined
+    const done = () => {
+      printed.current = false
+      setPrinting(false)
+    }
+    window.addEventListener('afterprint', done)
+    if (!printed.current) {
+      printed.current = true
+      window.print()
+    }
+    return () => window.removeEventListener('afterprint', done)
+  }, [printing])
   const cents = balance.balance_cents
   const text =
     cents > 0 ? `${member.payee_name} owes you ${formatCents(cents)}`
@@ -343,9 +366,13 @@ function MemberBalance({ member, balance, names, ledger, onSettle }) {
       <div className="flex items-center gap-3">
         <span>{text}</span>
         {cents !== 0 && (
-          <Button variant="quiet" onClick={onSettle}>Settle up</Button>
+          <>
+            <Button variant="quiet" onClick={onSettle}>Settle up</Button>
+            <Button variant="quiet" onClick={() => setPrinting(true)}>Print</Button>
+          </>
         )}
       </div>
+      {printing && <MemberStatement memberName={member.payee_name} balance={balance} names={names} pickerDate={pickerDate} memberAccountIds={memberAccountIds} />}
       {balance.unheld && (
         <p className="text-sm text-text-2">
           {member.payee_name}&apos;s {formatCents(cents)} isn&apos;t held in an envelope, so Ready to assign still counts it — link their account to{' '}

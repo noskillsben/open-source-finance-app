@@ -18,7 +18,7 @@ vi.mock('./api.js', () => ({
       balance: (id) => Promise.resolve(balances[id] ?? { account_id: id, balance_cents: 0, touched: false, transactions: [] }),
     },
     transactions: { list: transactionsList },
-    categories: { list: () => Promise.resolve([{ id: 1, name: 'Groceries' }]) },
+    categories: { list: () => Promise.resolve([{ id: 1, name: 'Groceries' }, { id: 2, name: 'Fuel' }]) },
     goals: { list: () => Promise.resolve([]) },
     payees: { list: () => Promise.resolve([{ id: 7, name: 'Sam' }, { id: 8, name: 'Kit' }]), create: vi.fn() },
     accounts: { list: () => Promise.resolve([{ id: 3, name: 'Roommate' }]) },
@@ -168,6 +168,80 @@ describe('the Split expenses page', () => {
     renderSplits()
     expect(await screen.findByText('Nothing owed')).toBeInTheDocument()
     expect(screen.queryByText('Settled up')).not.toBeInTheDocument()
+  })
+
+  describe('Print', () => {
+    const base = { memo: null, payee_id: null, income_stream_id: null, goal_id: null, category_lines: [], shared_total_cents: null, paid_by_payee_id: null }
+    const BILLS = [
+      // Out of order on purpose: the statement is oldest first.
+      { ...base, id: 4, date: '2026-10-04', memo: 'Part payment', split_id: null, account_lines: [{ id: 9, account_id: 3, cents: -200 }] },
+      { ...base, id: 2, date: '2026-10-02', split_id: 5, paid_by_payee_id: 7, account_lines: [{ id: 5, account_id: 3, cents: -1000 }] },
+      { ...base, id: 3, date: '2026-10-03', split_id: 5, paid_by_payee_id: 7, shared_total_cents: 6000, payee_id: 8, category_lines: [{ id: 1, category_id: 1, cents: 1500 }, { id: 2, category_id: 2, cents: 1500 }], account_lines: [{ id: 6, account_id: 3, cents: -3000 }] },
+      { ...base, id: 1, date: '2026-10-01', split_id: 5, payee_id: 8, category_lines: [{ id: 3, category_id: 1, cents: 5000 }], account_lines: [{ id: 7, account_id: 20, cents: -10000 }, { id: 8, account_id: 3, cents: 5000 }] },
+    ]
+
+    beforeEach(() => {
+      window.print = vi.fn()
+    })
+
+    async function openStatement(balanceCents, transactions) {
+      balances.splits = household().slice(0, 1)
+      balances[3] = { account_id: 3, balance_cents: balanceCents, transactions }
+      renderSplits()
+      fireEvent.click(await screen.findByRole('button', { name: 'Print' }))
+      await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1))
+      return within(document.getElementById('print-statement'))
+    }
+
+    it('prints each bill with the right whole bill, payer, share and running total', async () => {
+      const statement = await openStatement(800, BILLS)
+      expect(statement.getByRole('heading', { name: 'Sam' })).toBeInTheDocument()
+      expect(statement.getByText('Oct 5, 2026')).toBeInTheDocument()
+      const rows = statement.getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent))
+      expect(rows).toEqual([
+        ['Oct 1, 2026', 'Kit', 'Groceries', '$100.00', 'You', '$50.00', '$50.00'],
+        ['Oct 2, 2026', '', '', '', 'Sam', '−$10.00', '$40.00'],
+        ['Oct 3, 2026', 'Kit', 'Groceries, Fuel', '$60.00', 'Sam', '−$30.00', '$10.00'],
+        ['Oct 4, 2026', 'Part payment', '', '', '', '−$2.00', '$8.00'],
+      ])
+      expect(statement.getByText('Sam owes you $8.00')).toBeInTheDocument()
+    })
+
+    it('prints a refund on a bill I paid with the whole bill, and ignores other members receivables', async () => {
+      balances.splits = [{ ...household()[0], members: [SAM, { ...SAM, id: 3, payee_id: 8, payee_name: 'Kit', account_id: 4 }] }]
+      balances[3] = {
+        account_id: 3,
+        balance_cents: 1500,
+        transactions: [
+          // I paid $100 with two members: Sam 30, Kit 20 (their receivables are positive lines).
+          { ...base, id: 1, date: '2026-10-01', split_id: 5, account_lines: [{ id: 1, account_id: 20, cents: -10000 }, { id: 2, account_id: 3, cents: 3000 }, { id: 3, account_id: 4, cents: 2000 }] },
+          // A $50 refund of it: money back to me, their receivables shrink.
+          { ...base, id: 2, date: '2026-10-02', split_id: 5, account_lines: [{ id: 4, account_id: 20, cents: 5000 }, { id: 5, account_id: 3, cents: -1500 }, { id: 6, account_id: 4, cents: -1000 }] },
+        ],
+      }
+      balances[4] = { account_id: 4, balance_cents: 1000, transactions: [] }
+      renderSplits()
+      fireEvent.click((await screen.findAllByRole('button', { name: 'Print' }))[0])
+      await waitFor(() => expect(window.print).toHaveBeenCalledTimes(1))
+      const rows = within(document.getElementById('print-statement')).getAllByRole('row').slice(1).map((r) => within(r).getAllByRole('cell').map((c) => c.textContent))
+      expect(rows.map((r) => [r[3], r[4], r[5], r[6]])).toEqual([
+        ['$100.00', 'You', '$30.00', '$30.00'],
+        ['$50.00', 'You', '−$15.00', '$15.00'],
+      ])
+    })
+
+    it('says so when I owe them', async () => {
+      const statement = await openStatement(-2050, [BILLS[2]].map((t) => ({ ...t, account_lines: [{ id: 6, account_id: 3, cents: -2050 }] })))
+      expect(statement.getByText('You owe Sam $20.50')).toBeInTheDocument()
+    })
+
+    it('has no Print button when nothing is owed', async () => {
+      balances.splits = household().slice(0, 1)
+      balances[3] = { account_id: 3, balance_cents: 0, touched: true, transactions: [] }
+      renderSplits()
+      expect(await screen.findByText('Settled up')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'Print' })).not.toBeInTheDocument()
+    })
   })
 
   it('Settle up opens the Ledger with their account taking the opposite of what they owe', async () => {

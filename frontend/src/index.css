@@ -119,3 +119,33 @@
     @apply border-l-4 border-negative text-negative;
   }
 }
+
+/* A member's statement (Split expenses → Print): hidden on screen; on paper it is the whole page,
+   light on white, with the menu, bars and every control left out. */
+#print-statement {
+  display: none;
+}
+@media print {
+  body > #root {
+    display: none;
+  }
+  html,
+  body {
+    background: white;
+    color: black;
+  }
+  #print-statement {
+    display: block;
+    padding: 1rem;
+    background: white;
+    color: black;
+  }
+  #print-statement th {
+    color: black;
+    height: auto;
+  }
+  #print-statement td {
+    height: auto;
+    padding: 0.25rem 0.5rem;
+  }
+}
