@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 import { api } from '../api.js'
 import { parseCents } from '../utils/format.js'
+import { billSourceRows, settleUpRows } from './fronting.js'
 
 // The bill this payment paid (DESIGN.md § Goals → Paying a bill) and the envelopes a move into or out of
 // a linked account funds (DESIGN.md § Linked categories): both are read off the account and category lines.
-export function useBillLink({ accounts, categories, goals, accountLines, categoryLines, editingId, date }) {
+export function useBillLink({ accounts, categories, goals, accountLines, categoryLines, editingId, date, splitsAll }) {
   const [deposits, setDeposits] = useState([])
   // Once the user has changed the envelope step it stops being re-filled from the balance.
   const depositsTouched = useRef(false)
@@ -59,6 +60,9 @@ export function useBillLink({ accounts, categories, goals, accountLines, categor
   const prefillAccount = linkedLines.length === 1 ? accounts.find((a) => String(a.id) === linkedLines[0].account_id) : null
   const prefillCategoryId = prefillAccount?.linked_category_ids.length === 1 ? prefillAccount.linked_category_ids[0] : null
   const prefillCents = prefillCategoryId != null ? parseCents(linkedLines[0].cents) : null
+  // The categories the bill spends from, so the step is re-filled when they change (until it is edited).
+  const spendKey = categoryLines.map((l) => `${l.category_id}:${l.cents}`).join('|')
+  const isMember = prefillAccount != null && (splitsAll ?? []).some((s) => s.members.some((m) => m.account_id === prefillAccount.id))
   useEffect(() => {
     if (editingId != null || depositsTouched.current || !date) return
     if (prefillCategoryId == null) return setDeposits([]) // no longer qualifies: drop the pre-filled row
@@ -66,20 +70,24 @@ export function useBillLink({ accounts, categories, goals, accountLines, categor
     let stale = false
     api.accounts
       .balance(prefillAccount.id, date)
-      .then(({ balance_cents: b }) => {
-        if (stale || depositsTouched.current) return
+      .then(async ({ balance_cents: b }) => {
         const directed = Math.max(0, b + prefillCents) - Math.max(0, b)
-        setDeposits(
-          directed === 0
-            ? []
-            : [{ category_id: String(prefillCategoryId), cents: String(Math.abs(directed) / 100), other_category_id: '' }]
-        )
+        if (directed === 0) return stale || depositsTouched.current ? undefined : setDeposits([])
+        let rows
+        if (directed > 0) rows = billSourceRows(directed, categoryLines, prefillCategoryId)
+        else if (isMember) {
+          // A settle-up goes back to where the bills fronted it: read off the saved deposit lines.
+          const [{ transactions }, all] = await Promise.all([api.splits.balance(prefillAccount.id, date), api.transactions.list()])
+          rows = settleUpRows(-directed, prefillCategoryId, prefillAccount.id, transactions, all)
+        } else rows = [{ category_id: String(prefillCategoryId), cents: String(-directed / 100), other_category_id: '' }]
+        if (stale || depositsTouched.current) return
+        setDeposits(rows)
       })
       .catch(() => {})
     return () => {
       stale = true
     }
-  }, [editingId, prefillAccount?.id, prefillCategoryId, prefillCents, date])
+  }, [editingId, prefillAccount?.id, prefillCategoryId, prefillCents, date, spendKey, isMember])
 
   const envelopes = (categories ?? []).filter((c) => linkedCategoryIds.has(c.id))
   const depositTotal = deposits.reduce((sum, d) => sum + (parseCents(d.cents) ?? 0), 0)
