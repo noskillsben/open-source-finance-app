@@ -8,9 +8,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Account, Category, EarmarkLine, Transaction
-from app.services.accounts import account_balance_cents, on_budget_cents
+from app.services.accounts import account_balances, on_budget_cents
 from app.services.archiving import Archivable
-from app.services.categories import category_balance_cents
+from app.services.categories import category_balances
 from app.services.transactions import backdate_created_on
 
 
@@ -18,33 +18,29 @@ class EarmarkError(ValueError):
     """An assignment the service refuses — a planning surface, so a block is allowed."""
 
 
-def _category_balances(session: Session, as_of: date) -> list[int]:
-    """Every category's balance on `as_of`, archived ones included — an archived category can
-    still hold money, and dropping it would change the difference below.
-    """
-    return [
-        category_balance_cents(session, category_id, as_of=as_of)
-        for category_id in session.scalars(select(Category.id))
-    ]
-
-
-def ready_to_assign_cents(session: Session, *, as_of: date) -> int:
+def ready_to_assign_cents(session: Session, *, as_of: date, balances: dict[int, int] | None = None) -> int:
     """The one definition: every on-budget account's on-budget money (balance − floor,
     unclamped) minus every category's balance. A plain difference — no `max()`, so an
-    overspent category reads back into it (DESIGN.md § Pools). Computed, never stored.
+    overspent category reads back into it (DESIGN.md § Pools). Computed, never stored. `balances`
+    is `category_balances` when the caller already has it, so it is not computed twice.
     """
+    if balances is None:
+        balances = category_balances(session, as_of=as_of)
+    account_cents = account_balances(session, as_of=as_of)
     on_budget_total = sum(
-        on_budget_cents(account_balance_cents(session, account.id, as_of=as_of), account.on_budget_floor_cents)
+        on_budget_cents(account_cents.get(account.id, 0), account.on_budget_floor_cents)
         for account in session.scalars(select(Account).where(Account.on_budget.is_(True)))
     )
-    return on_budget_total - sum(_category_balances(session, as_of))
+    return on_budget_total - sum(balances.values())
 
 
-def overspent_cents(session: Session, *, as_of: date) -> int:
+def overspent_cents(session: Session, *, as_of: date, balances: dict[int, int] | None = None) -> int:
     """The negative category balances on `as_of`, summed (zero or negative). Display only — the
     headline's "includes −$X in overspent categories"; it feeds no write and changes no number.
     """
-    return sum(balance for balance in _category_balances(session, as_of) if balance < 0)
+    if balances is None:
+        balances = category_balances(session, as_of=as_of)
+    return sum(balance for balance in balances.values() if balance < 0)
 
 
 def _movable_category(session: Session, category_id: int, move_date: date) -> Category:

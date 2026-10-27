@@ -8,7 +8,7 @@ never stored (DESIGN.md § Two dates on every row).
 """
 from datetime import date
 
-from sqlalchemy import func, select
+from sqlalchemy import BigInteger, Date, DateTime, column, func, select, values
 from sqlalchemy.orm import Session
 
 from app.models import AccountLine, Transaction, Valuation
@@ -88,6 +88,54 @@ def entries_added_since_check(session: Session, account_id: int, valuation: Valu
             Transaction.valuation_id.is_distinct_from(valuation.id),
         )
     )
+
+
+def valuation_picture(
+    session: Session, account_ids: list[int], *, as_of: date | None
+) -> dict[int, tuple[Valuation | None, bool, int]]:
+    """For each account, what its row shows about balance checks: (the latest check on `as_of`,
+    whether that check is the opening valuation, entries added since it) — the three single-account
+    answers (`latest_valuation`, `_opening_valuation`, `entries_added_since_check`) from two queries
+    for all accounts: every valuation once, then one grouped count joined to a values list of
+    (account, check) pairs. Equal to the single-account functions per account.
+    """
+    by_account: dict[int, list[Valuation]] = {account_id: [] for account_id in account_ids}
+    if account_ids:
+        for valuation in session.scalars(
+            select(Valuation).where(Valuation.account_id.in_(account_ids)).order_by(Valuation.date, Valuation.id)
+        ):
+            by_account[valuation.account_id].append(valuation)
+    picture: dict[int, tuple[Valuation | None, bool, int]] = {}
+    checks: dict[int, Valuation] = {}
+    for account_id, valuations in by_account.items():
+        # Same picks as the single-account queries: the opening is the earliest by (date, id);
+        # the latest on `as_of` is the newest by (date, id) dated on or before it.
+        latest = next((v for v in reversed(valuations) if as_of is None or v.date <= as_of), None)
+        is_opening = latest is not None and latest is valuations[0]
+        picture[account_id] = (latest, is_opening, 0)
+        if latest is not None and not is_opening:
+            checks[account_id] = latest
+    if checks:
+        wanted = values(
+            column("account_id", BigInteger), column("valuation_id", BigInteger),
+            column("check_date", Date), column("checked_at", DateTime(timezone=True)), name="wanted",
+        ).data([(a, v.id, v.date, v.created_at) for a, v in checks.items()])
+        counts = dict(session.execute(
+            select(wanted.c.account_id, func.count(func.distinct(Transaction.id)))
+            .select_from(wanted)
+            .join(AccountLine, AccountLine.account_id == wanted.c.account_id)
+            .join(Transaction, AccountLine.transaction_id == Transaction.id)
+            .where(
+                Transaction.date <= wanted.c.check_date,
+                Transaction.created_at > wanted.c.checked_at,
+                Transaction.valuation_id.is_distinct_from(wanted.c.valuation_id),
+            )
+            .group_by(wanted.c.account_id)
+        ).all())
+        for account_id in checks:
+            latest, is_opening, _ = picture[account_id]
+            picture[account_id] = (latest, is_opening, int(counts.get(account_id, 0)))
+    return picture
 
 
 def delete_valuation(session: Session, valuation: Valuation) -> None:

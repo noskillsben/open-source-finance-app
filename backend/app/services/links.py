@@ -10,8 +10,8 @@ from sqlalchemy.orm import Session
 
 from app.models import Account, Category, CategoryAccountLink
 from app.seed import OWED_TO_ME_KEY
-from app.services.accounts import account_balance_cents, dollars
-from app.services.categories import category_balance_cents
+from app.services.accounts import account_balance_cents, account_balances, dollars
+from app.services.categories import category_balance_cents, category_balances
 
 
 class LinkError(ValueError):
@@ -93,6 +93,17 @@ def linked_category_ids(session: Session, account_id: int) -> list[int]:
     ))
 
 
+def linked_category_ids_by_account(session: Session) -> dict[int, list[int]]:
+    """`linked_category_ids` for every account in one query."""
+    result: dict[int, list[int]] = {}
+    for account_id, category_id in session.execute(
+        select(CategoryAccountLink.account_id, CategoryAccountLink.category_id)
+        .order_by(CategoryAccountLink.account_id, CategoryAccountLink.category_id)
+    ):
+        result.setdefault(account_id, []).append(category_id)
+    return result
+
+
 def linked_accounts_by_category(session: Session) -> dict[int, list[Account]]:
     """Every category's linked accounts in one query, for the category list."""
     rows = session.execute(
@@ -150,12 +161,10 @@ def suggest_split(session: Session, account_id: int, *, as_of: date, diff_cents:
     return split_pro_rata(balances, diff_cents)
 
 
-def link_group(session: Session, account_id: int) -> tuple[list[int], list[int]]:
-    """The connected set in `category_account_link` containing `account_id`: follow links from
-    account to category and category to account. Returns (account ids, category ids), each
-    sorted by id; ([], []) when the account has no links. Archived ends carry no link.
+def _group_in(links: list[tuple[int, int]], account_id: int) -> tuple[list[int], list[int]]:
+    """The connected set in `links` ((account id, category id) pairs) containing `account_id`:
+    follow links from account to category and category to account. Sorted by id each.
     """
-    links = session.execute(select(CategoryAccountLink.account_id, CategoryAccountLink.category_id)).all()
     accounts, categories = {account_id}, set()
     grew = True
     while grew:
@@ -168,6 +177,15 @@ def link_group(session: Session, account_id: int) -> tuple[list[int], list[int]]
     if not categories:
         return [], []
     return sorted(accounts), sorted(categories)
+
+
+def link_group(session: Session, account_id: int) -> tuple[list[int], list[int]]:
+    """The connected set in `category_account_link` containing `account_id`: follow links from
+    account to category and category to account. Returns (account ids, category ids), each
+    sorted by id; ([], []) when the account has no links. Archived ends carry no link.
+    """
+    links = session.execute(select(CategoryAccountLink.account_id, CategoryAccountLink.category_id)).all()
+    return _group_in(links, account_id)
 
 
 def drift_cents(session: Session, account_id: int, *, as_of: date | None) -> int | None:
@@ -186,8 +204,47 @@ def drift_cents(session: Session, account_id: int, *, as_of: date | None) -> int
     return held - envelopes
 
 
+def drift_notes(session: Session, accounts: list[Account], *, as_of: date | None) -> dict[int, str | None]:
+    """`drift_cents` + `drift_note` for many accounts from one links query, one balances query
+    per side and one name lookup each, however many accounts or categories there are. Equal to
+    the single-account functions per account.
+    """
+    links = [tuple(row) for row in session.execute(
+        select(CategoryAccountLink.account_id, CategoryAccountLink.category_id)
+    )]
+    groups = {a.id: _group_in(links, a.id) for a in accounts}
+    notes: dict[int, str | None] = {a.id: None for a in accounts}
+    if not any(category_ids for _, category_ids in groups.values()):
+        return notes
+    category_cents = category_balances(session, as_of=as_of or date.max)
+    account_cents = account_balances(session, as_of=as_of)
+    account_names = dict(session.execute(select(Account.id, Account.name)).all())
+    category_names = dict(session.execute(select(Category.id, Category.name)).all())
+    for account in accounts:
+        account_ids, category_ids = groups[account.id]
+        if not category_ids:
+            continue
+        envelopes = sum(category_cents.get(c, 0) for c in category_ids)
+        held = sum(max(0, account_cents.get(a, 0)) for a in account_ids)
+        notes[account.id] = _drift_text(
+            [account_names[a] for a in account_ids], [category_names[c] for c in category_ids], held - envelopes
+        )
+    return notes
+
+
 def _join(names: list[str]) -> str:
     return " and ".join(names)
+
+
+def _drift_text(accounts: list[str], categories: list[str], drift: int) -> str | None:
+    if not drift:
+        return None
+    if drift > 0:
+        verb = "holds" if len(accounts) == 1 else "hold"
+        return f"{_join(accounts)} {verb} {dollars(drift)} not claimed by {_join(categories)}."
+    verb = "holds" if len(categories) == 1 else "hold"
+    does = "does" if len(accounts) == 1 else "do"
+    return f"{_join(categories)} {verb} {dollars(-drift)} more than {_join(accounts)} {does}."
 
 
 def drift_note(session: Session, account: Account, drift: int | None) -> str | None:
@@ -195,11 +252,8 @@ def drift_note(session: Session, account: Account, drift: int | None) -> str | N
     if not drift:
         return None
     account_ids, category_ids = link_group(session, account.id)
-    accounts = [session.get(Account, a).name for a in account_ids]
-    categories = [session.get(Category, c).name for c in category_ids]
-    if drift > 0:
-        verb = "holds" if len(accounts) == 1 else "hold"
-        return f"{_join(accounts)} {verb} {dollars(drift)} not claimed by {_join(categories)}."
-    verb = "holds" if len(categories) == 1 else "hold"
-    does = "does" if len(accounts) == 1 else "do"
-    return f"{_join(categories)} {verb} {dollars(-drift)} more than {_join(accounts)} {does}."
+    return _drift_text(
+        [session.get(Account, a).name for a in account_ids],
+        [session.get(Category, c).name for c in category_ids],
+        drift,
+    )
