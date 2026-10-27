@@ -31,23 +31,22 @@ describe('billSourceRows', () => {
 
 describe('settleUpRows', () => {
   const member = 5
-  const bill = (id, sign) => ({ id, account_lines: [{ account_id: member, cents: sign * 100 }] })
-  const all = [
-    { id: 1, deposits: [{ category_id: OWED, cents: 5000, other_category_id: 1 }] },
-    { id: 2, deposits: [{ category_id: OWED, cents: 3000, other_category_id: null }] },
-    { id: 3, deposits: [] },
+  const bill = (id, sign, deposits = []) => ({ id, deposits, account_lines: [{ account_id: member, cents: sign * 100 }] })
+  const txns = [
+    bill(1, 1, [{ category_id: OWED, cents: 5000, other_category_id: 1 }]),
+    bill(2, 1, [{ category_id: OWED, cents: 3000, other_category_id: null }]),
+    bill(3, -1),
   ]
-  const txns = [bill(1, 1), bill(2, 1), bill(3, -1)]
   it('returns each source in full when the balance still equals what was fronted', () => {
-    expect(cents(settleUpRows(8000, OWED, member, txns.slice(0, 2), all))).toEqual([['1', '50'], ['', '30']])
+    expect(cents(settleUpRows(8000, OWED, member, txns.slice(0, 2)))).toEqual([['1', '50'], ['', '30']])
   })
   it('scales to the balance after a bill they paid, and to a part payment', () => {
-    expect(cents(settleUpRows(6000, OWED, member, txns, all))).toEqual([['1', '37.5'], ['', '22.5']])
-    const part = settleUpRows(2000, OWED, member, txns, all)
+    expect(cents(settleUpRows(6000, OWED, member, txns))).toEqual([['1', '37.5'], ['', '22.5']])
+    const part = settleUpRows(2000, OWED, member, txns)
     expect(part.reduce((s, r) => s + Number(r.cents) * 100, 0)).toBe(2000)
   })
   it('sends what cannot be traced to ready to assign', () => {
-    expect(cents(settleUpRows(4000, OWED, member, [bill(3, 1)], all))).toEqual([['', '40']])
-    expect(cents(settleUpRows(10000, OWED, member, txns.slice(0, 1), all))).toEqual([['1', '50'], ['', '50']])
+    expect(cents(settleUpRows(4000, OWED, member, [bill(3, 1)]))).toEqual([['', '40']])
+    expect(cents(settleUpRows(10000, OWED, member, txns.slice(0, 1)))).toEqual([['1', '50'], ['', '50']])
   })
 })

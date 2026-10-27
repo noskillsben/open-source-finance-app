@@ -27,13 +27,12 @@ export function billSourceRows(directed, categoryLines, linkedId) {
 // since the balance last stood at zero, by where it came from, scaled to the amount leaving. Bills the
 // member paid lower the balance without fronting, so the sources are scaled, not summed; whatever cannot
 // be traced goes back to ready to assign.
-export function settleUpRows(amount, linkedId, accountId, balanceTransactions, allTransactions) {
-  const depositsById = new Map((allTransactions ?? []).map((t) => [t.id, t.deposits ?? []]))
+export function settleUpRows(amount, linkedId, accountId, balanceTransactions) {
   const sources = new Map() // other_category_id (null: ready to assign) -> cents fronted
   for (const t of balanceTransactions ?? []) {
     const movedIn = t.account_lines.some((l) => l.account_id === accountId && l.cents > 0)
     if (!movedIn) continue
-    for (const d of depositsById.get(t.id) ?? []) {
+    for (const d of t.deposits ?? []) {
       if (d.category_id !== linkedId) continue
       const key = d.other_category_id ?? null
       sources.set(key, (sources.get(key) ?? 0) + d.cents)

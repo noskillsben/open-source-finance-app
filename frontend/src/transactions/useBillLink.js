@@ -77,8 +77,8 @@ export function useBillLink({ accounts, categories, goals, accountLines, categor
         if (directed > 0) rows = billSourceRows(directed, categoryLines, prefillCategoryId)
         else if (isMember) {
           // A settle-up goes back to where the bills fronted it: read off the saved deposit lines.
-          const [{ transactions }, all] = await Promise.all([api.splits.balance(prefillAccount.id, date), api.transactions.list()])
-          rows = settleUpRows(-directed, prefillCategoryId, prefillAccount.id, transactions, all)
+          const { transactions } = await api.splits.balance(prefillAccount.id, date)
+          rows = settleUpRows(-directed, prefillCategoryId, prefillAccount.id, transactions)
         } else rows = [{ category_id: String(prefillCategoryId), cents: String(-directed / 100), other_category_id: '' }]
         if (stale || depositsTouched.current) return
         setDeposits(rows)

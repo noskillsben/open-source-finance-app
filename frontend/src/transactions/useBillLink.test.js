@@ -25,12 +25,12 @@ describe('useBillLink: follow the money (#443)', () => {
   it('a settle-up goes back to the categories that fronted it', async () => {
     vi.spyOn(api.accounts, 'balance').mockResolvedValue({ balance_cents: 8000 })
     vi.spyOn(api.splits, 'balance').mockResolvedValue({
-      transactions: [{ id: 1, account_lines: [{ account_id: 7, cents: 5000 }] }, { id: 2, account_lines: [{ account_id: 7, cents: 3000 }] }],
+      transactions: [
+        { id: 1, account_lines: [{ account_id: 7, cents: 5000 }], deposits: [{ category_id: 13, cents: 5000, other_category_id: 1 }] },
+        { id: 2, account_lines: [{ account_id: 7, cents: 3000 }], deposits: [{ category_id: 13, cents: 3000, other_category_id: null }] },
+      ],
     })
-    vi.spyOn(api.transactions, 'list').mockResolvedValue([
-      { id: 1, deposits: [{ category_id: 13, cents: 5000, other_category_id: 1 }] },
-      { id: 2, deposits: [{ category_id: 13, cents: 3000, other_category_id: null }] },
-    ])
+    const list = vi.spyOn(api.transactions, 'list')
     const { result } = renderHook(() =>
       useBillLink({
         ...base,
@@ -41,5 +41,6 @@ describe('useBillLink: follow the money (#443)', () => {
     )
     await waitFor(() => expect(result.current.deposits).toHaveLength(2))
     expect(result.current.deposits.map((d) => [d.other_category_id, d.cents])).toEqual([['1', '50'], ['', '30']])
+    expect(list).not.toHaveBeenCalled()
   })
 })
