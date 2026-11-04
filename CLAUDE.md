@@ -74,3 +74,5 @@ docker compose exec frontend npm test  # when tests exist
 ```
 
 Backend on http://localhost:8000 (`/api/health`, `/docs`), frontend on http://localhost:5173. Vite is configured with file polling because the source lives on a Windows drive bind-mounted into Linux containers.
+
+- **Workflow guide:** which command, skill or agent to use at each step is in docs/dev/WORKFLOW.md.
