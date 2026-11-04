@@ -59,6 +59,11 @@ Start from the latest `main`: `git fetch origin`, then `git checkout main` and `
 - Terminology: "ready to assign", "balance check", "pay screen", "named pay". Never "reconcile", "waterfall", "run", "commit" in user-facing copy.
 - **Page and nav names come from the table in DESIGN.md § UI conventions**, which is settled — never invent a route or a menu label. The nav is four groups rendered as section headers (Record / Assign / Plan / Review) with Settings and Help below, each its own section. There is no Home page; do not build one. Never "dashboard", "quick mode", or "anomalies" in user-facing copy.
 
+## Agent skills
+
+- **Issue tracker:** GitHub, via `gh`. See `docs/agents/issue-tracker.md`.
+- **Domain docs:** question-only. See `docs/agents/domain.md`. Never create `GLOSSARY.md` or `docs/adr/`; write to `docs/design/` only inside `/decide`.
+
 ## Running things
 
 ```sh
