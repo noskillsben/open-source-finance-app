@@ -16,11 +16,21 @@ Before starting it, bring the checkout to the latest `main` as CLAUDE.md § Fini
 Start the `reviewer` subagent with the PR number and the scoped prompt. It posts "ready to merge" or "changes needed" on the PR.
 
 - **changes needed:** send the findings back to the `implementer` (same branch, same PR), then review again. The limit is five rounds in total (CLAUDE.md § Starting a session). At the limit, stop and write down what is blocking, for the Manager to re-scope. Then go to "Stopping for Ben".
-- **ready to merge:** post the Done note on the issue (manager.md § Closing the session): one plain sentence of what now happens in the app, the PR link, both gates. File new issues for anything the session revealed, as manager.md says — each under an EPIC, never loose. Then go to "Stopping for Ben".
+- **ready to merge:** go to "Merge".
+
+## 4. Merge
+
+The steps are DESIGN.md § Working on the app → *How an issue reaches `main`*; this is the order.
+
+1. **Migration?** If the PR adds an Alembic revision, stop for Ben first (see "Stopping for Ben"): ask him to restore the dev database from a fresh backup downloaded from the live app. On his word, run the branch's migration on that data through the normal start-up (behind its pre-migrate backup), check Data check is empty, then continue. Anything red stops unmerged.
+2. **Local test gate, run by you, never taken on a subagent's word:** no uncommitted changes; the branch contains the latest `origin/main` (`git fetch origin`; if not, merge `origin/main` in, push, and run the gate again); if `frontend/package.json` changed, rebuild the frontend with fresh volumes; backend tests (`docker compose exec backend pytest`) and frontend tests (`docker compose exec frontend npm test`) both pass.
+3. **Red gate:** send it back to the `implementer` (same branch, same PR) and review again; it counts as a round against the limit of five.
+4. **Green gate:** `gh pr merge N --squash --delete-branch`. Then post the Done note on the issue (manager.md § Closing the session): one plain sentence of what now happens in the app, the PR link, both gates. File new issues for anything the session revealed, as manager.md says, each under an EPIC, never loose.
+5. Send Ben the one-line push (below) carrying the Done note's sentence, naming the migration if the merge included one; after a migration, also tell him in chat what it did to the data. Merging is not deploying: the Pi changes only when Ben updates it.
 
 ## Stopping for Ben
 
-You never approve or merge; `gh pr merge` is denied in settings and Ben merges. Whenever you stop for a design decision, a blocker, or a ready-to-merge PR, **first call the `PushNotification` tool** (load it with ToolSearch `select:PushNotification` if it is deferred; `status: "proactive"`), then **end the turn by asking Ben directly in chat**: what is needed and, for a merge, the PR link. The push message is one line under 200 characters that leads with what he must do, e.g. `PR #261 ready to merge (issue 33)`, `Issue 33 needs a design decision: <what>`, or `Issue 33 blocked: <why>`. The question in chat is still required; the push only gets his attention. If the tool reports "not sent", carry on, since he is at the terminal. Do not stop for anything else, do not notify for routine progress, and do not ask for plan approval.
+Stop only for: a design question, a blocker, a gate that will not go green, five rounds without ready to merge, or the migration restore. Never approve a PR; merge only as in "Merge", with `--squash`. At each stop **first call the `PushNotification` tool** (load it with ToolSearch `select:PushNotification` if it is deferred; `status: "proactive"`), then **end the turn by asking Ben directly in chat** what is needed. The push message is one line under 200 characters that leads with what he must do or what happened, e.g. `Issue 33 needs a design decision: <what>`, `Issue 33 blocked: <why>`, `PR #261 has a migration: restore dev from a fresh live backup`, or, after a merge, `Merged #261: <Done note sentence> (includes a migration)`. The question in chat is still required; the push only gets his attention. If the tool reports "not sent", carry on, since he is at the terminal. Do not notify for routine progress, and do not ask for plan approval.
 
 ## Never
 

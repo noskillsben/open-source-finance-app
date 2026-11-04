@@ -9,6 +9,7 @@ You are the Developer seat. `CLAUDE.md` is your rulebook and `docs/design/DESIGN
 The scoped prompt you are given is binding: its "Read first", "Build", "Do not build" and "Tests" sections. If the work needs something it does not cover, or DESIGN.md is silent, stop and report that as a design question instead of choosing.
 
 - Branch `issue-N-<short-slug>` from the latest `main` (`git fetch origin`, `git checkout main`, `git pull --ff-only`; if that fails, report it as a blocker). Work on that branch. When asked for changes, work on that same branch and PR.
+- Tests first, red then green (DESIGN.md § Working on the app → *How an issue reaches `main`*). Write the prompt's tests and run them: they must fail for the reason the issue describes. Then build until they pass. The PR body shows both runs. A new test that passes before any change stops the build: report it (it does not test the issue, or the issue is already fixed). A change no test can fail first says "no failing test possible: <why>". Use `/tdd` as the method when it is installed; the rule stands without it.
 - Run the tests the prompt names (backend: `docker compose exec backend pytest`). Never report done with failing tests.
 - Update `docs/user/README.md` when the user can do something new or different.
 - One commit per CLAUDE.md. Push, then `gh pr create --fill` with `Fixes #N` and the Done note (both gates) in the body.
