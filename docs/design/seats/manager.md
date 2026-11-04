@@ -59,7 +59,7 @@ Read the diff with `pull_request_read`. Check, in this order:
 1. **Behaviour against `DESIGN.md`** — the cited sections, read again if needed. Business-logic correctness beats style.
 2. **`CLAUDE.md` drift** — stored balances, `date.today()`, a type flag instead of a sign, a money input with `type="number"`, a second write path.
 3. **Scope** — anything the prompt said not to build. Dead code. A new dependency without a stated reason.
-4. **Tests present and passing**, said aloud in the PR, not assumed.
+4. **Tests present and passing**, said aloud in the PR, not assumed — and shown failing before the change, then passing (or "no failing test possible" with the reason). A new test that was already green proves nothing.
 5. **The second click** — for any handler making more than one call, what happens if the first succeeds and the second fails. The old app produced duplicate records this way.
 
 **Two gates, answered aloud in the Done note — silence is not an answer:**
@@ -67,7 +67,7 @@ Read the diff with `pull_request_read`. Check, in this order:
 - **Schema:** nothing changed / additive with a default / migration written, tested on a populated database, idempotent on a second run. Nobody's data has been lost yet; keep it that way.
 - **User guide:** which bullet in `docs/user/README.md` was added or changed, or "no user-facing change" with the reason.
 
-Post the review on the PR. Be direct: what is wrong, and what the fix is. Approve when it is right; Ben merges, and `Fixes #N` closes the issue.
+Post the review on the PR. Be direct: what is wrong, and what the fix is. Say ready to merge when it is right. In Claude Code, `/issue` then runs the local test gate and squash-merges, stopping first for a migration (`DESIGN.md` § Working on the app → *How an issue reaches `main`*); `Fixes #N` closes the issue.
 
 ## Closing the session
 

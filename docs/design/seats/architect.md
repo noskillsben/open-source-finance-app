@@ -39,7 +39,7 @@ Read the section before re-opening any of these; each was decided with Ben and i
 
 ## Recording a decision
 
-There are no ADR files. A decision is an edit to the section it changes plus one dated line in the decision log, so the document stays the only source of truth and nothing overrules anything.
+There are no ADR files and no glossary. A decision is an edit to the section it changes plus one dated line in the decision log, so the document stays the only source of truth and nothing overrules anything. A skill that would keep either (`/grill-with-docs`, `domain-modeling`) writes to `DESIGN.md` only inside `/decide`, by these rules (`DESIGN.md` § Working on the app → *Outside skills add no second mechanism*).
 
 - **Edit the section in place** so it reads as if it had always said this. The log line carries the date and what changed; the section carries the current truth.
 - **Open the log line with the plain sentence** — what the user will see, or stop seeing — then the mechanism.
