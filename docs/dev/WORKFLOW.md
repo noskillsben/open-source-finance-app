@@ -40,7 +40,7 @@ Three kinds of thing are named below:
 
 ## 2. Decide
 
-**Run:** `/decide N`, where N is an issue labelled `decision`. In that session Claude acts as the Architect, works with you in the main chat (not a subagent), and edits `docs/design/` plus one dated line in the decision log. It never commits, pushes or merges: the diff is yours to review and commit.
+**Run:** `/decide N`, where N is an issue labelled `decision`. In that session Claude acts as the Architect, works with you in the main chat (not a subagent), and edits `docs/design/` plus one dated line in the decision log. You review every change in the session; it then commits, opens the PR, squash-merges it, and puts the issues it filed on the Projects board in their place. It never closes an issue.
 
 **Wrong tool when:** the design is already clear. Then go straight to `/issue`. If `/issue` finds DESIGN.md silent on something, it stops and tells you to run `/decide`.
 
