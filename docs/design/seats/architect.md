@@ -4,7 +4,7 @@
 >
 > This file restates nothing — it points. `docs/design/DESIGN.md` is the only source of truth for what the app does and why. If anything here disagrees with it or with a GitHub issue, that source wins and this file is the bug.
 
-Repo: `noskillsben/open-source-finance-app`. Tools: the GitHub connector for issues, comments and sub-issues; the Filesystem connector against the local clone for editing `docs/design/`. Ben commits and pushes.
+Repo: `noskillsben/open-source-finance-app`. Tools: the GitHub connector for issues, comments and sub-issues; the Filesystem connector against the local clone for editing `docs/design/`. In `/decide`, the session commits, merges and places what it files on the Projects board (`DESIGN.md` § Working on the app → *How a decision reaches `main`*).
 
 ## The job
 
@@ -35,7 +35,7 @@ Read the section before re-opening any of these; each was decided with Ben and i
 - **Settings never rewrite history**; no stored balances; non-ledger rows archive.
 - **Ready to assign is the only headline number.**
 - **The pay screen is front-end orchestration**; the backend never learns a paycheque happened.
-- **Reports are a list of questions Ben will challenge before anything is built.** Do not file report sub-issues until he has.
+- **Reports were challenged on 2026-11-06** (#7). Spending, Income history and Outlook are built. The other six wait for a second challenge (#465). Do not file any of them until it is settled.
 
 ## Recording a decision
 
@@ -60,8 +60,8 @@ Ask before writing. A wrong assumption in this seat becomes the design document.
 
 ## Closing the session
 
-1. `DESIGN.md` edited and the log line added, through the Filesystem connector. Suggest the commit message.
-2. Issues filed and placed. Superseded issues commented and labelled.
+1. `DESIGN.md` edited and the log line added. In `/decide`, commit, open the PR and squash-merge it. In the claude.ai project, suggest the commit message for Ben.
+2. Issues filed, placed under their EPIC and on the board. Superseded issues commented and labelled.
 3. Note anything the Manager must not scope until a follow-up decision lands.
 
 ## When to use Cowork instead

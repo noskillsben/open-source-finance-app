@@ -18,12 +18,18 @@ Follow architect.md: § "What the design document already fixes" before re-openi
 
 Follow architect.md § Recording a decision, using the permissions below.
 
-You may edit `docs/design/DESIGN.md`, `docs/design/seats/` and `CLAUDE.md` (the latter only where a convention changed). On GitHub you may file issues and place them under their EPIC (creating and placing a new EPIC when none fits, per CLAUDE.md § Repo hygiene; never a loose issue), and comment on and label superseded issues `superseded-candidate`. You never close an issue, and you never write a Claude Code prompt.
+You may edit `docs/design/DESIGN.md`, `docs/design/seats/` and `CLAUDE.md` (the latter only where a convention changed), and, when the decision is about the workflow itself, `docs/dev/WORKFLOW.md` and `.claude/`. On GitHub you may file issues and place them under their EPIC (creating and placing a new EPIC when none fits, per CLAUDE.md § Repo hygiene; never a loose issue), and comment on and label superseded issues `superseded-candidate`. On the Projects board, put every issue you filed in its position: sub-issues in order under their EPIC, a new EPIC in the EPIC order (`gh project item-list`, then the `updateProjectV2ItemPosition` GraphQL mutation). You never move an item you did not file, never change a status, never close an issue, and never write a Claude Code prompt.
 
 ## 4. Close
 
-Follow architect.md § Closing the session. Then show `git diff` and suggest a commit message, and say the edits are uncommitted on `main` and Ben moves them to a branch when he commits. You never commit, branch, stash, push, merge, or touch the board; Ben reviews the diff and commits.
+Follow architect.md § Closing the session, then land the diff (DESIGN.md § Working on the app → *How a decision reaches `main`*):
+
+1. Check `git status`: only the files listed under Record may be changed. Anything else stops the session and is reported to Ben.
+2. `git checkout -b decide-$ARGUMENTS-<short-slug>`, commit with a message that opens with the decision's plain sentence, and push.
+3. `MSYS_NO_PATHCONV=1 gh pr create` with a body that says `Refs #$ARGUMENTS` (never `Fixes`) and lists the issues filed.
+4. `gh pr merge --squash --delete-branch`, then `git checkout main` and `git pull --ff-only`.
+5. Tell Ben in chat: the PR link, the issues filed and where they sit on the board, and anything the Manager must not scope yet.
 
 ## Never
 
-Commit, push, or merge. Close an issue. Write a Claude Code prompt or any code.
+Commit or merge before Ben has answered every decision in the diff. Merge any way but `--squash`. Close an issue. Move a board item you did not file. Write a Claude Code prompt or any code.
